@@ -33,7 +33,8 @@ namespace Bot.Core.Models
         CollectOnlineRewards,
         Journey,
         TruegoldCrucible,
-        AllianceTriumph
+        AllianceTriumph,
+        WaterEssence
     }
 
     public class AccountSettings : INotifyPropertyChanged

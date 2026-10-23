@@ -18,7 +18,7 @@ Unattended test runs: start the app with `KingshotAuto.exe --launch` (presses La
 | 7 | Startup | `Game did not reach a known view after loading` | Open (low) – not seen 2026-10-23 |
 | 8 | Config | `Error loading config … enabledTasks[0]` + `Configuration failed to load during initialization` | **Fixed**: both loaders use the TaskType name converter; a missing `configs/config.json` is info only |
 | 9 | Stop/Launch | Several Launch clicks started parallel runners | **Fixed**: one runner per instance, extra clicks are ignored; Stop cancels the running tasks |
-| 10 | ConquestCollect | Blind fixed-coordinate taps, 4 h cooldown | Open – rewrite with templates |
+| 10 | ConquestCollect | Blind fixed-coordinate taps, 4 h cooldown | **Rewritten 2026-10-23**: templates + green-colour check on both Claim buttons; Rewards dismissed on empty sky (the Conquer button sits under the banner). Nothing-to-claim path verified live; claim path verified by hand, bot run pending |
 | 11 | CollectRewards | Hall of Heroes tab visited twice | Open (harmless) |
 | 12 | CollectRewards | Store pitch popup ends the tab scan | Fixed 2026-10-19, popup not seen live since |
 | 13 | AllianceTechnology | `Exit cross not found` | **Fixed 2026-10-23**: rewritten (see Alliance Technology below); new `close-x.png` |
@@ -40,8 +40,9 @@ Unattended test runs: start the app with `KingshotAuto.exe --launch` (presses La
 
 ## To verify live
 
+- [ ] Conquest Collect bot claim path (chest Claim green again; it stays grey for a while after a claim)
+
 - [ ] Free weekly deal claim (`free-deal.png`)
-- [ ] Farming "already gathering" icon skip path (icons re-cut 2026-10-23: 0.98-1.00 own row, <= 0.74 others, threshold 0.88)
 - [ ] Farming Lv 7 / Lv 6 fallback when no full Lv 8 node is found
 
 ## Farming (tuned 2026-10-23 from a recording)
@@ -50,6 +51,9 @@ Unattended test runs: start the app with `KingshotAuto.exe --launch` (presses La
 - [x] Non-blue (orange/purple) hero cards removed before Deploy, verified live on the farm account (2 removed per march, 4 marches sent)
 - [x] "Only search for full Resources" is ticked when its green tick is missing (tap point verified live)
 - Gem purchase of the gathering boost removed (never buy)
+- [x] "Already gathering" icon skip verified live on 34431520 (own rows 0.99-1.00, Iron 0.68 -> sent)
+- Removed the cap "wanted 4 minus marches out": rallies and returning marches use slots too, so Iron was never sent. Each resource is still sent at most once per run
+- Hero "-" button: up to 3 looks per slot (the deploy screen can still be sliding in; once all 3 were missed at 0.26-0.33). Still missing -> screenshot in `logs/screenshots/farming/`
 - [ ] Store popup dismissal (#12)
 
 ## Pet Adventure (new task, 2026-10-23)
@@ -57,7 +61,7 @@ Unattended test runs: start the app with `KingshotAuto.exe --launch` (presses La
 - Flow: side panel > Daily tab > Pet Adventure row > Claim All > Hunt All > Ally Treasure (Share, Alliance Shares tab, Claim All) > close > back
 - [x] Hidden row ("Hide after mission completion") = nothing to do: verified live
 - [ ] Claim / Hunt All / Ally Treasure path: verify after the daily reset
-- [ ] Daily tab rows still to automate: Recruit Heroes, Watchtower Intel (check costs first)
+- [x] Daily tab rows Recruit Heroes / Watchtower Intel: already covered by Auto Claim Hero (daily hero shards) and AutoHunt (intel missions)
 
 ## Collect Store Rewards / Collect Online Rewards split (2026-10-23)
 

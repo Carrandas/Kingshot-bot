@@ -133,10 +133,9 @@ namespace Bot.Core.Tasks.Modules
                 await CheckAndActivateGatheringBoostAsync(account, logger, cancellationToken);
 
                 // Initialize marches count
-                int desiredActive = account.FarmingSettings.MaxFarmingMarches > 0
-                    ? account.FarmingSettings.MaxFarmingMarches
-                    : (account.FarmingTargets?.Count ?? 0);
-                int currentMarches = await GetAvailableMarchesAsync(account, logger, cancellationToken, desiredActive);
+                // Rallies and returning marches also use slots, so the total is not capped here:
+                // each resource is sent at most once and skipped while its icon shows in the Marching panel
+                int currentMarches = await GetAvailableMarchesAsync(account, logger, cancellationToken);
                 if (currentMarches <= 0)
                 {
                     logger.LogInfo($"[{account.AccountName}] No marches available after map view check.");
@@ -192,7 +191,7 @@ namespace Bot.Core.Tasks.Modules
                             break;
                         }
                         
-                        currentMarches = await GetAvailableMarchesAsync(account, logger, cancellationToken, desiredActive);
+                        currentMarches = await GetAvailableMarchesAsync(account, logger, cancellationToken);
                         if (currentMarches <= 0)
                         {
                             logger.LogInfo($"[{account.AccountName}] No more marches available.");
@@ -312,7 +311,7 @@ namespace Bot.Core.Tasks.Modules
             }
         }
 
-        private async Task<int> GetAvailableMarchesAsync(AccountSettings account, LogService logger, CancellationToken cancellationToken, int desiredActive = 0)
+        private async Task<int> GetAvailableMarchesAsync(AccountSettings account, LogService logger, CancellationToken cancellationToken)
         {
             // 1. Define a much tighter cropping area to isolate *only* the "3/3" text.
             // This prevents the OCR from seeing other noisy UI elements.
@@ -345,16 +344,6 @@ namespace Bot.Core.Tasks.Modules
             if (match.Success && int.TryParse(match.Groups[1].Value, out int current) && int.TryParse(match.Groups[2].Value, out int max)) {
                 int available = max - current;
                 logger.LogInfo($"[{account.AccountName}] Parsed Marches: {current}/{max}. Available: {available}");
-                if (desiredActive > 0 && available > 0)
-                {
-                    // Only top up to the wanted number of marches already out (e.g. 4 gathering), not to every free slot
-                    int wanted = Math.Max(0, desiredActive - current);
-                    if (wanted < available)
-                    {
-                        logger.LogInfo($"[{account.AccountName}] Wanted marches out: {desiredActive}, already out: {current} -> sending at most {wanted}");
-                        available = wanted;
-                    }
-                }
                 return available > 0 ? available : 0;
             }
 
@@ -667,29 +656,48 @@ namespace Bot.Core.Tasks.Modules
             int removed = 0;
             for (int slot = HeroSlotColumns.Length - 1; slot >= 0; slot--)
             {
-                var screenshot = await TakeScreenshotAsync(account.InstanceNumber, logger);
-                if (screenshot == null) return;
-
                 var (left, right) = HeroSlotColumns[slot];
-                var (blue, orange, purple) = CountHeroCardColors(screenshot, left, right);
-                bool nonBlue = Math.Max(orange, purple) >= HeroCardMinColorPixels && Math.Max(orange, purple) > blue;
-                if (!nonBlue) continue;
-
                 var area = new Rectangle(right - 40, HeroRemoveTop, 65, HeroRemoveHeight);
-                var (found, rect, confidence) = _templateMatcher.MatchTemplate(
-                    screenshot, removePath, account.InstanceNumber,
-                    threshold: HeroRemoveThreshold,
-                    scales: new[] { 1.0 },
-                    verboseLogging: false,
-                    searchArea: area);
-                if (!found)
+                // The deploy screen may still be sliding in: look again a few times before giving up on a slot
+                for (int attempt = 0; attempt < 3; attempt++)
                 {
+                    var screenshot = await TakeScreenshotAsync(account.InstanceNumber, logger);
+                    if (screenshot == null) return;
+
+                    var (blue, orange, purple) = CountHeroCardColors(screenshot, left, right);
+                    bool nonBlue = Math.Max(orange, purple) >= HeroCardMinColorPixels && Math.Max(orange, purple) > blue;
+                    if (!nonBlue) break;
+
+                    var (found, rect, confidence) = _templateMatcher.MatchTemplate(
+                        screenshot, removePath, account.InstanceNumber,
+                        threshold: HeroRemoveThreshold,
+                        scales: new[] { 1.0 },
+                        verboseLogging: false,
+                        searchArea: area);
+                    if (found)
+                    {
+                        await ClickCenterInRectAsync(account.InstanceNumber, logger, rect);
+                        removed++;
+                        await Task.Delay(800, cancellationToken);
+                        break;
+                    }
+                    if (attempt < 2)
+                    {
+                        await Task.Delay(700, cancellationToken);
+                        continue;
+                    }
                     logger.LogWarning($"[{account.AccountName}] Hero slot {slot + 1} is not blue but its remove button was not found ({confidence:F2})");
-                    continue;
+                    try
+                    {
+                        string folder = Path.Combine(AppContext.BaseDirectory, "logs", "screenshots", "farming");
+                        Directory.CreateDirectory(folder);
+                        File.WriteAllBytes(Path.Combine(folder, $"hero-remove-missing-{DateTime.Now:yyyyMMdd-HHmmss}-slot{slot + 1}.png"), screenshot);
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.LogWarning($"[{account.AccountName}] Could not save the hero screenshot: {ex.Message}");
+                    }
                 }
-                await ClickCenterInRectAsync(account.InstanceNumber, logger, rect);
-                removed++;
-                await Task.Delay(800, cancellationToken);
             }
             logger.LogInfo($"[{account.AccountName}] Removed {removed} non-blue hero(es) from the march");
         }

@@ -5,12 +5,14 @@ using System.Threading.Tasks;
 using System.Threading;
 using System.Collections.Generic;
 using System.Text;
+using Bot.Core.ImageDetection;
 using Bot.Core.Logging;
 using AdvancedSharpAdbClient;
 using AdvancedSharpAdbClient.DeviceCommands;
 using AdvancedSharpAdbClient.Models;
 using AdvancedSharpAdbClient.Receivers;
 using System.Collections.Concurrent;
+using OpenCvSharp;
 
 namespace Bot.Core.LDPlayer
 {
@@ -26,8 +28,17 @@ namespace Bot.Core.LDPlayer
         private readonly int _instanceNumber;
         private bool _disposed = false;
         
-        // Performance optimization: Reusable screenshot buffer (similar to wosbot-master's ThreadLocal<BufferedImage>)
-        private static readonly ThreadLocal<MemoryStream> _reusableScreenshotBuffer = new(() => new MemoryStream());
+        // Devices (by serial) that cannot stream raw screencap over exec:, so the file pull is used from then on.
+        // Static because a new controller is created for every connection
+        private static readonly ConcurrentDictionary<string, bool> _execScreencapUnavailable = new();
+        private static readonly ConcurrentDictionary<string, int> _execScreencapFailures = new();
+        private const int MAX_EXEC_SCREENCAP_FAILURES = 3;
+        // Shorter than the caller's 5 s screenshot timeout so a stalled exec: still leaves time for the file pull
+        private const int EXEC_SCREENCAP_TIMEOUT_MS = 2500;
+        // screencap raw header: width, height, pixel format (+ colour space on Android 9+)
+        private const int RAW_FORMAT_RGBA_8888 = 1;
+        // Encoding on the PC is the cheap part, so favour speed over size
+        private const int HOST_PNG_COMPRESSION = 1;
         
         // Command batching for performance
         private readonly List<string> _batchedCommands = new();
@@ -60,48 +71,147 @@ namespace Bot.Core.LDPlayer
             
             try
             {
-                if (!await IsConnectedAndResponsiveAsync(cancellationToken))
+                if (!IsUsable())
                 {
                     throw new InvalidOperationException($"Device {_device.Serial} is not responsive");
                 }
 
-                // Take screenshot using temporary file approach (more reliable)
-                var tempPath = $"/sdcard/temp_screenshot_{_instanceNumber}.png";
-                
-                // Execute screencap command to save to file
-                var receiver = new ConsoleOutputReceiver();
-                await _adbClient.ExecuteRemoteCommandAsync($"screencap -p {tempPath}", _device, receiver, cancellationToken);
-                
-                // Use reusable buffer to pull the screenshot file
-                var buffer = _reusableScreenshotBuffer.Value;
-                buffer!.SetLength(0);
-                buffer.Seek(0, SeekOrigin.Begin);
-                
-                // Pull the file using SyncService
-                using (var syncService = new SyncService(_device))
+                byte[] screenshotBytes;
+                if (_execScreencapUnavailable.ContainsKey(_device.Serial))
                 {
-                    syncService.Pull(tempPath, buffer, null);
+                    screenshotBytes = await CaptureViaFilePullAsync(cancellationToken);
                 }
-                
-                // Clean up temp file
-                await _adbClient.ExecuteRemoteCommandAsync($"rm {tempPath}", _device, new ConsoleOutputReceiver(), cancellationToken);
-                
-                // Convert to byte array
-                var screenshotBytes = buffer.ToArray();
-                
+                else
+                {
+                    screenshotBytes = await CaptureWithFallbackAsync(cancellationToken);
+                }
+
                 RecordSuccessfulOperation();
                 RecordPerformanceMetric("TakeScreenshot", DateTime.UtcNow - startTime);
 
-                // Performance: removed Image.FromStream validation - just log byte count
                 _logger.LogInfo($"[ADBv2] Screenshot captured for instance {_instanceNumber} ({screenshotBytes.Length} bytes)");
                 return screenshotBytes;
             }
             catch (Exception ex)
             {
-                RecordFailedOperation();
+                RecordFailedOperation(ex);
                 _logger.LogError($"[ADBv2] Screenshot failed for instance {_instanceNumber}: {ex.Message}");
                 throw;
             }
+        }
+
+        /// <summary>
+        /// Streams the raw framebuffer from screencap over the exec: service and encodes the PNG
+        /// on the PC. Compressing the PNG on the emulator took about 1 s per screenshot on
+        /// LDPlayer; the raw transfer plus a host encode takes about a third of that.
+        /// Falls back to the file pull if that does not work.
+        /// </summary>
+        private async Task<byte[]> CaptureWithFallbackAsync(CancellationToken cancellationToken)
+        {
+            string failure;
+            try
+            {
+                using var execTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                execTimeout.CancelAfter(EXEC_SCREENCAP_TIMEOUT_MS);
+
+                var raw = await CaptureRawViaExecAsync(execTimeout.Token);
+                var png = EncodeRawScreencap(raw);
+                if (png != null)
+                {
+                    _execScreencapFailures.TryRemove(_device.Serial, out _);
+                    return png;
+                }
+
+                // Data came back but not in a layout we can read: this will not get better on retry
+                _logger.LogWarning($"[ADBv2] exec: screencap returned an unsupported raw format on instance {_instanceNumber}, using file pull from now on");
+                _execScreencapUnavailable[_device.Serial] = true;
+                return await CaptureViaFilePullAsync(cancellationToken);
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                failure = $"timed out after {EXEC_SCREENCAP_TIMEOUT_MS} ms";
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                failure = ex.Message;
+            }
+
+            var pulled = await CaptureViaFilePullAsync(cancellationToken);
+
+            // The file pull works, so the device itself is fine: exec: is what failed
+            int failures = _execScreencapFailures.AddOrUpdate(_device.Serial, 1, (_, count) => count + 1);
+            if (failures >= MAX_EXEC_SCREENCAP_FAILURES)
+            {
+                _logger.LogWarning($"[ADBv2] exec: screencap failed {failures} times on instance {_instanceNumber} ({failure}), using file pull from now on");
+                _execScreencapUnavailable[_device.Serial] = true;
+            }
+            else
+            {
+                _logger.LogWarning($"[ADBv2] exec: screencap failed on instance {_instanceNumber} ({failure}), used file pull instead");
+            }
+            return pulled;
+        }
+
+        /// <summary>
+        /// Turns raw screencap output into a 4-channel PNG (the same layout the device's own
+        /// PNG has), or returns null if the header does not describe RGBA_8888 pixels.
+        /// The decoded pixels are handed to the template matchers' cache so they are not decoded again.
+        /// </summary>
+        private static byte[]? EncodeRawScreencap(byte[] raw)
+        {
+            if (raw.Length < 12) return null;
+            int width = BitConverter.ToInt32(raw, 0);
+            int height = BitConverter.ToInt32(raw, 4);
+            int format = BitConverter.ToInt32(raw, 8);
+            if (format != RAW_FORMAT_RGBA_8888 || width <= 0 || height <= 0) return null;
+
+            long pixelBytes = (long)width * height * 4;
+            long headerSize = raw.Length - pixelBytes;
+            if (headerSize != 12 && headerSize != 16) return null;
+
+            using var rgba = Mat.FromPixelData(height, width, MatType.CV_8UC4, raw.AsSpan((int)headerSize).ToArray());
+            using var bgra = new Mat();
+            Cv2.CvtColor(rgba, bgra, ColorConversionCodes.RGBA2BGRA);
+            var png = bgra.ImEncode(".png", new ImageEncodingParam(ImwriteFlags.PngCompression, HOST_PNG_COMPRESSION));
+
+            var bgr = new Mat();
+            Cv2.CvtColor(bgra, bgr, ColorConversionCodes.BGRA2BGR);
+            DecodedScreenshotCache.Add(png, bgr);
+            return png;
+        }
+
+        private async Task<byte[]> CaptureRawViaExecAsync(CancellationToken cancellationToken)
+        {
+            using var socket = _adbClient.CreateAdbSocket();
+            await socket.SetDeviceAsync(_device, cancellationToken);
+            await socket.SendAdbRequestAsync("exec:screencap", cancellationToken);
+            await socket.ReadAdbResponseAsync(cancellationToken);
+
+            // The device closes the stream once screencap has written the whole frame
+            using var buffer = new MemoryStream(4 * 1024 * 1024);
+            var chunk = new byte[64 * 1024];
+            int read;
+            while ((read = await socket.ReadAsync(chunk.AsMemory(), cancellationToken)) > 0)
+            {
+                buffer.Write(chunk, 0, read);
+            }
+            return buffer.ToArray();
+        }
+
+        private async Task<byte[]> CaptureViaFilePullAsync(CancellationToken cancellationToken)
+        {
+            // The file is overwritten on every capture, so it is not removed afterwards
+            var tempPath = $"/sdcard/temp_screenshot_{_instanceNumber}.png";
+
+            var receiver = new ConsoleOutputReceiver();
+            await _adbClient.ExecuteRemoteCommandAsync($"screencap -p {tempPath}", _device, receiver, cancellationToken);
+
+            using var buffer = new MemoryStream(1024 * 1024);
+            using (var syncService = new SyncService(_device))
+            {
+                await syncService.PullAsync(tempPath, buffer, null, false, cancellationToken);
+            }
+            return buffer.ToArray();
         }
 
         /// <summary>
@@ -121,7 +231,7 @@ namespace Bot.Core.LDPlayer
             
             try
             {
-                if (!await IsConnectedAndResponsiveAsync(cancellationToken))
+                if (!IsUsable())
                 {
                     return false;
                 }
@@ -146,7 +256,7 @@ namespace Bot.Core.LDPlayer
             }
             catch (Exception ex)
             {
-                RecordFailedOperation();
+                RecordFailedOperation(ex);
                 _logger.LogError($"[ADBv2] Tap failed for instance {_instanceNumber}: {ex.Message}");
                 return false;
             }
@@ -161,7 +271,7 @@ namespace Bot.Core.LDPlayer
             
             try
             {
-                if (!await IsConnectedAndResponsiveAsync(cancellationToken))
+                if (!IsUsable())
                 {
                     return false;
                 }
@@ -195,7 +305,7 @@ namespace Bot.Core.LDPlayer
             }
             catch (Exception ex)
             {
-                RecordFailedOperation();
+                RecordFailedOperation(ex);
                 _logger.LogError($"[ADBv2] Multiple tap failed for instance {_instanceNumber}: {ex.Message}");
                 return false;
             }
@@ -210,7 +320,7 @@ namespace Bot.Core.LDPlayer
             
             try
             {
-                if (!await IsConnectedAndResponsiveAsync(cancellationToken))
+                if (!IsUsable())
                 {
                     return false;
                 }
@@ -226,7 +336,7 @@ namespace Bot.Core.LDPlayer
             }
             catch (Exception ex)
             {
-                RecordFailedOperation();
+                RecordFailedOperation(ex);
                 _logger.LogError($"[ADBv2] Swipe failed for instance {_instanceNumber}: {ex.Message}");
                 return false;
             }
@@ -434,10 +544,23 @@ namespace Bot.Core.LDPlayer
             _consecutiveFailures = 0;
         }
 
-        private void RecordFailedOperation()
+        private void RecordFailedOperation(Exception ex)
         {
             _consecutiveFailures++;
+
+            // A cancelled action says nothing about the connection
+            if (ex is not OperationCanceledException)
+            {
+                ADBConnectionManagerV2.MarkConnectionUnhealthy(_instanceNumber, _logger);
+            }
         }
+
+        /// <summary>
+        /// Cheap local check used before each action. Actions used to send an "echo ping"
+        /// first, which doubled the round trips; a real failure now marks the connection
+        /// unhealthy instead, and GetCachedADBController still pings every few seconds.
+        /// </summary>
+        private bool IsUsable() => _consecutiveFailures < MAX_CONSECUTIVE_FAILURES;
 
         private static void RecordPerformanceMetric(string operation, TimeSpan duration)
         {

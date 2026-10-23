@@ -43,6 +43,7 @@ namespace Bot.Core.Tasks.Modules
         private const string IdleMaxTemplate = "idle-max.png";
         private const string IdleStartTemplate = "idle-start.png";              // teal "🎒 N" start button
         private const string IdleCloseTemplate = "idle-close.png";
+        private const string RealmJourneySignTemplate = "realm-journey-sign.png"; // hub signpost; 1.00 even under the tutorial hand, <= 0.47 elsewhere
         private static readonly Rectangle PanelOpenArrowArea = new Rectangle(0, 420, 60, 260);
         private static readonly Rectangle PanelCloseArrowArea = new Rectangle(400, 420, 120, 260);
         private static readonly Rectangle PanelListArea = new Rectangle(0, 300, 120, 520);
@@ -58,7 +59,9 @@ namespace Bot.Core.Tasks.Modules
         private static readonly Rectangle IdleMaxArea = new Rectangle(560, 680, 100, 100);
         private static readonly Rectangle IdleStartArea = new Rectangle(190, 800, 200, 130);
         private static readonly Rectangle IdleCloseArea = new Rectangle(620, 330, 100, 90);
+        private static readonly Rectangle RealmJourneySignArea = new Rectangle(440, 480, 280, 280);
         private static readonly Point DailyTabPoint = new Point(370, 268);
+        private static readonly Point HubBackPoint = new Point(49, 37);
         private const int PanelRowTitleDx = 180;
         private const int SuppliesPlusDx = 122; // the green "+" right of the counter
         private const double PanelArrowThreshold = 0.88;
@@ -102,6 +105,12 @@ namespace Bot.Core.Tasks.Modules
                         await Task.Delay(1500, cancellationToken);
                     }
                 }
+                // Back (or starting an Idle Journey) can land on the hub; its back arrow scores only 0.88 against journey-back
+                if ((await MatchAsync(RealmJourneySignTemplate, RealmJourneySignArea, Threshold, instance, logger)).found)
+                {
+                    await ClickAsync(instance, logger, HubBackPoint);
+                    await Task.Delay(1500, cancellationToken);
+                }
                 await _locatorService.EnsureViewAsync(ViewType.BaseView, instance, cancellationToken);
 
                 string result = $"supplies {(claimed ? "claimed" : "not available")}, idle journey {(idling ? "started" : "not started")}";
@@ -120,7 +129,7 @@ namespace Bot.Core.Tasks.Modules
         }
 
         /// <summary>
-        /// Side panel > Daily tab > Realm Journey row (or the Journey Supplies row). Both open the Journey screen.
+        /// Side panel > Daily tab > Realm Journey row (or the Journey Supplies row) > hub > Realm Journey signpost.
         /// </summary>
         private async Task<bool> OpenJourneyAsync(AccountSettings account, LogService logger, int instance, CancellationToken cancellationToken)
         {
@@ -151,10 +160,19 @@ namespace Bot.Core.Tasks.Modules
             }
 
             await ClickAsync(instance, logger, new Point(row.rect.X + row.rect.Width / 2 + PanelRowTitleDx, row.rect.Y + row.rect.Height / 2));
-            for (int i = 0; i < 4; i++)
+            bool signTapped = false;
+            for (int i = 0; i < 7; i++)
             {
                 await Task.Delay(1500, cancellationToken);
                 if ((await MatchAsync(JourneyIdleButtonTemplate, JourneyIdleButtonArea, Threshold, instance, logger)).found) return true;
+                if (signTapped) continue;
+                // The row now opens a hub (Lostlands / Realm Journey) first; a transition plays after the signpost
+                var sign = await MatchAsync(RealmJourneySignTemplate, RealmJourneySignArea, Threshold, instance, logger);
+                if (sign.found)
+                {
+                    await ClickCenterInRectAsync(instance, logger, sign.rect);
+                    signTapped = true;
+                }
             }
             logger.LogWarning($"[{account.AccountName}] Journey screen did not open");
             return false;

@@ -14,6 +14,13 @@ using System.Linq;
 
 namespace Bot.Core.Tasks.Modules
 {
+    /// <summary>
+    /// Conquest (bottom bar) > green Claim under the chest > Idle Income popup > Claim > dismiss Rewards > back.
+    /// Idle income piles up for at most 9 hours, so the task runs every WaitHours (default 4).
+    ///
+    /// SAFETY: only the two green Claim buttons are tapped (colour checked). The big "Conquer" button (starts a battle)
+    /// sits under the "Tap anywhere to exit" banner, so the Rewards screen is dismissed on empty sky instead.
+    /// </summary>
     public class ConquestCollectTask : BaseTaskWithCommonPatterns
     {
         public override TaskType TaskType => TaskType.ConquestCollect;
@@ -25,19 +32,29 @@ namespace Bot.Core.Tasks.Modules
             AppContext.BaseDirectory, "data", "conquest_collection_times.json"
         );
 
-        // UI Element coordinates for navigation sequence
-        private static readonly Rectangle FirstClickArea = new Rectangle(40, 1199, 65, 48);    // x=40, y=1199 & x=105, y=1247
-        private static readonly Rectangle SecondClickArea = new Rectangle(575, 908, 76, 23);   // x=575, y=908 & x=651, y=931
-        private static readonly Rectangle CollectArea = new Rectangle(300, 902, 135, 47);      // x=300, y=902 & x=435, y=949
-        private static readonly Rectangle BackButtonArea = new Rectangle(35, 28, 26, 22);      // x=35, y=28 & x=61, y=50
+        private const string ConquestMenuTemplate = "conquest-menu.png";       // Conquest button of the bottom bar
+        private const string ConquestTitleTemplate = "conquest-title.png";     // back arrow + "Conquest"
+        private const string ChestClaimTemplate = "chest-claim.png";           // Claim under the chest (grey once claimed)
+        private const string IdleIncomeTitleTemplate = "idle-income-title.png";
+        private const string IdleClaimTemplate = "idle-claim.png";             // green Claim of the Idle Income popup
+        private const string RewardsBannerTemplate = "rewards-banner.png";
+        private static readonly Rectangle ConquestMenuArea = new Rectangle(0, 1150, 200, 130);
+        private static readonly Rectangle ConquestTitleArea = new Rectangle(0, 0, 260, 90);
+        private static readonly Rectangle ChestClaimArea = new Rectangle(540, 870, 160, 100);
+        private static readonly Rectangle IdleIncomeTitleArea = new Rectangle(220, 250, 280, 90);
+        private static readonly Rectangle IdleClaimArea = new Rectangle(250, 870, 220, 110);
+        private static readonly Rectangle RewardsBannerArea = new Rectangle(230, 270, 260, 100);
+        private static readonly Point RewardsDismissPoint = new Point(80, 330);  // sky; away from Conquer and Claim
+        private static readonly Point BackArrowPoint = new Point(48, 38);
+        private const double Threshold = 0.90;            // 0.99-1.00 present, <= 0.57 elsewhere
+        // The grey (claimed) chest button still scores 0.96, so the green colour decides: ~2,900 / ~5,900 px vs 0
+        private const int ClaimMinGreenPixels = 1000;
 
         // Default collection interval settings (used as fallback)
         private static readonly TimeSpan DefaultCollectionInterval = TimeSpan.FromHours(4);
         private static readonly Random _random = new Random();
 
-        public ConquestCollectTask()
-        {
-        }
+        private LocatorService? _locatorService;
 
         protected override async Task<TaskExecutionDetails> ExecuteTaskLogicAsync(
             AccountSettings account,
@@ -48,112 +65,143 @@ namespace Bot.Core.Tasks.Modules
         {
             try
             {
-                // Get unique account ID for accurate timer tracking
                 string accountId = AccountDetectionTask.GetCachedAccountId(account.InstanceNumber);
                 if (string.IsNullOrEmpty(accountId))
-                {
-                    logger.LogWarning($"[{account.AccountName}] No cached account ID found, using fallback key");
                     accountId = $"Account_{account.AccountName}_{account.InstanceNumber}";
-                }
-                else
-                {
-                    logger.LogInfo($"[{account.AccountName}] Using cached account ID: '{accountId}'");
-                }
 
-                // Check if enough time has passed since last collection
                 if (!ShouldCollect(accountId, account))
                 {
                     var nextCollection = GetNextCollectionTime(accountId, account);
-                    logger.LogInfo($"[{account.AccountName}] Too soon to collect conquest rewards. Next collection at: {nextCollection}. Wait time: {account.ConquestCollectSettings.WaitHours} hours");
+                    logger.LogInfo($"[{account.AccountName}] Too soon to collect conquest rewards. Next collection at: {nextCollection}");
                     return new TaskExecutionDetails(true, nextCollection, "Skipped - Too soon to collect");
                 }
 
-                // Step 1: Use LocatorService to detect current view
-                logger.LogInfo($"[{account.AccountName}] 🧭 Detecting current view...");
-                var locator = new LocatorService(logger, account);
-                var currentView = await locator.DetectCurrentViewAsync(account.InstanceNumber, cancellationToken);
+                int instance = account.InstanceNumber;
+                _locatorService = new LocatorService(logger, account, TaskType);
+                await _locatorService.EnsureViewAsync(ViewType.BaseView, instance, cancellationToken);
 
-                if (currentView == ViewType.Unknown)
+                if (!await OpenConquestAsync(account, logger, instance, cancellationToken))
                 {
-                    return TaskExecutionDetails.Failed("Could not detect current view");
+                    await _locatorService.EnsureViewAsync(ViewType.BaseView, instance, cancellationToken);
+                    return FailDetection("Opening Conquest", "conquest screen");
                 }
 
-                logger.LogInfo($"[{account.AccountName}] 📍 Current view detected: {currentView}");
+                bool claimed = await ClaimIdleIncomeAsync(account, logger, instance, cancellationToken);
 
-                // Step 2: Click first area (bottom menu)
-                logger.LogInfo($"[{account.AccountName}] 🖱️ Clicking first navigation area...");
-                if (!await ClickRandomInRectAsyncWithRetry(account.InstanceNumber, logger, FirstClickArea, cancellationToken, maxRetries: 2))
+                if ((await MatchAsync(ConquestTitleTemplate, ConquestTitleArea, instance, logger)).found)
                 {
-                    return TaskExecutionDetails.Failed("Failed to click first navigation area");
+                    await ClickAsync(instance, logger, BackArrowPoint);
+                    await Task.Delay(1500, cancellationToken);
                 }
+                await _locatorService.EnsureViewAsync(ViewType.BaseView, instance, cancellationToken);
 
-                // Wait 1.5 seconds
-                await WaitIfPausedAsync(cancellationToken);
-                if (cancellationToken.IsCancellationRequested) return TaskExecutionDetails.Failed("Task was cancelled");
-                await Task.Delay(1500, cancellationToken);
-
-                // Step 3: Click second area
-                await WaitIfPausedAsync(cancellationToken);
-                if (cancellationToken.IsCancellationRequested) return TaskExecutionDetails.Failed("Task was cancelled");
-                logger.LogInfo($"[{account.AccountName}] 🖱️ Clicking second navigation area...");
-                if (!await ClickRandomInRectAsyncWithRetry(account.InstanceNumber, logger, SecondClickArea, cancellationToken, maxRetries: 2))
-                {
-                    return TaskExecutionDetails.Failed("Failed to click second navigation area");
-                }
-
-                // Wait 1 second
-                await WaitIfPausedAsync(cancellationToken);
-                if (cancellationToken.IsCancellationRequested) return TaskExecutionDetails.Failed("Task was cancelled");
-                await Task.Delay(1000, cancellationToken);
-
-                // Step 4: Click collect area
-                await WaitIfPausedAsync(cancellationToken);
-                if (cancellationToken.IsCancellationRequested) return TaskExecutionDetails.Failed("Task was cancelled");
-                logger.LogInfo($"[{account.AccountName}] 🖱️ Clicking collect area...");
-                if (!await ClickRandomInRectAsyncWithRetry(account.InstanceNumber, logger, CollectArea, cancellationToken, maxRetries: 2))
-                {
-                    return TaskExecutionDetails.Failed("Failed to click collect area");
-                }
-
-                // Wait 0.5 seconds
-                await WaitIfPausedAsync(cancellationToken);
-                if (cancellationToken.IsCancellationRequested) return TaskExecutionDetails.Failed("Task was cancelled");
-                await Task.Delay(500, cancellationToken);
-
-                // Step 5: Click collect area again
-                await WaitIfPausedAsync(cancellationToken);
-                if (cancellationToken.IsCancellationRequested) return TaskExecutionDetails.Failed("Task was cancelled");
-                logger.LogInfo($"[{account.AccountName}] 🖱️ Clicking collect area again...");
-                if (!await ClickRandomInRectAsyncWithRetry(account.InstanceNumber, logger, CollectArea, cancellationToken, maxRetries: 2))
-                {
-                    return TaskExecutionDetails.Failed("Failed to click collect area second time");
-                }
-
-                // Wait random time between 1-1.5 seconds
-                await WaitIfPausedAsync(cancellationToken);
-                if (cancellationToken.IsCancellationRequested) return TaskExecutionDetails.Failed("Task was cancelled");
-                await Task.Delay(_random.Next(1000, 1500), cancellationToken);
-
-                // Step 6: Click back button
-                await WaitIfPausedAsync(cancellationToken);
-                if (cancellationToken.IsCancellationRequested) return TaskExecutionDetails.Failed("Task was cancelled");
-                logger.LogInfo($"[{account.AccountName}] 🖱️ Clicking back button...");
-                if (!await ClickRandomInRectAsyncWithRetry(account.InstanceNumber, logger, BackButtonArea, cancellationToken, maxRetries: 2))
-                {
-                    return TaskExecutionDetails.Failed("Failed to click back button");
-                }
-
-                // Update collection time
+                // A grey chest button means it was just claimed elsewhere: wait the full interval either way
                 UpdateCollectionTime(accountId);
-
-                logger.LogInfo($"[{account.AccountName}] ✅ Conquest collection completed successfully");
-                return TaskExecutionDetails.Succeeded();
+                string result = claimed ? "idle income claimed" : "nothing to claim";
+                logger.LogInfo($"[{account.AccountName}] Conquest collection done: {result}");
+                return TaskExecutionDetails.Succeeded(result);
+            }
+            catch (OperationCanceledException)
+            {
+                return TaskExecutionDetails.Failed("Task was cancelled");
             }
             catch (Exception ex)
             {
                 logger.LogError($"[{account.AccountName}] Error during conquest collection: {ex.Message}");
                 return TaskExecutionDetails.Failed($"Error during conquest collection: {ex.Message}");
             }
+        }
+
+        private async Task<bool> OpenConquestAsync(AccountSettings account, LogService logger, int instance, CancellationToken cancellationToken)
+        {
+            var menu = await MatchAsync(ConquestMenuTemplate, ConquestMenuArea, instance, logger);
+            if (!menu.found)
+            {
+                logger.LogWarning($"[{account.AccountName}] Conquest button not found ({menu.confidence:F2})");
+                return false;
+            }
+            await ClickCenterInRectAsync(instance, logger, menu.rect);
+            for (int i = 0; i < 4; i++)
+            {
+                await Task.Delay(1500, cancellationToken);
+                if ((await MatchAsync(ConquestTitleTemplate, ConquestTitleArea, instance, logger)).found) return true;
+            }
+            logger.LogWarning($"[{account.AccountName}] Conquest screen did not open");
+            return false;
+        }
+
+        /// <summary>
+        /// Green chest Claim > Idle Income popup > green Claim > dismiss the Rewards screen.
+        /// </summary>
+        private async Task<bool> ClaimIdleIncomeAsync(AccountSettings account, LogService logger, int instance, CancellationToken cancellationToken)
+        {
+            var chest = await MatchAsync(ChestClaimTemplate, ChestClaimArea, instance, logger);
+            if (!chest.found || !await IsGreenAsync(chest.rect, instance, logger))
+            {
+                logger.LogInfo($"[{account.AccountName}] Conquest: chest Claim not active ({chest.confidence:F2})");
+                return false;
+            }
+            await ClickCenterInRectAsync(instance, logger, chest.rect);
+            await Task.Delay(1500, cancellationToken);
+
+            if (!(await MatchAsync(IdleIncomeTitleTemplate, IdleIncomeTitleArea, instance, logger)).found)
+            {
+                logger.LogWarning($"[{account.AccountName}] Conquest: Idle Income popup did not open");
+                return false;
+            }
+            var claim = await MatchAsync(IdleClaimTemplate, IdleClaimArea, instance, logger);
+            if (!claim.found || !await IsGreenAsync(claim.rect, instance, logger))
+            {
+                logger.LogWarning($"[{account.AccountName}] Conquest: Idle Income Claim not found ({claim.confidence:F2})");
+                await ClickAsync(instance, logger, RewardsDismissPoint);  // outside the popup closes it
+                await Task.Delay(1000, cancellationToken);
+                return false;
+            }
+            await ClickCenterInRectAsync(instance, logger, claim.rect);
+            await Task.Delay(2500, cancellationToken);
+
+            // "Tap anywhere to exit"; a second tap only if the Rewards screen is still up
+            for (int i = 0; i < 2; i++)
+            {
+                if (!(await MatchAsync(RewardsBannerTemplate, RewardsBannerArea, instance, logger)).found) break;
+                await ClickAsync(instance, logger, RewardsDismissPoint);
+                await Task.Delay(1500, cancellationToken);
+            }
+            logger.LogInfo($"[{account.AccountName}] Conquest: idle income claimed");
+            return true;
+        }
+
+        private async Task<bool> IsGreenAsync(Rectangle buttonRect, int instance, LogService logger)
+        {
+            var shot = await TakeScreenshotAsync(instance, logger);
+            if (shot == null) return false;
+            using var image = OpenCvSharp.Cv2.ImDecode(shot, OpenCvSharp.ImreadModes.Color);
+            var roi = new OpenCvSharp.Rect(buttonRect.X, buttonRect.Y, buttonRect.Width, buttonRect.Height)
+                .Intersect(new OpenCvSharp.Rect(0, 0, image.Width, image.Height));
+            using var region = new OpenCvSharp.Mat(image, roi);
+            using var hsv = new OpenCvSharp.Mat();
+            OpenCvSharp.Cv2.CvtColor(region, hsv, OpenCvSharp.ColorConversionCodes.BGR2HSV);
+            using var mask = new OpenCvSharp.Mat();
+            OpenCvSharp.Cv2.InRange(hsv, new OpenCvSharp.Scalar(40, 120, 120), new OpenCvSharp.Scalar(75, 255, 255), mask);
+            int green = OpenCvSharp.Cv2.CountNonZero(mask);
+            logger.LogInfo($"Conquest: Claim green pixels {green}");
+            return green >= ClaimMinGreenPixels;
+        }
+
+        private async Task<(bool found, Rectangle rect, double confidence)> MatchAsync(
+            string templateName, Rectangle area, int instance, LogService logger)
+        {
+            var screenshot = await TakeScreenshotAsync(instance, logger);
+            if (screenshot == null) return (false, Rectangle.Empty, 0);
+
+            if (_templateMatcher == null) _templateMatcher = new UnifiedTemplateMatchingService(logger);
+            var result = _templateMatcher.MatchTemplate(
+                screenshot, Path.Combine(ImageTemplateFolder, templateName), instance,
+                threshold: Threshold,
+                scales: new[] { 1.0 },
+                verboseLogging: false,
+                searchArea: area);
+            return (result.found, result.matchRect, result.confidence);
         }
 
         private bool ShouldCollect(string accountId, AccountSettings account)
@@ -217,7 +265,6 @@ namespace Bot.Core.Tasks.Modules
             }
             catch (Exception ex)
             {
-                // Can't use logger here as it's not available in this context anymore
                 Console.WriteLine($"[ConquestCollectTask] Error loading collection times: {ex.Message}");
                 _lastCollectionTimes.Clear();
             }
@@ -245,39 +292,14 @@ namespace Bot.Core.Tasks.Modules
             }
             catch (Exception ex)
             {
-                // Can't use logger here as it's not available in this context anymore
                 Console.WriteLine($"[ConquestCollectTask] Error saving collection times: {ex.Message}");
             }
         }
 
-        protected override async Task OnInitializeAsync(LogService logger, CancellationToken cancellationToken)
+        protected override Task OnInitializeAsync(LogService logger, CancellationToken cancellationToken)
         {
-            // Load existing collection times during initialization
             LoadCollectionTimes();
-
-            // Create README if it doesn't exist
-            var readmePath = Path.Combine(ImageTemplateFolder, "README.txt");
-            if (!File.Exists(readmePath))
-            {
-                await File.WriteAllTextAsync(readmePath,
-                    "Conquest Collection Task - Image Templates\n\n" +
-                    "Required images:\n\n" +
-                    "1. conquest-icon.png - The conquest menu icon\n" +
-                    "2. collect-button.png - The collect rewards button\n" +
-                    "3. close-button.png - The close interface button\n\n" +
-                    "Image Requirements:\n" +
-                    "- Must be clear, high-contrast screenshots\n" +
-                    "- Should include some surrounding context\n" +
-                    "- Minimum size: 50x50 pixels\n" +
-                    "- Maximum size: 200x200 pixels\n" +
-                    "- Format: PNG with transparency where applicable\n\n" +
-                    "Collection Timing:\n" +
-                    "- Minimum interval: 3 hours\n" +
-                    "- Maximum interval: 6 hours\n" +
-                    "- Random interval chosen between min and max\n" +
-                    "- Times stored per instance in conquest_collection_times.json",
-                    cancellationToken);
-            }
+            return Task.CompletedTask;
         }
     }
-} 
+}
