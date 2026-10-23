@@ -132,7 +132,7 @@ namespace Bot.Core.ImageDetection
                 if (sourceMat.Channels() == 4)
                 {
                     screenshotBGR = new Mat();
-                    Cv2.CvtColor(sourceMat, screenshotBGR, ColorConversionCodes.RGBA2BGR);
+                    Cv2.CvtColor(sourceMat, screenshotBGR, ColorConversionCodes.BGRA2BGR);
                 }
                 else
                 {

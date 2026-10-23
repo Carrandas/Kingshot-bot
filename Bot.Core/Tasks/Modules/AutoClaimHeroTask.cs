@@ -323,7 +323,11 @@ namespace Bot.Core.Tasks.Modules
 
                     if (!backArrowResult.found)
                     {
-                        logger.LogWarning("Could not find back button");
+                        // a recruit result screen without the usual rewards banner can still be open; let the locator
+                        // (back buttons / blank taps) bring us home instead of leaving it for the next task
+                        logger.LogWarning("Could not find back button, using the locator to return to base");
+                        if (await new LocatorService(logger, account).EnsureViewAsync(ViewType.BaseView, account.InstanceNumber, cancellationToken))
+                            break;
                         return TaskExecutionDetails.Failed("Could not find back button");
                     }
 

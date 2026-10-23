@@ -323,7 +323,7 @@ namespace Bot.Core.Tasks.Modules.AutoHunt.Services
                         screenshot,
                         Path.Combine(_imageTemplateFolder, imageName),
                         account.InstanceNumber,
-                        threshold: 0.68,
+                        threshold: 0.8, // real pins score 0.91-0.99; a 0.695 "scout" was a miss-tap
                         searchArea: AutoHuntConstants.TargetSearchArea
                     );
 
@@ -349,7 +349,7 @@ namespace Bot.Core.Tasks.Modules.AutoHunt.Services
                 }
 
                 // If we have found at least one high-confidence target, we can break early
-                if (bestConfidences.Any(kv => kv.Value.Any(v => v.confidence >= 0.68)))
+                if (bestConfidences.Any(kv => kv.Value.Any(v => v.confidence >= 0.8)))
                 {
                     break;
                 }
@@ -377,7 +377,7 @@ namespace Bot.Core.Tasks.Modules.AutoHunt.Services
 
                 foreach (var (matchRect, confidence) in sortedDetections)
                 {
-                    if (confidence < 0.68) continue;
+                    if (confidence < 0.8) continue;
 
                     var targetArea = new Rectangle(
                         matchRect.X - AutoHuntConstants.TARGET_AREA_PADDING,
@@ -448,7 +448,7 @@ namespace Bot.Core.Tasks.Modules.AutoHunt.Services
 
             if (lowConfidenceTargets.Any())
             {
-                logger.LogInfo($"[{account.AccountName}] No valid targets found, but detected these potential targets (confidence < 0.68):");
+                logger.LogInfo($"[{account.AccountName}] No valid targets found, but detected these potential targets (confidence < 0.8):");
                 foreach (var (type, location, confidence) in lowConfidenceTargets)
                 {
                     logger.LogInfo($"[{account.AccountName}] - {type} at {location} with confidence {confidence:F3}");

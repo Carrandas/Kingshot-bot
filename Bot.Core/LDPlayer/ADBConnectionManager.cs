@@ -273,10 +273,10 @@ namespace Bot.Core.LDPlayer
 
 
                     
-                    // Wait for device to appear (up to 20 seconds)
+                    // Wait for device to appear (up to 90 seconds)
                     bool deviceFound = false;
                     
-                    for (int i = 0; i < 20; i++)
+                    for (int i = 0; i < 90; i++)
                     {
                         if (await VerifyDeviceAsync(adbPath, deviceSerial, logger, cancellationToken))
                         {
@@ -284,7 +284,7 @@ namespace Bot.Core.LDPlayer
                             break;
                         }
                         
-                        if (i < 19) // Don't delay on last attempt
+                        if (i < 89) // Don't delay on last attempt
                         {
                             await Task.Delay(1000, cancellationToken);
                         }
@@ -292,7 +292,7 @@ namespace Bot.Core.LDPlayer
 
                     if (!deviceFound)
                     {
-                        logger.LogError($"[ADB] Device {deviceSerial} not found after 20 seconds", category: LogCategories.ADB);
+                        logger.LogError($"[ADB] Device {deviceSerial} not found after 90 seconds", category: LogCategories.ADB);
                         
                         // Final attempt with comprehensive recovery
                         logger.LogWarning($"[ADB] Attempting comprehensive recovery for instance {instanceNumber}...");

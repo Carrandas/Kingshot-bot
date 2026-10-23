@@ -77,6 +77,7 @@ namespace Bot.GUI.ViewModels
         
         // Track individual instance execution state
         private volatile bool _hasRunningIndividualInstances = false;
+        private bool _autoLaunchDone; // the --launch argument fires only once per app start
         private readonly object _individualInstanceLock = new object();
 
         public static MainViewModel Instance
@@ -316,7 +317,17 @@ namespace Bot.GUI.ViewModels
                 }
                 _logger.LogInfo($"InstanceVM.Instances now has {InstanceVM.Instances.Count} items");
 
-                
+                // "--launch" on the command line presses Launch on every instance once, for unattended runs
+                if (!_autoLaunchDone && Environment.GetCommandLineArgs().Contains("--launch", StringComparer.OrdinalIgnoreCase))
+                {
+                    _autoLaunchDone = true;
+                    foreach (var instance in InstanceVM.Instances)
+                    {
+                        _logger.LogInfo($"Auto-launching instance {instance.InstanceNumber} (--launch)");
+                        instance.StartInstanceCommand.Execute(null);
+                    }
+                }
+
             } catch (Exception ex) {
                 _logger.LogError($"Error in InitializeGuiFromConfig: {ex}", category: LogCategories.Configuration);
                 _userNotifications.ShowError($"Failed to load configuration: {ex.Message}");
@@ -678,11 +689,19 @@ namespace Bot.GUI.ViewModels
                     return;
                 }
 
-                // Create a new cancellation token source for this instance
-                var singleRunCts = new CancellationTokenSource();
-                
+                // Create a new cancellation token source for this instance; kept on the instance so Stop can cancel it
+                using var singleRunCts = new CancellationTokenSource();
+                instance.RunCts = singleRunCts;
+
                 // Run the tasks
-                await RunBotTasksForInstance(instance, singleRunCts.Token);
+                try
+                {
+                    await RunBotTasksForInstance(instance, singleRunCts.Token);
+                }
+                finally
+                {
+                    instance.RunCts = null;
+                }
             }
             catch (Exception ex)
             {

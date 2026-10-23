@@ -125,9 +125,11 @@ namespace Bot.Core.Models
                 }
 
                 string json = File.ReadAllText(filePath);
+                // enabledTasks is stored as names ("AutoHunt"), same converters as ConfigLoader
                 var config = JsonSerializer.Deserialize<BotConfig>(json, new JsonSerializerOptions
                 {
-                    PropertyNameCaseInsensitive = true
+                    PropertyNameCaseInsensitive = true,
+                    Converters = { new Bot.Core.Config.TaskTypeJsonConverter(), new JsonStringEnumConverter(allowIntegerValues: true) }
                 });
 
                 if (config == null)

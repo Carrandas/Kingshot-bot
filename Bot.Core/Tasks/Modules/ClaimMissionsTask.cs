@@ -24,14 +24,12 @@ namespace Bot.Core.Tasks.Modules
         private LocatorService? _locatorService;
         
         // Tab image detection confidence threshold
-        private const double TAB_CONFIDENCE_THRESHOLD = 0.65;
+        private const double TAB_CONFIDENCE_THRESHOLD = 0.85; // the unselected tabs score ~0.97, other tab labels ~0.66
         
         // Claim button confidence threshold (lower due to UI variations)
-        private const double CLAIM_BUTTON_CONFIDENCE_THRESHOLD = 0.65;
+        private const double CLAIM_BUTTON_CONFIDENCE_THRESHOLD = 0.85; // the teal "Go" buttons score ~0.69 against claim.png
         
         // Notification detection areas for OCR (expanded by 15 pixels for better detection)
-        private static readonly Rectangle DailyNotificationArea = new Rectangle(665, 1136, 42, 40);
-        private static readonly Rectangle GrowthNotificationArea = new Rectangle(433, 1135, 42, 39);
         private static readonly Rectangle ChapterNotificationArea = new Rectangle(201, 1135, 44, 41);
         private static readonly Rectangle MissionScrollNotificationArea = new Rectangle(44, 1010, 39, 35);
         
@@ -52,6 +50,13 @@ namespace Bot.Core.Tasks.Modules
                 _locatorService = new LocatorService(logger, account, TaskType);
 
                 logger.LogInfo($"[{account.AccountName}] Starting claim missions process...");
+
+                // Step 0: the previous task may have left another screen open (e.g. VIP), the scroll is only on the base view
+                if (!await _locatorService.EnsureViewAsync(ViewType.BaseView, account.InstanceNumber, cancellationToken))
+                {
+                    logger.LogError($"[{account.AccountName}] Failed to navigate to base view");
+                    return TaskExecutionDetails.Failed("Failed to navigate to base view");
+                }
 
                 // Step 1: Look for missions scroll button but don't click yet
                 logger.LogInfo($"[{account.AccountName}] Looking for missions scroll button...");
@@ -137,44 +142,19 @@ namespace Bot.Core.Tasks.Modules
                     }
                 }
 
-                // Step 5: Check and Process Daily tab if notifications detected
-                logger.LogInfo($"[{account.AccountName}] Checking Daily tab for notifications...");
-                if (await DetectNotificationNumber(DailyNotificationArea, account.InstanceNumber, logger, "Daily"))
+                // Step 5/6: Daily and Growth. The notification dots moved with the 2-tab layout, so both tabs are
+                // always visited; a tab without claimable missions just finds no claim buttons.
+                foreach (var (tabImage, otherTabImage, tabName) in new[] { ("daily.png", "growth.png", "Daily"), ("growth.png", "daily.png", "Growth") })
                 {
-                    logger.LogInfo($"[{account.AccountName}] Processing Daily tab - notifications found");
-                    if (await FindAndClickTabAsync("daily.png", account.InstanceNumber, logger, "Daily"))
+                    if (await OpenMissionsTabAsync(tabImage, otherTabImage, tabName, account.InstanceNumber, logger))
                     {
                         await Task.Delay(500, cancellationToken);
-                        await ProcessMissionsTabAsync("Daily", account.InstanceNumber, logger, cancellationToken);
+                        await ProcessMissionsTabAsync(tabName, account.InstanceNumber, logger, cancellationToken);
                     }
                     else
                     {
-                        logger.LogWarning($"[{account.AccountName}] Failed to click Daily tab, skipping");
+                        logger.LogWarning($"[{account.AccountName}] Failed to open {tabName} tab, skipping");
                     }
-                }
-                else
-                {
-                    logger.LogInfo($"[{account.AccountName}] Skipping Daily tab - no notifications");
-                }
-
-                // Step 6: Check and Process Growth tab if notifications detected
-                logger.LogInfo($"[{account.AccountName}] Checking Growth tab for notifications...");
-                if (await DetectNotificationNumber(GrowthNotificationArea, account.InstanceNumber, logger, "Growth"))
-                {
-                    logger.LogInfo($"[{account.AccountName}] Processing Growth tab - notifications found");
-                    if (await FindAndClickTabAsync("growth.png", account.InstanceNumber, logger, "Growth"))
-                    {
-                        await Task.Delay(500, cancellationToken);
-                        await ProcessMissionsTabAsync("Growth", account.InstanceNumber, logger, cancellationToken);
-                    }
-                    else
-                    {
-                        logger.LogWarning($"[{account.AccountName}] Failed to click Growth tab, skipping");
-                    }
-                }
-                else
-                {
-                    logger.LogInfo($"[{account.AccountName}] Skipping Growth tab - no notifications");
                 }
 
                 // Step 7: Exit missions menu
@@ -201,9 +181,28 @@ namespace Bot.Core.Tasks.Modules
             }
         }
 
+        /// <summary>
+        /// Opens a missions tab. The templates show the unselected tab, so when the tab is already the open one
+        /// it is recognised by the other tab showing as unselected.
+        /// </summary>
+        private async Task<bool> OpenMissionsTabAsync(string tabImage, string otherTabImage, string tabName, int instanceNumber, LogService logger)
+        {
+            if (await FindAndClickTabAsync(tabImage, instanceNumber, logger, tabName))
+                return true;
+
+            if (await IsImagePresentAsync(otherTabImage, instanceNumber, logger))
+            {
+                logger.LogInfo($"{tabName} tab is already open");
+                return true;
+            }
+
+            return false;
+        }
+
         private async Task<bool> VerifyMissionsInterfaceAsync(int instanceNumber, LogService logger, CancellationToken cancellationToken)
         {
-            var imagesToCheck = new[] { "chapter.png", "daily.png", "missions-scroll.png" };
+            // exit-menu.png is the X in the header, present on every tab layout
+            var imagesToCheck = new[] { "exit-menu.png", "growth.png", "daily.png", "chapter.png" };
             
             var startTime = DateTime.UtcNow;
             while ((DateTime.UtcNow - startTime).TotalMilliseconds < ImageWaitTimeSeconds)
@@ -1200,4 +1199,4 @@ namespace Bot.Core.Tasks.Modules
             }
         }
     }
-}
+}

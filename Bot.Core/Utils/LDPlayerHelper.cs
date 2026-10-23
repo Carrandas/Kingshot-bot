@@ -83,8 +83,13 @@ namespace Bot.Core.Utils
 
         private static string GetLDPlayerInstallPath()
         {
+            // Allow overriding the install location (e.g. LDPlayer 14) before the UI is available
+            var envPath = Environment.GetEnvironmentVariable("KINGSHOT_LDPLAYER_PATH");
+            if (string.IsNullOrEmpty(_manualInstallPath) && IsValidLDPlayerPath(envPath ?? string.Empty))
+                _manualInstallPath = envPath;
+
             // If manual path is set and valid, use it
-            if (!string.IsNullOrEmpty(_manualInstallPath) && 
+            if (!string.IsNullOrEmpty(_manualInstallPath) &&
                 Directory.Exists(_manualInstallPath) && 
                 File.Exists(Path.Combine(_manualInstallPath, "ldconsole.exe")))
             {

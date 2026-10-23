@@ -100,11 +100,11 @@ namespace Bot.Core.Tasks.Modules.AutoHunt.Processors
                     {
                         var (staminaFound, _, _) = _templateMatcher.MatchTemplate(
                             staminaScreenshot,
-                            Path.Combine(_imageTemplateFolder, "stamina.png"),
+                            Path.Combine(_imageTemplateFolder, "hunt-stamina.png"),
                             account.InstanceNumber,
-                            threshold: 0.55,
+                            threshold: 0.8,
                             searchArea: AutoHuntConstants.StaminaArea,
-                            isUIElement: true
+                            isUIElement: false
                         );
 
                         if (staminaFound)

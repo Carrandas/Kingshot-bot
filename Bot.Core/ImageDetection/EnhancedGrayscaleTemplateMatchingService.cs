@@ -357,7 +357,7 @@ namespace Bot.Core.ImageDetection
                 if (sourceMat.Channels() == 4)
                 {
                     var temp = new Mat();
-                    Cv2.CvtColor(sourceMat, temp, ColorConversionCodes.RGBA2BGR);
+                    Cv2.CvtColor(sourceMat, temp, ColorConversionCodes.BGRA2BGR);
                     screenshotGray = new Mat();
                     Cv2.CvtColor(temp, screenshotGray, ColorConversionCodes.BGR2GRAY);
                     temp.Dispose();
@@ -618,7 +618,7 @@ namespace Bot.Core.ImageDetection
                 if (sourceMat.Channels() == 4)
                 {
                     var temp = new Mat();
-                    Cv2.CvtColor(sourceMat, temp, ColorConversionCodes.RGBA2BGR);
+                    Cv2.CvtColor(sourceMat, temp, ColorConversionCodes.BGRA2BGR);
                     screenshotGray = new Mat();
                     Cv2.CvtColor(temp, screenshotGray, ColorConversionCodes.BGR2GRAY);
                     temp.Dispose();

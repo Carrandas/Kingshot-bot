@@ -8,7 +8,6 @@ using System.Threading.Tasks;
 using System.IO;
 using Bot.Core.ImageDetection;
 using System.Drawing;
-using System.Text.RegularExpressions;
 using System.Collections.Concurrent;
 using System.Text.Json;
 using System.Linq;
@@ -16,8 +15,11 @@ using System.Linq;
 namespace Bot.Core.Tasks.Modules
 {
     /// <summary>
-    /// Handles automated alliance technology contributions by navigating through alliance menus
-    /// and contributing to the green thumb technology.
+    /// Alliance (bottom bar) > Tech > the recommended (green thumb) technology > Contribute.
+    /// The teal Contribute costs resources (10,000 bread); 25 attempts, one refills every ~10 minutes.
+    ///
+    /// SAFETY: the orange "Contribute 💎10" next to it spends gems and is never tapped. The teal button is only held
+    /// while its colour is verified teal (grey = no attempts left).
     /// </summary>
     public class AllianceTechnologyTask : BaseTaskWithCommonPatterns
     {
@@ -25,20 +27,28 @@ namespace Bot.Core.Tasks.Modules
         public override string Name => "Alliance Technology";
 
         private readonly string _templateFolder;
-        private const int SEARCH_TIMEOUT_MS = 2000; // 2 seconds for image searches
-        private const int SEARCH_INTERVAL_MS = 500; // Check every 0.5 seconds
-        private const int DEFAULT_CONTRIBUTE_CLICKS = 25; // Default number of contribution clicks if OCR fails
-        private const int CLICK_DELAY_MS = 100; // Delay between contribution clicks
-        private const double TEMPLATE_MATCH_THRESHOLD = 0.6; // Threshold for template matching
-        
-        // UI element coordinates
-        private static readonly Rectangle ContributeButtonArea = new Rectangle(376, 987, 266, 82); // 376,987 to 642,1069
-        private static readonly Rectangle ContributeCountRect = new Rectangle(525, 939, 40, 28); // 525,939 to 565,967
-        
+        private LocatorService? _locatorService;
+
+        private const string AllianceMenuTemplate = "alliance-menu.png";   // Alliance button of the bottom bar
+        private const string AllianceTechTemplate = "alliance-tech.png";   // Tech tile of the Alliance screen
+        private const string GreenThumbTemplate = "green-thumb.png";       // recommended marker on a tech icon
+        private const string ContributeTemplate = "contribute.png";        // also matches the orange gem button in grayscale
+        private const string CloseXTemplate = "close-x.png";               // X of the contribution dialog
+        private static readonly Rectangle AllianceMenuArea = new Rectangle(480, 1160, 150, 110);
+        private static readonly Rectangle AllianceTechArea = new Rectangle(360, 880, 150, 130);
+        private static readonly Rectangle TechTreeArea = new Rectangle(0, 320, 720, 960);
+        private static readonly Rectangle ContributeButtonArea = new Rectangle(370, 975, 290, 105); // teal button only
+        private static readonly Rectangle CloseXArea = new Rectangle(590, 150, 110, 100);
+        private static readonly Point ThumbToIconOffset = new Point(44, 50);
+        private const double Threshold = 0.90;          // 0.96-1.00 present, <= 0.74 elsewhere
+        private const int ContributeMinTealPixels = 5000; // ~13,200 teal, 0 grey, ~90 on the orange gem button
+        private const int HoldMs = 4000;
+        private const int MaxHolds = 10;
+
         // Default timer settings (used as fallback)
         private static readonly TimeSpan DefaultInterval = TimeSpan.FromHours(10);
         private static readonly Random _random = new Random();
-        
+
         // Static dictionary to track last execution times per account
         private static readonly ConcurrentDictionary<string, DateTime> _lastExecutionTimes = new();
         private static readonly string TimeStorageFile = Path.Combine(
@@ -47,298 +57,77 @@ namespace Bot.Core.Tasks.Modules
 
         public AllianceTechnologyTask()
         {
-            // Get the application's base directory and combine with template path
-            string baseDir = AppContext.BaseDirectory;
-            _templateFolder = Path.Combine(baseDir, "templates", "images", "alliancetech");
-
-            // Ensure template directory exists
-            if (!Directory.Exists(_templateFolder))
-            {
-                Directory.CreateDirectory(_templateFolder);
-            }
+            _templateFolder = Path.Combine(AppContext.BaseDirectory, "templates", "images", "alliancetech");
         }
 
         protected override async Task<TaskExecutionDetails> ExecuteTaskLogicAsync(
-            AccountSettings account, 
-            LogService logger, 
-            CancellationToken cancellationToken, 
-            bool isReRun = false, 
+            AccountSettings account,
+            LogService logger,
+            CancellationToken cancellationToken,
+            bool isReRun = false,
             IUserNotificationService? userNotifications = null)
         {
             try
             {
-                // Get unique account ID for accurate timer tracking - use cached ID if available
                 string accountId = AccountDetectionTask.GetCachedAccountId(account.InstanceNumber);
-                if (string.IsNullOrEmpty(accountId))
-                {
-                    logger.LogWarning($"[{account.AccountName}] No cached account ID found, using fallback key");
-                    accountId = $"Account_{account.AccountName}_{account.InstanceNumber}";
-                }
-                else
-                {
-                    logger.LogInfo($"[{account.AccountName}] Using cached account ID: '{accountId}'");
-                }
-                string accountKey = accountId; // Use account ID directly as the key
-                
-                // Check if enough time has passed since last execution for this specific account
+                string accountKey = string.IsNullOrEmpty(accountId) ? $"Account_{account.AccountName}_{account.InstanceNumber}" : accountId;
+
                 if (!ShouldExecute(accountKey, account))
                 {
                     var nextExecution = GetNextExecutionTime(accountKey, account);
-                    logger.LogInfo($"[{account.AccountName}] Too soon to run Alliance Technology (Account ID: {accountId}). Next execution at: {nextExecution}. Wait time: {account.AllianceTechnologySettings.WaitHours} hours");
+                    logger.LogInfo($"[{account.AccountName}] Too soon to run Alliance Technology. Next execution at: {nextExecution}");
                     return new TaskExecutionDetails(true, nextExecution, "Skipped - Too soon to execute");
                 }
 
-                userNotifications?.ShowStatus("Starting Alliance Technology task...", NotificationType.Info);
-                logger.LogInfo($"[{account.AccountName}] 🏛️ Starting Alliance Technology task");
+                _locatorService = new LocatorService(logger, account, TaskType);
+                int instance = account.InstanceNumber;
+                await _locatorService.EnsureViewAsync(ViewType.BaseView, instance, cancellationToken);
 
-                // Check for pause before starting
-                await WaitIfPausedAsync(cancellationToken);
-                if (cancellationToken.IsCancellationRequested) return TaskExecutionDetails.Failed("Task was cancelled");
-
-                // Step 1: Find and click alliance menu
-                logger.LogInfo($"[{account.AccountName}] 🔍 Looking for alliance menu button...");
-                var allianceMenuPath = Path.Combine(_templateFolder, "alliance-menu.png");
-                var allianceMenuFound = await FindAndClickWithTimeoutAsync(
-                    account, logger, cancellationToken, allianceMenuPath, 
-                    "alliance menu", SEARCH_TIMEOUT_MS, SEARCH_INTERVAL_MS);
-
-                if (!allianceMenuFound)
+                if (!await TapAsync(AllianceMenuTemplate, AllianceMenuArea, instance, logger, 2000, cancellationToken)
+                    || !await TapAsync(AllianceTechTemplate, AllianceTechArea, instance, logger, 1500, cancellationToken))
                 {
-                    logger.LogWarning($"[{account.AccountName}] ❌ Could not find alliance menu button");
-                    return FailDetection("Step 1: Opening alliance menu", "alliance menu button", recoveryNeeded: true);
+                    logger.LogWarning($"[{account.AccountName}] Alliance Technology: Alliance or Tech button not found");
+                    await _locatorService.EnsureViewAsync(ViewType.BaseView, instance, cancellationToken);
+                    return FailDetection("Opening Alliance > Tech", "alliance tech button");
                 }
 
-                await WaitIfPausedAsync(cancellationToken);
-                if (cancellationToken.IsCancellationRequested) return TaskExecutionDetails.Failed("Task was cancelled");
-                await Task.Delay(500, cancellationToken); // Wait for menu to open
-
-                // Step 2: Find and click alliance tech button
-                logger.LogInfo($"[{account.AccountName}] 🔍 Looking for alliance tech button...");
-                var allianceTechPath = Path.Combine(_templateFolder, "alliance-tech.png");
-                var allianceTechFound = await FindAndClickWithTimeoutAsync(
-                    account, logger, cancellationToken, allianceTechPath, 
-                    "alliance tech", SEARCH_TIMEOUT_MS, SEARCH_INTERVAL_MS);
-
-                if (!allianceTechFound)
+                // The tree scrolls to the recommended tech; its icon sits below-right of the thumb
+                var thumb = await MatchAsync(GreenThumbTemplate, TechTreeArea, instance, logger);
+                if (!thumb.found)
                 {
-                    logger.LogWarning($"[{account.AccountName}] ❌ Could not find alliance tech button");
-                    return FailDetection("Step 2: Selecting technology tab", "alliance tech button", recoveryNeeded: true);
+                    logger.LogInfo($"[{account.AccountName}] Alliance Technology: no recommended tech ({thumb.confidence:F2})");
+                    await _locatorService.EnsureViewAsync(ViewType.BaseView, instance, cancellationToken);
+                    return new TaskExecutionDetails(true, message: "No recommended tech");
                 }
+                await ClickAsync(instance, logger, new Point(thumb.rect.X + thumb.rect.Width / 2 + ThumbToIconOffset.X, thumb.rect.Y + thumb.rect.Height / 2 + ThumbToIconOffset.Y));
+                await Task.Delay(1500, cancellationToken);
 
-                await WaitIfPausedAsync(cancellationToken);
-                if (cancellationToken.IsCancellationRequested) return TaskExecutionDetails.Failed("Task was cancelled");
-                await Task.Delay(1000, cancellationToken); // Wait for tech screen to load
-
-                // Step 3: Look for green thumb
-                logger.LogInfo($"[{account.AccountName}] 🔍 Looking for green thumb technology...");
-                var greenThumbPath = Path.Combine(_templateFolder, "green-thumb.png");
-                var greenThumbFound = await FindAndClickWithTimeoutAsync(
-                    account, logger, cancellationToken, greenThumbPath, 
-                    "green thumb", SEARCH_TIMEOUT_MS, SEARCH_INTERVAL_MS);
-
-                if (!greenThumbFound)
+                int holds = 0;
+                while (holds < MaxHolds)
                 {
-                    logger.LogInfo($"[{account.AccountName}] ℹ️ Green thumb not found, attempting to go back...");
-                    userNotifications?.ShowStatus("Green thumb not found, going back...", NotificationType.Warning);
-                    
-                    // Click back button twice
-                    var backButtonPath = Path.Combine(AppContext.BaseDirectory, "templates", "images", "buttons", "deploy-back.png");
-                    for (int i = 0; i < 2; i++)
-                    {
-                        await WaitIfPausedAsync(cancellationToken);
-                        if (cancellationToken.IsCancellationRequested) return TaskExecutionDetails.Failed("Task was cancelled");
-                        
-                        logger.LogInfo($"[{account.AccountName}] 🔍 Looking for back button (attempt {i + 1}/2)...");
-                        var backFound = await FindAndClickWithTimeoutAsync(
-                            account, logger, cancellationToken, backButtonPath, 
-                            "back button", SEARCH_TIMEOUT_MS, SEARCH_INTERVAL_MS);
-                        
-                        if (!backFound)
-                        {
-                            logger.LogWarning($"[{account.AccountName}] ⚠️ Back button not found on attempt {i + 1}");
-                        }
-                        else
-                        {
-                            logger.LogInfo($"[{account.AccountName}] ✅ Clicked back button");
-                        }
-                        
-                        if (i < 1) // Don't wait after the last click
-                        {
-                            await Task.Delay(500, cancellationToken);
-                        }
-                    }
-                    
-                    return new TaskExecutionDetails(true, message: "Green thumb not available, task completed");
+                    cancellationToken.ThrowIfCancellationRequested();
+                    var button = await MatchAsync(ContributeTemplate, ContributeButtonArea, instance, logger);
+                    if (!button.found || !await IsTealAsync(button.rect, instance, logger)) break;
+
+                    // Holding the button repeats the contribution until it is released or the attempts run out
+                    var center = new Point(button.rect.X + button.rect.Width / 2, button.rect.Y + button.rect.Height / 2);
+                    await SwipeAsync(instance, logger, center, center, HoldMs);
+                    holds++;
+                    await Task.Delay(1000, cancellationToken);
                 }
+                logger.LogInfo($"[{account.AccountName}] Alliance Technology: held Contribute {holds} time(s)");
 
-                await WaitIfPausedAsync(cancellationToken);
-                if (cancellationToken.IsCancellationRequested) return TaskExecutionDetails.Failed("Task was cancelled");
-                await Task.Delay(1000, cancellationToken); // Wait for green thumb screen to load
-
-                // Step 4: Find and click contribute button based on OCR count
-                logger.LogInfo($"[{account.AccountName}] 🔍 Looking for contribute button in area {ContributeButtonArea}...");
-                var contributePath = Path.Combine(_templateFolder, "contribute.png");
-                
-                // Find the contribute button location first
-                var screenshot = await TakeScreenshotAsync(account.InstanceNumber, logger);
-                if (screenshot == null)
+                var close = await MatchAsync(CloseXTemplate, CloseXArea, instance, logger);
+                if (close.found)
                 {
-                    logger.LogError($"[{account.AccountName}] ❌ Failed to take screenshot for contribute button");
-                    return FailConnection("Step 4: Finding contribute button", "Failed to capture screen");
+                    await ClickCenterInRectAsync(instance, logger, close.rect);
+                    await Task.Delay(1000, cancellationToken);
                 }
+                await _locatorService.EnsureViewAsync(ViewType.BaseView, instance, cancellationToken);
 
-                if (_templateMatcher == null) _templateMatcher = new UnifiedTemplateMatchingService(logger);
-                
-                var (found, matchRect, confidence) = _templateMatcher.MatchTemplate(
-                    screenshot,
-                    contributePath,
-                    account.InstanceNumber,
-                    threshold: TEMPLATE_MATCH_THRESHOLD,
-                    scales: UnifiedTemplateMatchingService.StandardScales,
-                    verboseLogging: true,
-                    searchArea: ContributeButtonArea
-                );
-
-                if (!found)
-                {
-                    logger.LogWarning($"[{account.AccountName}] ❌ Could not find contribute button in area {ContributeButtonArea}");
-                    return FailDetection("Step 4: Contributing", "contribute button", recoveryNeeded: true);
-                }
-
-                logger.LogInfo($"[{account.AccountName}] ✅ Found contribute button at {matchRect} with confidence {confidence:F3}");
-                
-                // Use OCR to determine how many contributions are needed
-                int contributionCount = DEFAULT_CONTRIBUTE_CLICKS;
-                logger.LogInfo($"[{account.AccountName}] 🔍 Reading contribution count using OCR on area {ContributeCountRect}...");
-                
-                try
-                {
-                    // Create OCR configuration for reading numbers
-                    var ocrConfig = new OCRConfiguration
-                    {
-                        ScaleFactor = 4,
-                        AdaptiveC = 5,
-                        MedianBlurKernelSize = 1,
-                        CharacterWhitelist = "0123456789" // Only expect numbers
-                    };
-                    using var ocr = new OCRService(logger, ocrConfig);
-                    
-                    string ocrText = ocr.ExtractTextFromScreenArea(screenshot, ContributeCountRect);
-                    logger.LogInfo($"[{account.AccountName}] OCR extracted text: '{ocrText}'");
-                    
-                    if (!string.IsNullOrWhiteSpace(ocrText))
-                    {
-                        // Extract numbers from OCR text
-                        var match = Regex.Match(ocrText, @"\d+");
-                        if (match.Success && int.TryParse(match.Value, out int detectedCount) && detectedCount > 0)
-                        {
-                            // Cap at 25 since that's the maximum allowed in game
-                            contributionCount = Math.Min(detectedCount, 25);
-                            if (detectedCount > 25)
-                            {
-                                logger.LogWarning($"[{account.AccountName}] ⚠️ OCR detected {detectedCount} but capping at maximum of 25 contributions");
-                            }
-                            else
-                            {
-                                logger.LogInfo($"[{account.AccountName}] ✅ OCR detected {contributionCount} contributions needed");
-                            }
-                        }
-                        else
-                        {
-                            logger.LogError($"[{account.AccountName}] ❌ OCR failed to parse valid contribution count from '{ocrText}', using default {DEFAULT_CONTRIBUTE_CLICKS}");
-                        }
-                    }
-                    else
-                    {
-                        logger.LogError($"[{account.AccountName}] ❌ OCR returned empty text, using default {DEFAULT_CONTRIBUTE_CLICKS} contributions");
-                    }
-                }
-                catch (Exception ex)
-                {
-                    logger.LogError($"[{account.AccountName}] ❌ OCR error: {ex.Message}, using default {DEFAULT_CONTRIBUTE_CLICKS} contributions");
-                }
-                
-                logger.LogInfo($"[{account.AccountName}] 🖱️ Clicking contribute button {contributionCount} times...");
-                userNotifications?.ShowStatus($"Contributing {contributionCount} times to green thumb technology...", NotificationType.Info);
-
-                // Click the contribute button the determined number of times
-                for (int i = 0; i < contributionCount; i++)
-                {
-                    // Check for pause every 5 clicks
-                    if (i % 5 == 0)
-                    {
-                        await WaitIfPausedAsync(cancellationToken);
-                        if (cancellationToken.IsCancellationRequested) break;
-                    }
-                    
-                    if (!await ClickRandomInRectAsync(account.InstanceNumber, logger, matchRect))
-                    {
-                        logger.LogWarning($"[{account.AccountName}] ⚠️ Failed to click contribute button on attempt {i + 1}");
-                    }
-                    
-                    if ((i + 1) % 5 == 0) // Log progress every 5 clicks
-                    {
-                        logger.LogInfo($"[{account.AccountName}] 📊 Contribution progress: {i + 1}/{contributionCount}");
-                    }
-                    
-                    await Task.Delay(CLICK_DELAY_MS, cancellationToken);
-                }
-
-                logger.LogInfo($"[{account.AccountName}] ✅ Completed {contributionCount} contributions");
-                userNotifications?.ShowSuccess($"Contributed {contributionCount} times to green thumb");
-
-                await WaitIfPausedAsync(cancellationToken);
-                if (cancellationToken.IsCancellationRequested) return TaskExecutionDetails.Failed("Task was cancelled");
-
-                // Step 5: Find and click exit cross
-                logger.LogInfo($"[{account.AccountName}] 🔍 Looking for exit cross...");
-                var exitCrossPath = Path.Combine(_templateFolder, "exit-cross.png");
-                var exitFound = await FindAndClickWithTimeoutAsync(
-                    account, logger, cancellationToken, exitCrossPath, 
-                    "exit cross", SEARCH_TIMEOUT_MS, SEARCH_INTERVAL_MS);
-
-                if (!exitFound)
-                {
-                    logger.LogWarning($"[{account.AccountName}] ⚠️ Exit cross not found, continuing with back buttons");
-                }
-                else
-                {
-                    await Task.Delay(500, cancellationToken);
-                }
-
-                // Step 6: Click back button twice to ensure we're back at main screen
-                var finalBackButtonPath = Path.Combine(AppContext.BaseDirectory, "templates", "images", "buttons", "deploy-back.png");
-                for (int i = 0; i < 2; i++)
-                {
-                    await WaitIfPausedAsync(cancellationToken);
-                    if (cancellationToken.IsCancellationRequested) return TaskExecutionDetails.Failed("Task was cancelled");
-                    
-                    logger.LogInfo($"[{account.AccountName}] 🔍 Looking for back button to exit (attempt {i + 1}/2)...");
-                    var backFound = await FindAndClickWithTimeoutAsync(
-                        account, logger, cancellationToken, finalBackButtonPath, 
-                        "back button", 500, SEARCH_INTERVAL_MS); // Shorter timeout for back buttons
-                    
-                    if (!backFound)
-                    {
-                        logger.LogInfo($"[{account.AccountName}] ℹ️ Back button not found on attempt {i + 1}, likely already at main screen");
-                    }
-                    else
-                    {
-                        logger.LogInfo($"[{account.AccountName}] ✅ Clicked back button");
-                    }
-                    
-                    if (i < 1) // Don't wait after the last click
-                    {
-                        await Task.Delay(500, cancellationToken);
-                    }
-                }
-
-                // Update execution time for this specific account
-                UpdateExecutionTime(accountKey);
-                
-                logger.LogInfo($"[{account.AccountName}] ✅ Alliance Technology task completed successfully");
-                userNotifications?.ShowSuccess("Alliance Technology task completed");
-                return new TaskExecutionDetails(true, message: "Alliance Technology task completed successfully");
+                if (holds > 0) UpdateExecutionTime(accountKey);
+                logger.LogInfo($"[{account.AccountName}] Alliance Technology done: {(holds > 0 ? "contributed" : "no attempts left")}");
+                return new TaskExecutionDetails(true, message: holds > 0 ? "Contributed" : "No attempts left");
             }
             catch (OperationCanceledException)
             {
@@ -347,7 +136,7 @@ namespace Bot.Core.Tasks.Modules
             }
             catch (Exception ex)
             {
-                logger.LogError($"[{account.AccountName}] ❌ Error during Alliance Technology task: {ex.Message}");
+                logger.LogError($"[{account.AccountName}] Error during Alliance Technology task: {ex.Message}");
                 return TaskExecutionDetails.FailedWith(
                     FailureCategory.Unknown,
                     "Unexpected error",
@@ -356,63 +145,46 @@ namespace Bot.Core.Tasks.Modules
             }
         }
 
-        /// <summary>
-        /// Helper method to find and click an image with timeout and interval checking
-        /// </summary>
-        private async Task<bool> FindAndClickWithTimeoutAsync(
-            AccountSettings account, 
-            LogService logger, 
-            CancellationToken cancellationToken,
-            string templatePath, 
-            string templateName, 
-            int timeoutMs, 
-            int intervalMs)
+        private async Task<bool> TapAsync(string templateName, Rectangle area, int instance, LogService logger, int delayMs, CancellationToken cancellationToken)
         {
-            var startTime = DateTime.UtcNow;
-            int attemptCount = 0;
+            var match = await MatchAsync(templateName, area, instance, logger);
+            if (!match.found) return false;
+            await ClickCenterInRectAsync(instance, logger, match.rect);
+            await Task.Delay(delayMs, cancellationToken);
+            return true;
+        }
 
-            while ((DateTime.UtcNow - startTime).TotalMilliseconds < timeoutMs && !cancellationToken.IsCancellationRequested)
-            {
-                // Check for pause before each search attempt
-                await WaitIfPausedAsync(cancellationToken);
-                if (cancellationToken.IsCancellationRequested) return false;
-                
-                attemptCount++;
-                logger.LogInfo($"[{account.AccountName}] 👀 Looking for {templateName} (attempt {attemptCount})...");
-                
-                var screenshot = await TakeScreenshotAsync(account.InstanceNumber, logger);
-                if (screenshot == null)
-                {
-                    await Task.Delay(intervalMs, cancellationToken);
-                    continue;
-                }
+        private async Task<bool> IsTealAsync(Rectangle buttonRect, int instance, LogService logger)
+        {
+            var shot = await TakeScreenshotAsync(instance, logger);
+            if (shot == null) return false;
+            using var image = OpenCvSharp.Cv2.ImDecode(shot, OpenCvSharp.ImreadModes.Color);
+            var roi = new OpenCvSharp.Rect(ContributeButtonArea.X, ContributeButtonArea.Y, ContributeButtonArea.Width, ContributeButtonArea.Height)
+                .Intersect(new OpenCvSharp.Rect(0, 0, image.Width, image.Height));
+            using var region = new OpenCvSharp.Mat(image, roi);
+            using var hsv = new OpenCvSharp.Mat();
+            OpenCvSharp.Cv2.CvtColor(region, hsv, OpenCvSharp.ColorConversionCodes.BGR2HSV);
+            using var mask = new OpenCvSharp.Mat();
+            OpenCvSharp.Cv2.InRange(hsv, new OpenCvSharp.Scalar(80, 120, 150), new OpenCvSharp.Scalar(100, 255, 255), mask);
+            int teal = OpenCvSharp.Cv2.CountNonZero(mask);
+            logger.LogInfo($"Alliance Technology: Contribute teal pixels {teal}");
+            return teal >= ContributeMinTealPixels;
+        }
 
-                if (_templateMatcher == null) _templateMatcher = new UnifiedTemplateMatchingService(logger);
-                
-                var (found, matchRect, confidence) = _templateMatcher.MatchTemplate(
-                    screenshot,
-                    templatePath,
-                    account.InstanceNumber,
-                    threshold: TEMPLATE_MATCH_THRESHOLD,
-                    scales: UnifiedTemplateMatchingService.StandardScales,
-                    verboseLogging: true
-                );
+        private async Task<(bool found, Rectangle rect, double confidence)> MatchAsync(
+            string templateName, Rectangle area, int instance, LogService logger)
+        {
+            var screenshot = await TakeScreenshotAsync(instance, logger);
+            if (screenshot == null) return (false, Rectangle.Empty, 0);
 
-                if (found)
-                {
-                    logger.LogInfo($"[{account.AccountName}] ✅ Found {templateName} at {matchRect} with confidence {confidence:F3}");
-                    if (await ClickRandomInRectAsync(account.InstanceNumber, logger, matchRect))
-                    {
-                        logger.LogInfo($"[{account.AccountName}] ✅ Clicked {templateName} after {(DateTime.UtcNow - startTime).TotalMilliseconds:F0}ms");
-                        return true;
-                    }
-                }
-
-                await Task.Delay(intervalMs, cancellationToken);
-            }
-
-            logger.LogInfo($"[{account.AccountName}] ⏱️ Timeout reached ({timeoutMs}ms) while looking for {templateName}");
-            return false;
+            if (_templateMatcher == null) _templateMatcher = new UnifiedTemplateMatchingService(logger);
+            var result = _templateMatcher.MatchTemplate(
+                screenshot, Path.Combine(_templateFolder, templateName), instance,
+                threshold: Threshold,
+                scales: new[] { 1.0 },
+                verboseLogging: false,
+                searchArea: area);
+            return (result.found, result.matchRect, result.confidence);
         }
 
         protected override Task OnInitializeAsync(LogService logger, CancellationToken cancellationToken)

@@ -269,7 +269,7 @@ namespace Bot.Core.Tasks.Modules.AutoHunt
             return target.Type switch
             {
                 "king" => await ProcessKingTarget(target, sessionState, account, logger, cancellationToken, accountId),
-                "bear" => await ProcessBearTarget(target, sessionState, account, logger, cancellationToken, accountId),
+                "bear" or "bear-elite" => await ProcessBearTarget(target, sessionState, account, logger, cancellationToken, accountId),
                 "scout" => await ProcessScoutTarget(target, sessionState, account, logger, cancellationToken, accountId),
                 "attack" => await ProcessAttackTarget(target, sessionState, account, logger, cancellationToken, accountId),
                 _ => TargetProcessResult.Failed($"Unknown target type: {target.Type}")
@@ -312,11 +312,11 @@ namespace Bot.Core.Tasks.Modules.AutoHunt
                     {
                         var (staminaFound, _, _) = _templateMatcher.MatchTemplate(
                             staminaScreenshot,
-                            Path.Combine(ImageTemplateFolder, "stamina.png"),
+                            Path.Combine(ImageTemplateFolder, "hunt-stamina.png"),
                             account.InstanceNumber,
-                            threshold: 0.55,
+                            threshold: 0.8,
                             searchArea: AutoHuntConstants.StaminaArea,
-                            isUIElement: true
+                            isUIElement: false
                         );
 
                         if (staminaFound)
@@ -422,11 +422,11 @@ namespace Bot.Core.Tasks.Modules.AutoHunt
                     {
                         var (staminaFound, _, _) = _templateMatcher.MatchTemplate(
                             staminaScreenshot,
-                            Path.Combine(ImageTemplateFolder, "stamina.png"),
+                            Path.Combine(ImageTemplateFolder, "hunt-stamina.png"),
                             account.InstanceNumber,
-                            threshold: 0.55,
+                            threshold: 0.8,
                             searchArea: AutoHuntConstants.StaminaArea,
-                            isUIElement: true
+                            isUIElement: false
                         );
 
                         if (staminaFound)
@@ -560,11 +560,11 @@ namespace Bot.Core.Tasks.Modules.AutoHunt
                     {
                         var (staminaFound, _, _) = _templateMatcher.MatchTemplate(
                             staminaScreenshot,
-                            Path.Combine(ImageTemplateFolder, "stamina.png"),
+                            Path.Combine(ImageTemplateFolder, "hunt-stamina.png"),
                             account.InstanceNumber,
-                            threshold: 0.55,
+                            threshold: 0.8,
                             searchArea: AutoHuntConstants.StaminaArea,
-                            isUIElement: true
+                            isUIElement: false
                         );
 
                         if (staminaFound)
@@ -643,11 +643,11 @@ namespace Bot.Core.Tasks.Modules.AutoHunt
                     {
                         var (staminaFound, _, _) = _templateMatcher.MatchTemplate(
                             staminaScreenshot,
-                            Path.Combine(ImageTemplateFolder, "stamina.png"),
+                            Path.Combine(ImageTemplateFolder, "hunt-stamina.png"),
                             account.InstanceNumber,
-                            threshold: 0.55,
+                            threshold: 0.8,
                             searchArea: AutoHuntConstants.StaminaArea,
-                            isUIElement: true
+                            isUIElement: false
                         );
 
                         if (staminaFound)
@@ -877,6 +877,23 @@ namespace Bot.Core.Tasks.Modules.AutoHunt
                 return true;
             }
 
+            // The castle sprite changes with the castle skin/level, the stamina meat icon in the top-right header does not.
+            // hunt-stamina.png is a copy of stamina.png: that name is forced through the colour matcher, which scores ~0.2 here
+            var (staminaFound, _, staminaConf) = _templateMatcher.MatchTemplate(
+                screenshot,
+                Path.Combine(ImageTemplateFolder, "hunt-stamina.png"),
+                account.InstanceNumber,
+                threshold: 0.8,
+                searchArea: new Rectangle(480, 0, 240, 90)
+            );
+
+            logger.LogInfo($"[{account.AccountName}] Stamina icon search: found={staminaFound}, confidence={staminaConf:F3}");
+            if (staminaFound)
+            {
+                logger.LogInfo($"[{account.AccountName}] Found stamina icon - confirmed in hunt mode");
+                return true;
+            }
+
             return false;
         }
 
@@ -997,10 +1014,13 @@ namespace Bot.Core.Tasks.Modules.AutoHunt
         {
             logger.LogInfo($"[{account.AccountName}] Finished processing ticks, now scanning for targets (up to 5 seconds)...");
 
+            // king.png is still scanned, but only so that ProcessBestDetections can exclude it (and anything on top of it):
+            // the six-sided King item must never be clicked.
             var targetTypes = new[]
             {
                 ("king.png", true),
                 ("bear.png", true),
+                ("bear-elite.png", true), // orange sparkling beast pin: same hunt flow as a normal bear
                 ("scout.png", false),
                 ("attack.png", false)
             };
@@ -1023,7 +1043,7 @@ namespace Bot.Core.Tasks.Modules.AutoHunt
                         screenshot,
                         Path.Combine(ImageTemplateFolder, imageName),
                         account.InstanceNumber,
-                        threshold: 0.68,
+                        threshold: 0.8, // real pins score 0.91-0.99; a 0.695 "scout" was a miss-tap
                         searchArea: AutoHuntConstants.TargetSearchArea
                     );
 
@@ -1049,7 +1069,7 @@ namespace Bot.Core.Tasks.Modules.AutoHunt
                 }
 
                 // If we have found at least one high-confidence target, we can break early
-                if (bestConfidences.Any(kv => kv.Value.Any(v => v.confidence >= 0.68)))
+                if (bestConfidences.Any(kv => kv.Value.Any(v => v.confidence >= 0.8)))
                 {
                     break;
                 }
@@ -1070,17 +1090,38 @@ namespace Bot.Core.Tasks.Modules.AutoHunt
             {
                 ("king.png", true),
                 ("bear.png", true),
+                ("bear-elite.png", true), // orange sparkling beast pin: same hunt flow as a normal bear
                 ("scout.png", false),
                 ("attack.png", false)
             };
 
+            // Where the (six-sided) King item is on screen: never click it, nor anything overlapping it
+            var kingZones = bestConfidences
+                .Where(kv => kv.Key == "king.png")
+                .SelectMany(kv => kv.Value)
+                .Where(d => d.confidence >= 0.6)
+                .Select(d => Rectangle.Inflate(d.location, 25, 25))
+                .ToList();
+
             foreach (var (imageName, detections) in bestConfidences)
             {
+                if (imageName == "king.png")
+                {
+                    if (detections.Count > 0) logger.LogInfo($"[{account.AccountName}] King item detected - ignoring it (never clicked)");
+                    continue;
+                }
+
                 var sortedDetections = detections.OrderByDescending(d => d.confidence).ToList();
 
                 foreach (var (matchRect, confidence) in sortedDetections)
                 {
-                    if (confidence < 0.68) continue;
+                    if (confidence < 0.8) continue;
+
+                    if (kingZones.Any(z => z.IntersectsWith(matchRect)))
+                    {
+                        logger.LogInfo($"[{account.AccountName}] Skipping {imageName} at {matchRect}: it overlaps the King item");
+                        continue;
+                    }
 
                     var targetArea = new Rectangle(
                         matchRect.X - AutoHuntConstants.TARGET_AREA_PADDING,
@@ -1161,7 +1202,7 @@ namespace Bot.Core.Tasks.Modules.AutoHunt
 
             if (lowConfidenceTargets.Any())
             {
-                logger.LogInfo($"[{account.AccountName}] No valid targets found, but detected these potential targets (confidence < 0.68):");
+                logger.LogInfo($"[{account.AccountName}] No valid targets found, but detected these potential targets (confidence < 0.8):");
                 foreach (var (type, location, confidence) in lowConfidenceTargets)
                 {
                     logger.LogInfo($"[{account.AccountName}] - {type} at {location} with confidence {confidence:F3}");
@@ -1357,6 +1398,15 @@ namespace Bot.Core.Tasks.Modules.AutoHunt
                     var parts = cleanText.Split('/');
                     if (parts.Length > 0 && int.TryParse(parts[0], out var marches))
                     {
+                        // The current map HUD has no march counter here (the box sits on the VIP badge), so OCR can
+                        // return noise like '77'. Cap it at the game's queue limit; the max-march popup catches the rest.
+                        const int maxMarchQueues = 6;
+                        if (marches > maxMarchQueues)
+                        {
+                            logger.LogInfo($"[{account.AccountName}] OCR march count {marches} is not plausible, using {maxMarchQueues}");
+                            return maxMarchQueues;
+                        }
+
                         logger.LogInfo($"[{account.AccountName}] Successfully parsed {marches} marches from OCR text: '{cleanText}'");
                         return marches;
                     }
@@ -1614,10 +1664,11 @@ namespace Bot.Core.Tasks.Modules.AutoHunt
         {
             logger.LogInfo($"[{account.AccountName}] Returning to map view");
             
-            // Try to click the close details button
-            if (await FindAndClickImageAsync("close-details.png", account.InstanceNumber, logger, threshold: 0.6))
+            // The hunt screen is closed with the back arrow in the top-left corner (close-details.png never existed)
+            if (await FindAndClickImageAsync("back-arrow.png", account.InstanceNumber, logger, threshold: 0.8,
+                searchArea: new Rectangle(0, 0, 120, 90)))
             {
-                logger.LogInfo($"[{account.AccountName}] Clicked close details button");
+                logger.LogInfo($"[{account.AccountName}] Clicked back arrow to leave the hunt screen");
                 await Task.Delay(1000, cancellationToken);
             }
             

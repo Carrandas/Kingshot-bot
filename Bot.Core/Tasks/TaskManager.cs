@@ -69,6 +69,12 @@ namespace Bot.Core.Tasks
             _availableTasks[TaskType.AllianceTechnology] = new AllianceTechnologyTask();
             _availableTasks[TaskType.AutoTechnology] = new AutoTechnologyTask();
             _availableTasks[TaskType.AutoRally] = new AutoRallyTask();
+            _availableTasks[TaskType.CollectRewards] = new CollectRewardsTask();
+            _availableTasks[TaskType.PetAdventure] = new PetAdventureTask();
+            _availableTasks[TaskType.CollectOnlineRewards] = new CollectOnlineRewardsTask();
+            _availableTasks[TaskType.Journey] = new JourneyTask();
+            _availableTasks[TaskType.TruegoldCrucible] = new TruegoldCrucibleTask();
+            _availableTasks[TaskType.AllianceTriumph] = new AllianceTriumphTask();
             
             _logger.LogInfo($"TaskManager initialized with {_availableTasks.Count} tasks plus startup task");
         }
@@ -609,6 +615,12 @@ namespace Bot.Core.Tasks
                 { TaskType.CollectVip, 12 },
                 { TaskType.ClaimMissions, 13 },
                 { TaskType.ResidentWelcome, 14 },
+                { TaskType.CollectRewards, 15 },
+                { TaskType.PetAdventure, 16 },
+                { TaskType.CollectOnlineRewards, 17 },
+                { TaskType.Journey, 18 },
+                { TaskType.TruegoldCrucible, 19 },
+                { TaskType.AllianceTriumph, 20 },
                 { TaskType.ChangeAccount, 999 }    // ChangeAccount should always run last
             };
 

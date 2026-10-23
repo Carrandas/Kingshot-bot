@@ -39,7 +39,13 @@ namespace Bot.GUI.Converters
             { TaskType.ClaimMissions, "Claim Missions (BETA)" },
             { TaskType.ResidentWelcome, "Resident Welcome" },
             { TaskType.AllianceTechnology, "Alliance Technology" },
-            { TaskType.AutoRally, "Auto Rally (BETA)" }
+            { TaskType.AutoRally, "Auto Rally (BETA)" },
+            { TaskType.CollectRewards, "Collect Store Rewards" },
+            { TaskType.PetAdventure, "Pet Adventure" },
+            { TaskType.CollectOnlineRewards, "Collect Online Rewards" },
+            { TaskType.Journey, "Journey" },
+            { TaskType.TruegoldCrucible, "Truegold Crucible" },
+            { TaskType.AllianceTriumph, "Alliance Triumph" }
         };
 
         public object Convert(object value, Type targetType, object parameter, CultureInfo culture)

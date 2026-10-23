@@ -61,9 +61,9 @@ namespace Bot.Core.Tasks.Modules
                 // Define healing sequence with specific search areas
                 var healSequence = new[]
                 {
-                    (Path.Combine(_templateFolder, "heal.png"), new Rectangle(523, 1009, 70, 67), "heal icon"),
+                    (Path.Combine(_templateFolder, "heal.png"), new Rectangle(480, 880, 238, 200), "heal icon"),
                     (Path.Combine(_templateFolder, "heal-button.png"), new Rectangle(414, 786, 208, 202), "heal button"),
-                    (Path.Combine(_templateFolder, "help-button.png"), new Rectangle(523, 1009, 70, 67), "help button")
+                    (Path.Combine(_templateFolder, "help-button.png"), new Rectangle(460, 1000, 258, 200), "help button")
                 };
 
                 foreach (var (templatePath, searchArea, description) in healSequence)

@@ -27,7 +27,13 @@ namespace Bot.Core.Models
         ResidentWelcome,
         AllianceTechnology,
         AutoTechnology,
-        AutoRally
+        AutoRally,
+        CollectRewards,
+        PetAdventure,
+        CollectOnlineRewards,
+        Journey,
+        TruegoldCrucible,
+        AllianceTriumph
     }
 
     public class AccountSettings : INotifyPropertyChanged

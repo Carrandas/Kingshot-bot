@@ -55,6 +55,12 @@ namespace Bot.Core.Tasks.Modules
                 TaskType.AutoShield => "Auto Shield",
                 TaskType.CollectVip => "Collect VIP",
                 TaskType.ClaimMissions => "Claim Missions",
+                TaskType.CollectRewards => "Collect Store Rewards",
+                TaskType.CollectOnlineRewards => "Collect Online Rewards",
+                TaskType.PetAdventure => "Pet Adventure",
+                TaskType.Journey => "Journey",
+                TaskType.TruegoldCrucible => "Truegold Crucible",
+                TaskType.AllianceTriumph => "Alliance Triumph",
                 _ => taskType.ToString()
             };
         }
@@ -153,10 +159,11 @@ namespace Bot.Core.Tasks.Modules
                         continue;
                     }
 
-                    // Check for all navigation elements simultaneously
-                    var (foundAdClose, adCloseRect, adCloseConf) = _templateMatcher.MatchTemplate(screenshot, adClosePath, account.InstanceNumber, 0.6f);
-                    var (foundAdClose2, adClose2Rect, adClose2Conf) = _templateMatcher.MatchTemplate(screenshot, adClose2Path, account.InstanceNumber, 0.6f);
-                    var (foundBackArrow, backArrowRect, backArrowConf) = _templateMatcher.MatchTemplate(screenshot, backArrowPath, account.InstanceNumber, 0.6f);
+                    // Check for all navigation elements simultaneously. 0.8: these are blind taps on an unknown screen,
+                    // at 0.6 the X template matched random spots (0.61) next to gem-cost buttons
+                    var (foundAdClose, adCloseRect, adCloseConf) = _templateMatcher.MatchTemplate(screenshot, adClosePath, account.InstanceNumber, 0.8f);
+                    var (foundAdClose2, adClose2Rect, adClose2Conf) = _templateMatcher.MatchTemplate(screenshot, adClose2Path, account.InstanceNumber, 0.8f);
+                    var (foundBackArrow, backArrowRect, backArrowConf) = _templateMatcher.MatchTemplate(screenshot, backArrowPath, account.InstanceNumber, 0.8f);
 
                     // If any navigation element is found, click it
                     bool clickedSomething = false;

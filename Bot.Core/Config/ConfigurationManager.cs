@@ -96,7 +96,11 @@ namespace Bot.Core.Config
             
             if (!_configLoadedSuccessfully)
             {
-                _logger?.LogWarning("Configuration failed to load during initialization - using fallback defaults");
+                // no config.json is the normal case: the GUI keeps the accounts in configs/default_config.json
+                if (!File.Exists(_configPath))
+                    _logger?.LogInfo("No configs/config.json found, ConfigurationManager uses defaults");
+                else
+                    _logger?.LogWarning("Configuration failed to load during initialization - using fallback defaults");
             }
         }
 
@@ -117,7 +121,8 @@ namespace Bot.Core.Config
 
                 var jsonString = JsonSerializer.Serialize(config, new JsonSerializerOptions
                 {
-                    WriteIndented = true
+                    WriteIndented = true,
+                    Converters = { new TaskTypeJsonConverter() }
                 });
 
                 File.WriteAllText(_configPath, jsonString);
@@ -151,7 +156,12 @@ namespace Bot.Core.Config
                 }
 
                 var jsonString = File.ReadAllText(_configPath);
-                var config = JsonSerializer.Deserialize<BotConfig>(jsonString);
+                // enabledTasks is stored as names ("AutoHunt"), same converters as ConfigLoader
+                var config = JsonSerializer.Deserialize<BotConfig>(jsonString, new JsonSerializerOptions
+                {
+                    PropertyNameCaseInsensitive = true,
+                    Converters = { new TaskTypeJsonConverter(), new System.Text.Json.Serialization.JsonStringEnumConverter(allowIntegerValues: true) }
+                });
                 if (config == null)
                 {
                     throw new InvalidOperationException("Failed to deserialize configuration");

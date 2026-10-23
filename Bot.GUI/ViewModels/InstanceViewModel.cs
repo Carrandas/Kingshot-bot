@@ -137,7 +137,11 @@ namespace Bot.GUI.ViewModels
 
         private readonly InstanceManager _instanceManager;
         private readonly MainViewModel _mainViewModel;
-        
+        private int _runActive; // 1 while a Launch run is in progress
+
+        /// <summary>Cancels the task run started by Launch; set by MainViewModel, cancelled by Stop.</summary>
+        public System.Threading.CancellationTokenSource? RunCts { get; set; }
+
         public InstanceItemViewModel(AccountSettings account, InstanceManager instanceManager, MainViewModel mainViewModel)
         {
             if (account == null)
@@ -210,6 +214,14 @@ namespace Bot.GUI.ViewModels
 
         private void StartInstance()
         {
+            // one runner per instance: extra Launch clicks while a run is active would start parallel runners
+            // that tap over each other and share the same device screenshot file
+            if (System.Threading.Interlocked.CompareExchange(ref _runActive, 1, 0) != 0)
+            {
+                _mainViewModel.AppendLog($"[Instance {InstanceNumber}] Already running, Launch ignored.");
+                return;
+            }
+
             _ = Task.Run(async () =>
             {
                 try
@@ -220,6 +232,10 @@ namespace Bot.GUI.ViewModels
                 {
                     _mainViewModel.AppendLog($"Unhandled error in StartInstance: {ex}");
                 }
+                finally
+                {
+                    System.Threading.Interlocked.Exchange(ref _runActive, 0);
+                }
             });
         }
 
@@ -227,7 +243,10 @@ namespace Bot.GUI.ViewModels
         {
             try {
                 _mainViewModel.AppendLog($"Stopping instance {InstanceNumber}");
-                
+
+                // stop the running tasks first, otherwise they keep going against a closing emulator
+                RunCts?.Cancel();
+
                 var success = await _instanceManager.StopInstanceAsync(InstanceNumber).ConfigureAwait(false);
                 
                 if (success)

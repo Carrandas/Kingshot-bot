@@ -60,7 +60,7 @@ namespace Bot.Core.Tasks.Modules
         // UI element coordinates
         private static readonly Rectangle MarchCapacityTextRect = new Rectangle(190, 196, 52, 32);  // 190,196 to 242,228
         private static readonly Rectangle SearchIconRect = new Rectangle(20, 855, 47, 43);  // Search icon in top menu
-        private static readonly Rectangle ResourceScrollArea = new Rectangle(0, 850, 718, 150);  // Resource selection area
+        private static readonly Rectangle ResourceScrollArea = new Rectangle(0, 820, 718, 200);  // Resource selection area
         private static readonly Rectangle GatherButtonArea = new Rectangle(257, 592, 207, 72);  // 257,592 to 464,664
         private static readonly Rectangle SearchButtonArea = new Rectangle(117, 1166, 414, 102);  // 117,1166 to 531,1268
         private static readonly Rectangle DeployButtonArea = new Rectangle(388, 1159, 315, 107);  // From AutoHuntTask: 388,1159 to 703,1266
@@ -133,7 +133,10 @@ namespace Bot.Core.Tasks.Modules
                 await CheckAndActivateGatheringBoostAsync(account, logger, cancellationToken);
 
                 // Initialize marches count
-                int currentMarches = await GetAvailableMarchesAsync(account, logger, cancellationToken);
+                int desiredActive = account.FarmingSettings.MaxFarmingMarches > 0
+                    ? account.FarmingSettings.MaxFarmingMarches
+                    : (account.FarmingTargets?.Count ?? 0);
+                int currentMarches = await GetAvailableMarchesAsync(account, logger, cancellationToken, desiredActive);
                 if (currentMarches <= 0)
                 {
                     logger.LogInfo($"[{account.AccountName}] No marches available after map view check.");
@@ -171,7 +174,8 @@ namespace Bot.Core.Tasks.Modules
                 
                 try
                 {
-                    while (true)
+                    // Each target is considered once per run: one bread, one wood, one stone, one iron
+                    for (int attempt = 0; attempt < account.FarmingTargets.Count; attempt++)
                     {
                         if (cancellationToken.IsCancellationRequested) break;
                         
@@ -188,7 +192,7 @@ namespace Bot.Core.Tasks.Modules
                             break;
                         }
                         
-                        currentMarches = await GetAvailableMarchesAsync(account, logger, cancellationToken);
+                        currentMarches = await GetAvailableMarchesAsync(account, logger, cancellationToken, desiredActive);
                         if (currentMarches <= 0)
                         {
                             logger.LogInfo($"[{account.AccountName}] No more marches available.");
@@ -199,6 +203,12 @@ namespace Bot.Core.Tasks.Modules
                         int currentIndex = _farmingRotationIndexes.GetOrAdd(account.InstanceNumber, 0);
                         FarmingTarget currentTarget = account.FarmingTargets[currentIndex % account.FarmingTargets.Count];
                         _farmingRotationIndexes[account.InstanceNumber] = currentIndex + 1;
+
+                        if (await IsResourceAlreadyGatheringAsync(account, logger, currentTarget.ResourceType))
+                        {
+                            logger.LogInfo($"[{account.AccountName}] ⏭️ {currentTarget.ResourceType} is already being gathered, skipping it");
+                            continue;
+                        }
 
                         logger.LogInfo($"[{account.AccountName}] 🎯 Attempting to send march for {currentTarget.ResourceType} Level {currentTarget.Level}");
 
@@ -255,7 +265,54 @@ namespace Bot.Core.Tasks.Modules
         /// <summary>
         /// Determines how many marches are available using a simplified and robust Regex approach.
         /// </summary>
-        private async Task<int> GetAvailableMarchesAsync(AccountSettings account, LogService logger, CancellationToken cancellationToken)
+        // The "Marching" panel on the left of the map lists one row per march with the gathered resource's icon.
+        private static readonly Rectangle MarchingPanelIconArea = new Rectangle(0, 230, 130, 360);  // up to 6 rows
+        private const double GatheringIconThreshold = 0.88; // own icon: 0.98-1.0, other resources' icons: <= 0.74
+
+        // Deploy screen: up to 3 hero cards. Only blue (rare) heroes go gathering; orange/purple ones are removed.
+        private static readonly (int Left, int Right)[] HeroSlotColumns = { (95, 248), (284, 437), (473, 626) };
+        private const int HeroCardTop = 330, HeroCardBottom = 570;
+        private const int HeroRemoveTop = 285, HeroRemoveHeight = 65;    // "-" button at the card's top-right corner
+        private const double HeroRemoveThreshold = 0.90;                  // 0.98-1.00 present, <= 0.49 on an empty slot
+        private const int HeroCardMinColorPixels = 5000;                  // card colour: ~10,000-14,500 px, empty slot 0
+        // "Only search for full Resources" checkbox of the search panel: ~230 green tick pixels when ticked, 0 when not
+        private static readonly Rectangle FullResourcesCheckboxArea = new Rectangle(160, 1120, 50, 45);
+        private static readonly Point FullResourcesCheckboxPoint = new Point(184, 1142);
+        private const int FullResourcesTickMinPixels = 100;
+        // Search falls back to lower levels when no full node is found (Lv 8 -> 7 -> 6)
+        private const int MaxLevelFallback = 2;
+
+        /// <summary>
+        /// True when the Marching panel already shows a march gathering this resource (so we must not send another).
+        /// </summary>
+        private async Task<bool> IsResourceAlreadyGatheringAsync(AccountSettings account, LogService logger, ResourceType resource)
+        {
+            try
+            {
+                var screenshot = await TakeScreenshotAsync(account.InstanceNumber, logger);
+                if (screenshot == null) return false;
+
+                if (_templateMatcher == null) _templateMatcher = new UnifiedTemplateMatchingService(logger);
+                var path = Path.Combine(ImageTemplateFolder, $"gathering-{resource.ToString().ToLowerInvariant()}.png");
+                if (!File.Exists(path)) return false;
+
+                var result = _templateMatcher.MatchTemplate(
+                    screenshot, path, account.InstanceNumber,
+                    threshold: GatheringIconThreshold,
+                    scales: new[] { 1.0 },
+                    verboseLogging: false,
+                    searchArea: MarchingPanelIconArea);
+                logger.LogInfo($"[{account.AccountName}] Marching panel check for {resource}: found={result.found}, confidence={result.confidence:F3}");
+                return result.found;
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning($"[{account.AccountName}] Could not check the Marching panel for {resource}: {ex.Message}");
+                return false;
+            }
+        }
+
+        private async Task<int> GetAvailableMarchesAsync(AccountSettings account, LogService logger, CancellationToken cancellationToken, int desiredActive = 0)
         {
             // 1. Define a much tighter cropping area to isolate *only* the "3/3" text.
             // This prevents the OCR from seeing other noisy UI elements.
@@ -288,6 +345,16 @@ namespace Bot.Core.Tasks.Modules
             if (match.Success && int.TryParse(match.Groups[1].Value, out int current) && int.TryParse(match.Groups[2].Value, out int max)) {
                 int available = max - current;
                 logger.LogInfo($"[{account.AccountName}] Parsed Marches: {current}/{max}. Available: {available}");
+                if (desiredActive > 0 && available > 0)
+                {
+                    // Only top up to the wanted number of marches already out (e.g. 4 gathering), not to every free slot
+                    int wanted = Math.Max(0, desiredActive - current);
+                    if (wanted < available)
+                    {
+                        logger.LogInfo($"[{account.AccountName}] Wanted marches out: {desiredActive}, already out: {current} -> sending at most {wanted}");
+                        available = wanted;
+                    }
+                }
                 return available > 0 ? available : 0;
             }
 
@@ -319,7 +386,10 @@ namespace Bot.Core.Tasks.Modules
             }
 
             // Try each level from target level down to 1
-            for (int currentLevel = target.Level; currentLevel >= 1; currentLevel--)
+            await EnsureFullResourcesOnlyAsync(account, logger, cancellationToken);
+
+            int lowestLevel = Math.Max(1, target.Level - MaxLevelFallback);
+            for (int currentLevel = target.Level; currentLevel >= lowestLevel; currentLevel--)
             {
                 // Set the desired resource level
                 if (!await AdjustResourceLevelAsync(account, logger, cancellationToken, currentLevel))
@@ -418,6 +488,7 @@ namespace Bot.Core.Tasks.Modules
                         // Deploy button has priority
                         if (deployFound)
                         {
+                            await RemoveNonBlueHeroesAsync(account, logger, cancellationToken);
                             if (await ClickRandomInRectAsync(account.InstanceNumber, logger, deployRect))
                             {
                                 logger.LogInfo($"[{account.AccountName}] ✅ Clicked deploy button");
@@ -547,8 +618,99 @@ namespace Bot.Core.Tasks.Modules
                 }
             }
 
-            logger.LogWarning($"[{account.AccountName}] ⚠️ Could not find any gatherable resources from level {target.Level} down to 1.");
+            logger.LogWarning($"[{account.AccountName}] ⚠️ Could not find any gatherable resources from level {target.Level} down to {lowestLevel}.");
             return false;
+        }
+
+        /// <summary>
+        /// Search panel: ticks "Only search for full Resources" when its green tick is missing.
+        /// </summary>
+        private async Task EnsureFullResourcesOnlyAsync(AccountSettings account, LogService logger, CancellationToken cancellationToken)
+        {
+            for (int attempt = 0; attempt < 2; attempt++)
+            {
+                var screenshot = await TakeScreenshotAsync(account.InstanceNumber, logger);
+                if (screenshot == null) return;
+                int green = CountFullResourcesTickPixels(screenshot);
+                if (green >= FullResourcesTickMinPixels)
+                {
+                    if (attempt > 0) logger.LogInfo($"[{account.AccountName}] Ticked 'Only search for full Resources'");
+                    return;
+                }
+                await ClickAsync(account.InstanceNumber, logger, FullResourcesCheckboxPoint);
+                await Task.Delay(700, cancellationToken);
+            }
+            logger.LogWarning($"[{account.AccountName}] Could not tick 'Only search for full Resources'");
+        }
+
+        private static int CountFullResourcesTickPixels(byte[] screenshot)
+        {
+            using var image = OpenCvSharp.Cv2.ImDecode(screenshot, OpenCvSharp.ImreadModes.Color);
+            var roi = new OpenCvSharp.Rect(FullResourcesCheckboxArea.X, FullResourcesCheckboxArea.Y, FullResourcesCheckboxArea.Width, FullResourcesCheckboxArea.Height)
+                .Intersect(new OpenCvSharp.Rect(0, 0, image.Width, image.Height));
+            using var region = new OpenCvSharp.Mat(image, roi);
+            using var hsv = new OpenCvSharp.Mat();
+            OpenCvSharp.Cv2.CvtColor(region, hsv, OpenCvSharp.ColorConversionCodes.BGR2HSV);
+            using var mask = new OpenCvSharp.Mat();
+            OpenCvSharp.Cv2.InRange(hsv, new OpenCvSharp.Scalar(40, 100, 100), new OpenCvSharp.Scalar(85, 255, 255), mask);
+            return OpenCvSharp.Cv2.CountNonZero(mask);
+        }
+
+        /// <summary>
+        /// Deploy screen: taps the "-" of every hero card that is not blue, so only the blue (rare) heroes gather.
+        /// Right to left; a removed card leaves an empty "+" slot, so the other cards do not move.
+        /// </summary>
+        private async Task RemoveNonBlueHeroesAsync(AccountSettings account, LogService logger, CancellationToken cancellationToken)
+        {
+            if (_templateMatcher == null) _templateMatcher = new UnifiedTemplateMatchingService(logger);
+            string removePath = Path.Combine(ImageTemplateFolder, "hero-remove.png");
+            int removed = 0;
+            for (int slot = HeroSlotColumns.Length - 1; slot >= 0; slot--)
+            {
+                var screenshot = await TakeScreenshotAsync(account.InstanceNumber, logger);
+                if (screenshot == null) return;
+
+                var (left, right) = HeroSlotColumns[slot];
+                var (blue, orange, purple) = CountHeroCardColors(screenshot, left, right);
+                bool nonBlue = Math.Max(orange, purple) >= HeroCardMinColorPixels && Math.Max(orange, purple) > blue;
+                if (!nonBlue) continue;
+
+                var area = new Rectangle(right - 40, HeroRemoveTop, 65, HeroRemoveHeight);
+                var (found, rect, confidence) = _templateMatcher.MatchTemplate(
+                    screenshot, removePath, account.InstanceNumber,
+                    threshold: HeroRemoveThreshold,
+                    scales: new[] { 1.0 },
+                    verboseLogging: false,
+                    searchArea: area);
+                if (!found)
+                {
+                    logger.LogWarning($"[{account.AccountName}] Hero slot {slot + 1} is not blue but its remove button was not found ({confidence:F2})");
+                    continue;
+                }
+                await ClickCenterInRectAsync(account.InstanceNumber, logger, rect);
+                removed++;
+                await Task.Delay(800, cancellationToken);
+            }
+            logger.LogInfo($"[{account.AccountName}] Removed {removed} non-blue hero(es) from the march");
+        }
+
+        private static (int blue, int orange, int purple) CountHeroCardColors(byte[] screenshot, int left, int right)
+        {
+            using var image = OpenCvSharp.Cv2.ImDecode(screenshot, OpenCvSharp.ImreadModes.Color);
+            var roi = new OpenCvSharp.Rect(left, HeroCardTop, right - left, HeroCardBottom - HeroCardTop)
+                .Intersect(new OpenCvSharp.Rect(0, 0, image.Width, image.Height));
+            using var region = new OpenCvSharp.Mat(image, roi);
+            using var hsv = new OpenCvSharp.Mat();
+            OpenCvSharp.Cv2.CvtColor(region, hsv, OpenCvSharp.ColorConversionCodes.BGR2HSV);
+            int Count(OpenCvSharp.Scalar lo, OpenCvSharp.Scalar hi)
+            {
+                using var mask = new OpenCvSharp.Mat();
+                OpenCvSharp.Cv2.InRange(hsv, lo, hi, mask);
+                return OpenCvSharp.Cv2.CountNonZero(mask);
+            }
+            return (Count(new OpenCvSharp.Scalar(100, 120, 150), new OpenCvSharp.Scalar(120, 255, 255)),
+                    Count(new OpenCvSharp.Scalar(10, 150, 180), new OpenCvSharp.Scalar(25, 255, 255)),
+                    Count(new OpenCvSharp.Scalar(125, 80, 120), new OpenCvSharp.Scalar(160, 255, 255)));
         }
 
         /// <summary>
@@ -946,8 +1108,8 @@ namespace Bot.Core.Tasks.Modules
                         }
                         else
                         {
-                            logger.LogWarning($"[{account.AccountName}] ⚠️ Boost activation unclear, may need to purchase with gems");
-                            await HandleBoostPurchaseAsync(account, logger, cancellationToken);
+                            // Never buy the boost with gems
+                            logger.LogWarning($"[{account.AccountName}] ⚠️ Boost not activated (no boost item left?); not buying it with gems");
                         }
                     }
                 }
@@ -959,42 +1121,6 @@ namespace Bot.Core.Tasks.Modules
             catch (Exception ex)
             {
                 logger.LogError($"[{account.AccountName}] ❌ Error checking boost timer: {ex.Message}");
-            }
-        }
-
-        private async Task HandleBoostPurchaseAsync(AccountSettings account, LogService logger, CancellationToken cancellationToken)
-        {
-            try
-            {
-                logger.LogInfo($"[{account.AccountName}] 💎 Attempting to purchase boost with gems...");
-
-                // Look for buy-gather button
-                if (await FindAndClickImageWithTimeoutAsync("buy-gather.png", account.InstanceNumber, logger,
-                    threshold: 0.6, timeoutSeconds: 3, useEnhancedMatching: false, searchArea: null, cancellationToken: cancellationToken))
-                {
-                    logger.LogInfo($"[{account.AccountName}] ✅ Found and clicked buy-gather button");
-                    await Task.Delay(1000, cancellationToken);
-
-                    // Look for gems-buy button
-                    if (await FindAndClickImageWithTimeoutAsync("gems-buy.png", account.InstanceNumber, logger,
-                        threshold: 0.6, timeoutSeconds: 3, useEnhancedMatching: false, searchArea: null, cancellationToken: cancellationToken))
-                    {
-                        logger.LogInfo($"[{account.AccountName}] ✅ Successfully purchased boost with gems");
-                        await Task.Delay(1000, cancellationToken);
-                    }
-                    else
-                    {
-                        logger.LogWarning($"[{account.AccountName}] ⚠️ Could not find gems-buy button");
-                    }
-                }
-                else
-                {
-                    logger.LogWarning($"[{account.AccountName}] ⚠️ Could not find buy-gather button");
-                }
-            }
-            catch (Exception ex)
-            {
-                logger.LogError($"[{account.AccountName}] ❌ Error during boost purchase: {ex.Message}");
             }
         }
 
