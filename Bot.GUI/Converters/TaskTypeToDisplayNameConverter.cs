@@ -47,7 +47,8 @@ namespace Bot.GUI.Converters
             { TaskType.TruegoldCrucible, "Truegold Crucible" },
             { TaskType.AllianceTriumph, "Alliance Triumph" },
             { TaskType.WaterEssence, "Water Essence" },
-            { TaskType.NomadicMerchant, "Nomadic Merchant" }
+            { TaskType.NomadicMerchant, "Nomadic Merchant" },
+            { TaskType.AllianceChests, "Alliance Chests" }
         };
 
         public object Convert(object value, Type targetType, object parameter, CultureInfo culture)

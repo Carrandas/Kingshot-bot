@@ -63,6 +63,7 @@ namespace Bot.Core.Tasks.Modules
                 TaskType.AllianceTriumph => "Alliance Triumph",
                 TaskType.WaterEssence => "Water Essence",
                 TaskType.NomadicMerchant => "Nomadic Merchant",
+                TaskType.AllianceChests => "Alliance Chests",
                 _ => taskType.ToString()
             };
         }
