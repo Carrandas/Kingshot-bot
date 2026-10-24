@@ -22,11 +22,14 @@ namespace Bot.Core.Tasks.Modules
         public override TaskType TaskType => TaskType.ClaimMail;
         public override string Name => "Claim Mail";
 
-        // Mail menu tab areas
-        private static readonly Rectangle SystemMailTab = new Rectangle(173, 101, 108, 34);
-        private static readonly Rectangle AllianceMailTab = new Rectangle(312, 104, 98, 35);
-        private static readonly Rectangle BattleMailTab = new Rectangle(444, 101, 96, 30);
+        // Mail menu tab areas: Wars | Alliance | System | Reports | Starred
+        private static readonly Rectangle WarsMailTab = new Rectangle(45, 100, 90, 35);
+        private static readonly Rectangle AllianceMailTab = new Rectangle(180, 100, 90, 35);
+        private static readonly Rectangle SystemMailTab = new Rectangle(315, 100, 90, 35);
+        private static readonly Rectangle ReportsMailTab = new Rectangle(450, 100, 90, 35);
         private static readonly Rectangle CloseMailButton = new Rectangle(671, 33, 18, 19);
+        // "Tap anywhere to exit" on the Rewards popup; the Mail title bar, nothing to hit there without a popup
+        private static readonly Point RewardsDismissPoint = new Point(360, 40);
 
         // Search areas for mail and claim buttons
         private static readonly Rectangle MailIconSearchArea = new Rectangle(618, 1004, 78, 77);  // 618-696, 1004-1081
@@ -42,9 +45,6 @@ namespace Bot.Core.Tasks.Modules
         private static readonly string TimeStorageFile = Path.Combine(
             AppContext.BaseDirectory, "data", "mail_collection_times.json"
         );
-
-        // Last known claim button location for optimization
-        private Rectangle? _lastKnownClaimLocation = null;
 
         protected override async Task<TaskExecutionDetails> ExecuteTaskLogicAsync(AccountSettings account, LogService logger, CancellationToken cancellationToken, bool isReRun = false, IUserNotificationService? userNotifications = null)
         {
@@ -91,9 +91,10 @@ namespace Bot.Core.Tasks.Modules
                 }
 
                 // Process each mail tab
-                await ProcessMailTab(account, logger, cancellationToken, SystemMailTab, "System");
+                await ProcessMailTab(account, logger, cancellationToken, WarsMailTab, "Wars");
                 await ProcessMailTab(account, logger, cancellationToken, AllianceMailTab, "Alliance");
-                await ProcessMailTab(account, logger, cancellationToken, BattleMailTab, "Battle");
+                await ProcessMailTab(account, logger, cancellationToken, SystemMailTab, "System");
+                await ProcessMailTab(account, logger, cancellationToken, ReportsMailTab, "Reports");
 
                 // Close mail menu
                 logger.LogInfo($"[{account.AccountName}] 🚪 Closing mail menu...");
@@ -321,20 +322,10 @@ namespace Bot.Core.Tasks.Modules
                     return false;
                 }
 
-                await Task.Delay(500, cancellationToken); // Wait for tab switch
+                // A tab with many mails (Reports at 99+) takes a while to load; a claim tap before that is lost
+                await Task.Delay(1500, cancellationToken);
 
-                // Try to claim using last known location first if available
-                if (_lastKnownClaimLocation.HasValue)
-                {
-                    logger.LogInfo($"[{account.AccountName}] 🎯 Trying last known claim button location...");
-                    await ClickRandomInRectAsync(account.InstanceNumber, logger, ClaimButtonSearchArea);
-                    await Task.Delay(200, cancellationToken);
-                    
-                    // Click in the same area again
-                    await ClickRandomInRectAsync(account.InstanceNumber, logger, ClaimButtonSearchArea);
-                }
-
-                // Look for and click claim button
+                // Look for and click the "Read & Claim All" button
                 const int POLL_INTERVAL_MS = 200;
                 const int MAX_WAIT_TIME_MS = 5000;
                 var startTime = DateTime.UtcNow;
@@ -349,29 +340,10 @@ namespace Bot.Core.Tasks.Modules
                         {
                             logger.LogInfo($"[{account.AccountName}] ✅ Found and clicked claim button in {tabName} tab after {(DateTime.UtcNow - startTime).TotalMilliseconds:F0}ms.");
                             claimFound = true;
-                            
-                            // Store the successful claim location
-                            _lastKnownClaimLocation = ClaimButtonSearchArea;
-                            
-                            // Wait 500ms after clicking claim
-                            await Task.Delay(500, cancellationToken);
-                            
-                            // Look for vip-rewards2.png and click if found
-                            if (await WaitForImageAsync("../collectvip/vip-rewards2.png", account.InstanceNumber, logger, cancellationToken,
-                                timeoutMs: 3000, threshold: 0.7, useEnhancedMatching: true))
-                            {
-                                if (await FindAndClickImageAsync("../collectvip/vip-rewards2.png", account.InstanceNumber, logger, threshold: 0.7, useEnhancedMatching: true))
-                                {
-                                    logger.LogInfo($"[{account.AccountName}] ✅ Found and clicked vip-rewards2 after claim.");
-                                }
-                            }
-                            else
-                            {
-                                logger.LogInfo($"[{account.AccountName}] ℹ️ vip-rewards2 not found after claim, continuing...");
-                                // Click at the same location again as fallback
-                                await ClickRandomInRectAsync(account.InstanceNumber, logger, ClaimButtonSearchArea);
-                            }
-                            
+
+                            // Close the Rewards popup (if any) so the next tab tap is not swallowed by it
+                            await Task.Delay(2500, cancellationToken);
+                            await ClickAsync(account.InstanceNumber, logger, RewardsDismissPoint);
                             break;
                         }
                     }
