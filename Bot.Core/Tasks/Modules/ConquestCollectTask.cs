@@ -88,7 +88,7 @@ namespace Bot.Core.Tasks.Modules
 
                 bool claimed = await ClaimIdleIncomeAsync(account, logger, instance, cancellationToken);
 
-                if ((await MatchAsync(ConquestTitleTemplate, ConquestTitleArea, instance, logger)).found)
+                if (await TitleShownAsync(instance, logger))
                 {
                     await ClickAsync(instance, logger, BackArrowPoint);
                     await Task.Delay(1500, cancellationToken);
@@ -124,7 +124,7 @@ namespace Bot.Core.Tasks.Modules
             for (int i = 0; i < 4; i++)
             {
                 await Task.Delay(1500, cancellationToken);
-                if ((await MatchAsync(ConquestTitleTemplate, ConquestTitleArea, instance, logger)).found) return true;
+                if (await TitleShownAsync(instance, logger)) return true;
             }
             logger.LogWarning($"[{account.AccountName}] Conquest screen did not open");
             return false;
@@ -186,6 +186,37 @@ namespace Bot.Core.Tasks.Modules
             int green = OpenCvSharp.Cv2.CountNonZero(mask);
             logger.LogInfo($"Conquest: Claim green pixels {green}");
             return green >= ClaimMinGreenPixels;
+        }
+
+        /// <summary>
+        /// The sky behind the title follows the game's day/night cycle (the template is a day frame: 0.84 at night),
+        /// so only the white arrow outline and text are compared: 0.996 at night, <= 0.76 on other screens.
+        /// </summary>
+        private async Task<bool> TitleShownAsync(int instance, LogService logger)
+        {
+            var screenshot = await TakeScreenshotAsync(instance, logger);
+            if (screenshot == null) return false;
+            using var image = OpenCvSharp.Cv2.ImDecode(screenshot, OpenCvSharp.ImreadModes.Color);
+            using var template = OpenCvSharp.Cv2.ImRead(Path.Combine(ImageTemplateFolder, ConquestTitleTemplate), OpenCvSharp.ImreadModes.Color);
+            if (image.Empty() || template.Empty()) return false;
+            var roi = new OpenCvSharp.Rect(ConquestTitleArea.X, ConquestTitleArea.Y, ConquestTitleArea.Width, ConquestTitleArea.Height)
+                .Intersect(new OpenCvSharp.Rect(0, 0, image.Width, image.Height));
+            using var region = new OpenCvSharp.Mat(image, roi);
+            using var regionWhite = WhiteMask(region);
+            using var templateWhite = WhiteMask(template);
+            using var result = new OpenCvSharp.Mat();
+            OpenCvSharp.Cv2.MatchTemplate(regionWhite, templateWhite, result, OpenCvSharp.TemplateMatchModes.CCoeffNormed);
+            OpenCvSharp.Cv2.MinMaxLoc(result, out _, out double max);
+            return max >= Threshold;
+        }
+
+        private static OpenCvSharp.Mat WhiteMask(OpenCvSharp.Mat bgr)
+        {
+            using var hsv = new OpenCvSharp.Mat();
+            OpenCvSharp.Cv2.CvtColor(bgr, hsv, OpenCvSharp.ColorConversionCodes.BGR2HSV);
+            var mask = new OpenCvSharp.Mat();
+            OpenCvSharp.Cv2.InRange(hsv, new OpenCvSharp.Scalar(0, 0, 200), new OpenCvSharp.Scalar(180, 60, 255), mask);
+            return mask;
         }
 
         private async Task<(bool found, Rectangle rect, double confidence)> MatchAsync(
