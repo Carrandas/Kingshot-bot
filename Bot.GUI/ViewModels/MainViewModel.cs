@@ -317,6 +317,15 @@ namespace Bot.GUI.ViewModels
                 }
                 _logger.LogInfo($"InstanceVM.Instances now has {InstanceVM.Instances.Count} items");
 
+                // "--cycle" on the command line presses the main Launch button (repeating cycles), for unattended runs
+                if (!_autoLaunchDone && Environment.GetCommandLineArgs().Contains("--cycle", StringComparer.OrdinalIgnoreCase))
+                {
+                    _autoLaunchDone = true;
+                    _logger.LogInfo("Auto-launching the cycle service (--cycle)");
+                    // The first call comes from the constructor, before LaunchBotCommand exists: run it once that has finished
+                    System.Windows.Application.Current?.Dispatcher.BeginInvoke(() => LaunchBotCommand?.Execute(null));
+                }
+
                 // "--launch" on the command line presses Launch on every instance once, for unattended runs
                 if (!_autoLaunchDone && Environment.GetCommandLineArgs().Contains("--launch", StringComparer.OrdinalIgnoreCase))
                 {

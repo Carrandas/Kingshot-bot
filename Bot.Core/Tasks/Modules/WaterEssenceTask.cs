@@ -109,7 +109,7 @@ namespace Bot.Core.Tasks.Modules
             await ClickAsync(instance, logger, DailyTabPoint);
             await Task.Delay(1200, cancellationToken);
 
-            var row = await MatchAsync(WaterRowIconTemplate, PanelListArea, PanelRowThreshold, instance, logger);
+            var row = await FindDailyPanelRowAsync(() => MatchAsync(WaterRowIconTemplate, PanelListArea, PanelRowThreshold, instance, logger), instance, logger, cancellationToken);
             int available = row.found ? await ReadAvailableAsync(row.rect, instance, logger) : -1;
             if (!row.found || (available >= 0 && available < MinAvailable))
             {

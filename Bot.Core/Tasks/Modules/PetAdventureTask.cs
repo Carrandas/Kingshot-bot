@@ -174,14 +174,7 @@ namespace Bot.Core.Tasks.Modules
             await ClickAsync(instance, logger, DailyTabPoint);
             await Task.Delay(1200, cancellationToken);
 
-            var row = await MatchAsync(PetRowIconTemplate, PanelListArea, instance, logger);
-            if (!row.found)
-            {
-                // The list scrolls; Pet Adventure may sit below the fold
-                await SwipeAsync(instance, logger, new Point(220, 760), new Point(220, 420), 800);
-                await Task.Delay(1000, cancellationToken);
-                row = await MatchAsync(PetRowIconTemplate, PanelListArea, instance, logger);
-            }
+            var row = await FindDailyPanelRowAsync(() => MatchAsync(PetRowIconTemplate, PanelListArea, instance, logger), instance, logger, cancellationToken);
             if (!row.found)
             {
                 return null;

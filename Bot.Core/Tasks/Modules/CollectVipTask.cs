@@ -41,6 +41,7 @@ namespace Bot.Core.Tasks.Modules
         private static readonly Rectangle VipClaimSearchArea = new Rectangle(480, 780, 180, 80); // 480,780 to 660,860
         // teal + next to the VIP XP bar; the same + exists on other screens (Hall of Heroes), so only search here
         private static readonly Rectangle VipPlusSearchArea = new Rectangle(470, 230, 130, 110);
+        private static readonly Point VipTitleBarPoint = new Point(360, 40); // no button there; closes "tap anywhere" popups
 
         protected override async Task OnInitializeAsync(LogService logger, CancellationToken cancellationToken)
         {
@@ -186,6 +187,14 @@ namespace Bot.Core.Tasks.Modules
                     {
                         logger.LogInfo($"[{account.AccountName}] ❌ VIP rewards (templates\\images\\collectvip\\vip-rewards.png) not found after {attemptCount} attempts in 5 seconds, continuing...");
                     }
+
+                    // A popup other than "Rewards" can stay over the VIP screen and hide Claim and +; tap it away
+                    for (int i = 0; i < 4 && !await IsVipScreenShownAsync(account.InstanceNumber, logger); i++)
+                    {
+                        logger.LogInfo($"[{account.AccountName}] VIP screen covered after the chest, tapping the title bar to close the popup");
+                        await ClickAsync(account.InstanceNumber, logger, VipTitleBarPoint);
+                        await Task.Delay(1000, cancellationToken);
+                    }
                 }
 
                 // Step 4: Find and click VIP claim button (regular template matching in specific area)
@@ -326,6 +335,22 @@ namespace Bot.Core.Tasks.Modules
             }
         }
 
+
+        /// <summary>True while the VIP screen itself is in front (its + button scores 1.00 there, 0.68 under a popup).</summary>
+        private async Task<bool> IsVipScreenShownAsync(int instanceNumber, LogService logger)
+        {
+            var screenshot = await TakeScreenshotAsync(instanceNumber, logger);
+            if (screenshot == null) return false;
+
+            if (_templateMatcher == null) _templateMatcher = new UnifiedTemplateMatchingService(logger);
+            var result = _templateMatcher.MatchTemplate(
+                screenshot, Path.Combine(ImageTemplateFolder, "vip-plus.png"), instanceNumber,
+                threshold: 0.85,
+                scales: new[] { 1.0 },
+                verboseLogging: false,
+                searchArea: VipPlusSearchArea);
+            return result.found;
+        }
 
         /// <summary>Finds the green "Use" button of an owned VIP XP item row.</summary>
         private async Task<(bool found, Rectangle rect)> FindVipUseButtonAsync(int instanceNumber, LogService logger)

@@ -39,11 +39,8 @@ namespace Bot.Core.Tasks.Modules
         private static readonly Rectangle ChestRedDotArea = new Rectangle(680, 788, 24, 24);
         private static readonly Rectangle TriumphBackArea = new Rectangle(0, 0, 110, 90);
         private static readonly Point DailyTabPoint = new Point(370, 268);
-        private static readonly Point PanelSwipeFrom = new Point(220, 720);
-        private static readonly Point PanelSwipeTo = new Point(220, 420);
         private static readonly Point RewardsDismissPoint = new Point(60, 640);  // "Tap anywhere to exit", away from buttons
         private const int PanelRowTitleDx = 180;
-        private const int MaxPanelSwipes = 3;
         private const double PanelArrowThreshold = 0.88;
         private const double PanelRowThreshold = 0.93;  // other row icons score <= 0.80
         private const double Threshold = 0.90;          // screen elements: 1.00 present, <= 0.70 elsewhere
@@ -119,13 +116,7 @@ namespace Bot.Core.Tasks.Modules
             await ClickAsync(instance, logger, DailyTabPoint);
             await Task.Delay(1200, cancellationToken);
 
-            var row = await MatchAsync(TriumphRowIconTemplate, PanelListArea, PanelRowThreshold, instance, logger);
-            for (int i = 0; i < MaxPanelSwipes && !row.found; i++)
-            {
-                await SwipeAsync(instance, logger, PanelSwipeFrom, PanelSwipeTo, 800);
-                await Task.Delay(1000, cancellationToken);
-                row = await MatchAsync(TriumphRowIconTemplate, PanelListArea, PanelRowThreshold, instance, logger);
-            }
+            var row = await FindDailyPanelRowAsync(() => MatchAsync(TriumphRowIconTemplate, PanelListArea, PanelRowThreshold, instance, logger), instance, logger, cancellationToken);
             if (!row.found)
             {
                 logger.LogInfo($"[{account.AccountName}] Alliance Triumph: row hidden, nothing to claim ({row.confidence:F2})");

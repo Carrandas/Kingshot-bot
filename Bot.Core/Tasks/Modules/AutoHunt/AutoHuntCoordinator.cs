@@ -33,6 +33,11 @@ namespace Bot.Core.Tasks.Modules.AutoHunt
         private static readonly ConcurrentDictionary<string, bool> SkipMapViewChecks = new();
         private static readonly ConcurrentDictionary<string, HashSet<Rectangle>> PredictionFailedAreas = new();
 
+        // A hunt march takes ~30-60 s; 12 waits of 20 s cap the extra time at 4 minutes per run
+        private const int BlockedTargetWaitMs = 20000;
+        private const int MaxBlockedTargetWaits = 12;
+        private const int MaxConsecutiveFailures = 3;
+
         // Services
         private readonly ITargetDetectionService _targetDetectionService;
         private readonly IMarchManagementService _marchManagementService;
@@ -109,6 +114,8 @@ namespace Bot.Core.Tasks.Modules.AutoHunt
                 // Main hunt loop
                 int availableMarches = initialMarches;
                 bool noMarchesAvailable;
+                int blockedTargetWaits = 0;
+                int consecutiveFailures = 0;
                 
                 // Outer loop to handle blocked area retries
                 while (!cancellationToken.IsCancellationRequested)
@@ -174,6 +181,19 @@ namespace Bot.Core.Tasks.Modules.AutoHunt
                                 continue;
                             }
 
+                            // Targets with a march on the way stay blocked until their tick is cleared, and new
+                            // intel missions only show up once those are done: wait for the marches instead of leaving
+                            var predictionFailed = PredictionFailedAreas.GetOrAdd(accountId, _ => new HashSet<Rectangle>());
+                            if (blockedTargetWaits < MaxBlockedTargetWaits &&
+                                GetAutoHuntSettings(account).GetUsedTargetAreas(accountId).Any(area => !predictionFailed.Contains(area)))
+                            {
+                                blockedTargetWaits++;
+                                logger.LogInfo($"[{account.AccountName}] Only targets with a march on the way left, waiting {BlockedTargetWaitMs / 1000}s for them to finish ({blockedTargetWaits}/{MaxBlockedTargetWaits})");
+                                await ReturnToMapViewDirectly(account, logger, cancellationToken);
+                                await Task.Delay(BlockedTargetWaitMs, cancellationToken);
+                                continue;
+                            }
+
                             logger.LogInfo($"[{account.AccountName}] No suitable targets available, returning to map view");
                             await ReturnToMapViewDirectly(account, logger, cancellationToken);
                             break;
@@ -186,6 +206,31 @@ namespace Bot.Core.Tasks.Modules.AutoHunt
                             logger.LogInfo($"[{account.AccountName}] Stamina depleted, ending hunt session");
                             await ReturnToMapViewDirectly(account, logger, cancellationToken);
                             return new TaskExecutionDetails(true, message: "Stamina depleted, moving to next module");
+                        }
+
+                        if (!result.Success && target.RequiresMarch)
+                        {
+                            // No march went out (e.g. the deploy screen did not open while every march was busy):
+                            // release the area, unless the target is marching already or was predicted to fail
+                            bool keepBlocked = result.Message == "Target already marching" || result.Message.StartsWith("Prediction");
+                            if (!keepBlocked)
+                            {
+                                var settings = GetAutoHuntSettings(account);
+                                settings.RemoveUsedTargetArea(accountId, target.TargetArea);
+                                SaveAutoHuntSettings(account, settings);
+                                logger.LogInfo($"[{account.AccountName}] {target.Type} not attacked ({result.Message}), area released");
+                            }
+
+                            if (++consecutiveFailures >= MaxConsecutiveFailures)
+                            {
+                                logger.LogInfo($"[{account.AccountName}] {consecutiveFailures} failed attacks in a row, ending the hunt for this run");
+                                await ReturnToMapViewDirectly(account, logger, cancellationToken);
+                                break;
+                            }
+                        }
+                        else if (result.Success)
+                        {
+                            consecutiveFailures = 0;
                         }
 
                         if (result.Success && target.RequiresMarch)

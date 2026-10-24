@@ -570,7 +570,68 @@ namespace Bot.Core.Tasks
                 return true;
             }, false);
         }
-        
+
+        // Side panel Daily list: rows show between y 290 and 800. A 340 px swipe is shorter than that window
+        // minus a row, so every row is fully on screen at some point of a scan.
+        private static readonly OpenCvSharp.Rect DailyListArea = new OpenCvSharp.Rect(10, 290, 430, 510);
+        private static readonly Point DailyListUpper = new Point(220, 420);
+        private static readonly Point DailyListLower = new Point(220, 760);
+        private const int MaxDailyListSwipes = 8;
+        private const double DailyListMovedDiff = 3.0; // mean gray difference; a scroll gives 20+, a static list ~0
+
+        /// <summary>
+        /// Finds a row of the side panel's Daily list (the Daily tab must be open), scrolling through the whole list.
+        /// Rows come and go during the day, so a row can sit below the fold; it only counts as hidden
+        /// ("Hide after mission completion") once the full list has been scanned.
+        /// </summary>
+        protected async Task<(bool found, Rectangle rect, double confidence)> FindDailyPanelRowAsync(
+            Func<Task<(bool found, Rectangle rect, double confidence)>> matchRow,
+            int instanceNumber, LogService logger, CancellationToken cancellationToken)
+        {
+            var row = await matchRow();
+            if (row.found) return row;
+
+            // The list keeps its scroll position while the panel stays open: back to the top first
+            bool movedUp = false;
+            for (int i = 0; i < MaxDailyListSwipes && await SwipeDailyListAsync(instanceNumber, logger, DailyListUpper, DailyListLower, cancellationToken); i++)
+                movedUp = true;
+            if (movedUp)
+            {
+                row = await matchRow();
+                if (row.found) return row;
+            }
+
+            for (int i = 0; i < MaxDailyListSwipes; i++)
+            {
+                if (!await SwipeDailyListAsync(instanceNumber, logger, DailyListLower, DailyListUpper, cancellationToken)) break;
+                row = await matchRow();
+                if (row.found) return row;
+            }
+            logger.LogInfo($"Daily panel: row not in the list (best {row.confidence:F2})");
+            return row;
+        }
+
+        /// <summary>
+        /// Swipes the Daily list and returns whether it moved (false at the end of the list).
+        /// </summary>
+        private async Task<bool> SwipeDailyListAsync(int instanceNumber, LogService logger, Point from, Point to, CancellationToken cancellationToken)
+        {
+            var before = await TakeScreenshotAsync(instanceNumber, logger);
+            await SwipeAsync(instanceNumber, logger, from, to, 800);
+            await Task.Delay(1000, cancellationToken);
+            var after = await TakeScreenshotAsync(instanceNumber, logger);
+            if (before == null || after == null) return false;
+
+            using var a = OpenCvSharp.Cv2.ImDecode(before, OpenCvSharp.ImreadModes.Grayscale);
+            using var b = OpenCvSharp.Cv2.ImDecode(after, OpenCvSharp.ImreadModes.Grayscale);
+            var roi = DailyListArea.Intersect(new OpenCvSharp.Rect(0, 0, Math.Min(a.Width, b.Width), Math.Min(a.Height, b.Height)));
+            using var listA = new OpenCvSharp.Mat(a, roi);
+            using var listB = new OpenCvSharp.Mat(b, roi);
+            using var diff = new OpenCvSharp.Mat();
+            OpenCvSharp.Cv2.Absdiff(listA, listB, diff);
+            return OpenCvSharp.Cv2.Mean(diff).Val0 > DailyListMovedDiff;
+        }
+
         // Method from TroopTrainingTask, now in base
         protected async Task<bool> ClickRandomInRectAsyncWithRetry(int instanceNumber, LogService logger, Rectangle rect, CancellationToken cancellationToken, int maxRetries = 3, Random? random = null)
         {

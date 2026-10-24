@@ -147,9 +147,11 @@ namespace Bot.Core.Tasks.Modules
             await ClickAsync(instance, logger, DailyTabPoint);
             await Task.Delay(1200, cancellationToken);
 
-            var row = await MatchAsync(JourneyRowIconTemplate, PanelListArea, PanelRowThreshold, instance, logger);
-            if (!row.found)
-                row = await MatchAsync(SuppliesRowIconTemplate, PanelListArea, PanelRowThreshold, instance, logger);
+            var row = await FindDailyPanelRowAsync(async () =>
+            {
+                var journey = await MatchAsync(JourneyRowIconTemplate, PanelListArea, PanelRowThreshold, instance, logger);
+                return journey.found ? journey : await MatchAsync(SuppliesRowIconTemplate, PanelListArea, PanelRowThreshold, instance, logger);
+            }, instance, logger, cancellationToken);
             if (!row.found)
             {
                 logger.LogInfo($"[{account.AccountName}] Journey: rows hidden, nothing to do");

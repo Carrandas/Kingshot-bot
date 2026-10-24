@@ -87,7 +87,7 @@ namespace Bot.Core.Tasks.Modules
                     return claims;
                 }
 
-                var row = await MatchAsync(rowIcon, PanelListArea, PanelRowThreshold, instance, logger);
+                var row = await FindDailyPanelRowAsync(() => MatchAsync(rowIcon, PanelListArea, PanelRowThreshold, instance, logger), instance, logger, cancellationToken);
                 if (!row.found)
                 {
                     logger.LogInfo($"[{account.AccountName}] {name}: row hidden, nothing to claim");
