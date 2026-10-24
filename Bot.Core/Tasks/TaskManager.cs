@@ -76,6 +76,7 @@ namespace Bot.Core.Tasks
             _availableTasks[TaskType.TruegoldCrucible] = new TruegoldCrucibleTask();
             _availableTasks[TaskType.AllianceTriumph] = new AllianceTriumphTask();
             _availableTasks[TaskType.WaterEssence] = new WaterEssenceTask();
+            _availableTasks[TaskType.NomadicMerchant] = new NomadicMerchantTask();
             
             _logger.LogInfo($"TaskManager initialized with {_availableTasks.Count} tasks plus startup task");
         }
@@ -623,6 +624,7 @@ namespace Bot.Core.Tasks
                 { TaskType.TruegoldCrucible, 19 },
                 { TaskType.AllianceTriumph, 20 },
                 { TaskType.WaterEssence, 21 },
+                { TaskType.NomadicMerchant, 22 },
                 { TaskType.ChangeAccount, 999 }    // ChangeAccount should always run last
             };
 

@@ -34,7 +34,8 @@ namespace Bot.Core.Models
         Journey,
         TruegoldCrucible,
         AllianceTriumph,
-        WaterEssence
+        WaterEssence,
+        NomadicMerchant
     }
 
     public class AccountSettings : INotifyPropertyChanged

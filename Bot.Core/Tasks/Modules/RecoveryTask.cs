@@ -62,6 +62,7 @@ namespace Bot.Core.Tasks.Modules
                 TaskType.TruegoldCrucible => "Truegold Crucible",
                 TaskType.AllianceTriumph => "Alliance Triumph",
                 TaskType.WaterEssence => "Water Essence",
+                TaskType.NomadicMerchant => "Nomadic Merchant",
                 _ => taskType.ToString()
             };
         }
