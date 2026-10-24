@@ -34,6 +34,7 @@ namespace Bot.Core.Tasks.Modules
         public static event Action<int, string, string>? OnPhaseUpdate;
         
         private static readonly Rectangle LoadingScreenArea = new Rectangle(74, 173, 587, 197);  // Loading screen search area
+        private static readonly Rectangle BaseViewDetectionArea = new Rectangle(589, 1157, 125, 108);  // Town/World button at the bottom right
         
         /// <summary>
         /// Verifies if the LDPlayer instance is running before attempting startup
@@ -253,10 +254,13 @@ namespace Bot.Core.Tasks.Modules
                         break;
                     }
 
-                    // No UI elements found
+                    // No UI elements found: Back closes sale popups (Eternal Legend Pack and the like) and leaves
+                    // screens such as the shop. Back on the bare base view opens "Quit game?", which the next Back cancels.
                     if ((DateTime.UtcNow - startTime).TotalMilliseconds < POST_LOAD_DURATION_MS)
                     {
-                        logger.LogInfo($"[{account.AccountName}] ⏳ No UI elements detected, waiting before next attempt...");
+                        logger.LogInfo($"[{account.AccountName}] ⏳ No UI elements detected, pressing Back before next attempt...");
+                        if (await GetCachedADBController(account.InstanceNumber, logger, cancellationToken) is ADBControllerV2 adb)
+                            await adb.PressBackButtonAsync(cancellationToken);
                         await Task.Delay(POST_LOAD_INTERVAL_MS, cancellationToken);
                     }
                 }
@@ -401,6 +405,21 @@ namespace Bot.Core.Tasks.Modules
         /// Phase 2: Handles the loading screen that appears when starting the game
         /// Uses polling approach to check for loading screen every 1 second for up to 15 seconds
         /// </summary>
+        /// <summary>
+        /// Returns the name of the loading screen template that matches, or null. loading-screen3.png is the current
+        /// Kingshot logo (0.99-1.00 on the loading screen, <= 0.25 on popups, base view and shop); the older two are kept for other builds.
+        /// </summary>
+        private async Task<string?> FindLoadingScreenAsync(AccountSettings account, LogService logger, CancellationToken cancellationToken, int timeoutMs)
+        {
+            foreach (var name in new[] { "loading-screen3.png", "loading-screen.png", "loading-screen2.png" })
+            {
+                if (await WaitForImageAsync(name, account.InstanceNumber, logger, cancellationToken,
+                        timeoutMs: timeoutMs, threshold: 0.5, useEnhancedMatching: true, searchArea: LoadingScreenArea))
+                    return name;
+            }
+            return null;
+        }
+
         private async Task<bool> WaitForLoadingToCompleteInternal(AccountSettings account, LogService logger, CancellationToken cancellationToken)
         {
             const int POLL_INTERVAL_MS = 1000; // Check every 1000ms (1 second)
@@ -420,35 +439,23 @@ namespace Bot.Core.Tasks.Modules
                     return false;
                 }
 
-                // Check for both loading screen variants
-                var loadingScreen1Found = await WaitForImageAsync(
-                    "loading-screen.png",
-                    account.InstanceNumber,
-                    logger,
-                    cancellationToken,
-                    timeoutMs: POLL_INTERVAL_MS,
-                    threshold: 0.5,
-                    useEnhancedMatching: true,
-                    searchArea: LoadingScreenArea
-                );
+                // Check for the loading screen variants
+                var loadingScreenName = await FindLoadingScreenAsync(account, logger, cancellationToken, POLL_INTERVAL_MS);
 
-                var loadingScreen2Found = await WaitForImageAsync(
-                    "loading-screen2.png",
-                    account.InstanceNumber,
-                    logger,
-                    cancellationToken,
-                    timeoutMs: POLL_INTERVAL_MS,
-                    threshold: 0.5,
-                    useEnhancedMatching: true,
-                    searchArea: LoadingScreenArea
-                );
-
-                loadingScreenFound = loadingScreen1Found || loadingScreen2Found;
+                loadingScreenFound = loadingScreenName != null;
                 if (loadingScreenFound)
                 {
-                    detectedLoadingScreen = loadingScreen1Found ? "loading-screen.png" : "loading-screen2.png";
+                    detectedLoadingScreen = loadingScreenName!;
                     logger.LogInfo($"[{account.AccountName}] {detectedLoadingScreen} detected after {(DateTime.UtcNow - startTime).TotalMilliseconds:F0}ms, waiting for it to disappear...");
                     break;
+                }
+
+                // The game was already running (runapp only brings it to the front): no loading screen comes
+                if (await WaitForImageAsync(Path.Combine(AppContext.BaseDirectory, "templates", "images", "locator", "base-view.png"),
+                        account.InstanceNumber, logger, cancellationToken, timeoutMs: 500, threshold: 0.65, searchArea: BaseViewDetectionArea))
+                {
+                    logger.LogInfo($"[{account.AccountName}] Base view already showing, no loading screen to wait for");
+                    return true;
                 }
 
                 await Task.Delay(POLL_INTERVAL_MS, cancellationToken);
@@ -472,32 +479,12 @@ namespace Bot.Core.Tasks.Modules
                     }
 
                     // Check for both loading screens again
-                    var loadingScreen1Found = await WaitForImageAsync(
-                        "loading-screen.png",
-                        account.InstanceNumber,
-                        logger,
-                        cancellationToken,
-                        timeoutMs: POLL_INTERVAL_MS,
-                        threshold: 0.5,
-                        useEnhancedMatching: true,
-                        searchArea: LoadingScreenArea
-                    );
+                    var loadingScreenName = await FindLoadingScreenAsync(account, logger, cancellationToken, POLL_INTERVAL_MS);
 
-                    var loadingScreen2Found = await WaitForImageAsync(
-                        "loading-screen2.png",
-                        account.InstanceNumber,
-                        logger,
-                        cancellationToken,
-                        timeoutMs: POLL_INTERVAL_MS,
-                        threshold: 0.5,
-                        useEnhancedMatching: true,
-                        searchArea: LoadingScreenArea
-                    );
-
-                    loadingScreenFound = loadingScreen1Found || loadingScreen2Found;
+                    loadingScreenFound = loadingScreenName != null;
                     if (loadingScreenFound)
                     {
-                        detectedLoadingScreen = loadingScreen1Found ? "loading-screen.png" : "loading-screen2.png";
+                        detectedLoadingScreen = loadingScreenName!;
                         logger.LogInfo($"[{account.AccountName}] {detectedLoadingScreen} detected during extended search at {(DateTime.UtcNow - startTime).TotalMilliseconds:F0}ms");
                         break;
                     }
@@ -560,29 +547,9 @@ namespace Bot.Core.Tasks.Modules
                     }
 
                     // Check if either loading screen is still visible
-                    var loadingScreen1Found = await WaitForImageAsync(
-                        "loading-screen.png",
-                        account.InstanceNumber,
-                        logger,
-                        cancellationToken,
-                        timeoutMs: POLL_INTERVAL_MS,
-                        threshold: 0.5,
-                        useEnhancedMatching: true,
-                        searchArea: LoadingScreenArea
-                    );
+                    var loadingScreenName = await FindLoadingScreenAsync(account, logger, cancellationToken, POLL_INTERVAL_MS);
 
-                    var loadingScreen2Found = await WaitForImageAsync(
-                        "loading-screen2.png",
-                        account.InstanceNumber,
-                        logger,
-                        cancellationToken,
-                        timeoutMs: POLL_INTERVAL_MS,
-                        threshold: 0.5,
-                        useEnhancedMatching: true,
-                        searchArea: LoadingScreenArea
-                    );
-
-                    var stillLoading = loadingScreen1Found || loadingScreen2Found;
+                    var stillLoading = loadingScreenName != null;
 
                     if (!stillLoading)
                     {

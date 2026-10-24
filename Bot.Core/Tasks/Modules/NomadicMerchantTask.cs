@@ -5,7 +5,6 @@ using Bot.Core.ImageDetection;
 using Bot.Core.Services;
 using System;
 using System.IO;
-using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Drawing;
@@ -40,7 +39,12 @@ namespace Bot.Core.Tasks.Modules
         };
         private const double GemThreshold = 0.85;      // 0.97-1.00 gem price, <= 0.47 bread/wood/stone/iron price
         private const double Threshold = 0.90;         // tab and Free Refresh: 1.00 present, <= 0.18 elsewhere
-        private const int MaxTapsPerSlot = 15;         // a slot that stays non-gem (sold out, not affordable) is left alone
+        // A slot can offer resource items many times in a row, so only taps that leave the card unchanged
+        // (sold out, not affordable) count against it
+        private const int MaxUnchangedTapsPerSlot = 3;
+        private const int MaxBuysPerRound = 150;
+        private const int CardAboveTheStrip = 170;     // item icon, amount and "Left:" line above the price strip
+        private const double UnchangedMeanDiff = 3.0;  // mean absolute pixel difference of the card, 0-255
         private const int MaxRefreshes = 10;
 
         protected override async Task<TaskExecutionDetails> ExecuteTaskLogicAsync(AccountSettings account, LogService logger, CancellationToken cancellationToken, bool isReRun = false, IUserNotificationService? userNotifications = null)
@@ -108,32 +112,62 @@ namespace Bot.Core.Tasks.Modules
         }
 
         /// <summary>
-        /// Taps the price of the first slot not priced in gems until every slot costs gems (or was tapped MaxTapsPerSlot times).
+        /// Taps the price of the first slot not priced in gems until every slot costs gems. A slot whose card does not
+        /// change after a tap MaxUnchangedTapsPerSlot times is left alone.
         /// </summary>
         private async Task<int> BuyResourceItemsAsync(AccountSettings account, LogService logger, int instance, CancellationToken cancellationToken)
         {
-            var taps = new int[PriceAreas.Length];
+            var unchanged = new int[PriceAreas.Length];
             int bought = 0;
-            while (true)
+            while (bought < MaxBuysPerRound)
             {
                 int slot = -1;
                 for (int i = 0; i < PriceAreas.Length && slot < 0; i++)
                 {
-                    if (taps[i] >= MaxTapsPerSlot) continue;
+                    if (unchanged[i] >= MaxUnchangedTapsPerSlot) continue;
                     if (!(await MatchAsync(GemPriceTemplate, PriceAreas[i], GemThreshold, instance, logger)).found) slot = i;
                 }
                 if (slot < 0) break;
 
+                var before = await TakeScreenshotAsync(instance, logger);
                 await ClickCenterInRectAsync(instance, logger, PriceAreas[slot]);
-                taps[slot]++;
-                bought++;
-                logger.LogInfo($"[{account.AccountName}] Nomadic Merchant: bought slot {slot + 1}");
                 // The bought item flies to the resource bar and the new one fades in
                 await Task.Delay(2000, cancellationToken);
+                var after = await TakeScreenshotAsync(instance, logger);
+
+                if (CardUnchanged(before, after, PriceAreas[slot]))
+                {
+                    unchanged[slot]++;
+                    logger.LogWarning($"[{account.AccountName}] Nomadic Merchant: slot {slot + 1} did not change after the tap ({unchanged[slot]}/{MaxUnchangedTapsPerSlot})");
+                }
+                else
+                {
+                    unchanged[slot] = 0;
+                    bought++;
+                    logger.LogInfo($"[{account.AccountName}] Nomadic Merchant: bought slot {slot + 1}");
+                }
             }
-            if (taps.Any(t => t >= MaxTapsPerSlot))
-                logger.LogWarning($"[{account.AccountName}] Nomadic Merchant: a slot stayed unchanged after {MaxTapsPerSlot} taps");
+            if (bought >= MaxBuysPerRound)
+                logger.LogWarning($"[{account.AccountName}] Nomadic Merchant: stopped after {MaxBuysPerRound} buys in one round");
             return bought;
+        }
+
+        /// <summary>
+        /// True when the slot's card (item, amount, price) looks the same in both screenshots.
+        /// </summary>
+        private static bool CardUnchanged(byte[]? before, byte[]? after, Rectangle priceArea)
+        {
+            if (before == null || after == null) return false;
+            using var a = OpenCvSharp.Cv2.ImDecode(before, OpenCvSharp.ImreadModes.Color);
+            using var b = OpenCvSharp.Cv2.ImDecode(after, OpenCvSharp.ImreadModes.Color);
+            var card = new OpenCvSharp.Rect(priceArea.X, priceArea.Y - CardAboveTheStrip, priceArea.Width, priceArea.Height + CardAboveTheStrip)
+                .Intersect(new OpenCvSharp.Rect(0, 0, Math.Min(a.Width, b.Width), Math.Min(a.Height, b.Height)));
+            using var diff = new OpenCvSharp.Mat();
+            using var cardBefore = new OpenCvSharp.Mat(a, card);
+            using var cardAfter = new OpenCvSharp.Mat(b, card);
+            OpenCvSharp.Cv2.Absdiff(cardBefore, cardAfter, diff);
+            var mean = OpenCvSharp.Cv2.Mean(diff);
+            return (mean.Val0 + mean.Val1 + mean.Val2) / 3 < UnchangedMeanDiff;
         }
 
         private async Task<(bool found, Rectangle rect, double confidence)> MatchAsync(
