@@ -501,7 +501,7 @@ namespace Bot.Core.LDPlayer
                 if (!detailedStatus.IsRunning)
                 {
                     _logger.LogInfo($"[BootWait] Instance {instanceNumber} not running (PID: {detailedStatus.ProcessId}), waiting...");
-                    await Task.Delay(2000, cancellationToken);
+                    await Task.Delay(1000, cancellationToken);
                     continue;
                 }
                 
@@ -509,18 +509,10 @@ namespace Bot.Core.LDPlayer
                 if (!detailedStatus.AndroidStarted)
                 {
                     _logger.LogInfo($"[BootWait] Instance {instanceNumber} emulator running but Android not yet started (Status: {detailedStatus.StatusDescription}), waiting...");
-                    
-                    // Add initial delay when instance is first detected as running but Android not started
-                    if (!initialDelayDone)
-                    {
-                        _logger.LogInfo($"[BootWait] Instance {instanceNumber} is running. Waiting 5 seconds for Android to start...");
-                        await Task.Delay(5000, cancellationToken);
-                        initialDelayDone = true;
-                    }
-                    else
-                    {
-                        await Task.Delay(2000, cancellationToken);
-                    }
+
+                    // Poll every second: list2 is cheap (~40 ms) and Android often comes up well within the old fixed 5 s wait
+                    initialDelayDone = true;
+                    await Task.Delay(1000, cancellationToken);
                     continue;
                 }
                 

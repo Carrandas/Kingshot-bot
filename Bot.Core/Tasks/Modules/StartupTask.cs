@@ -95,6 +95,13 @@ namespace Bot.Core.Tasks.Modules
                     return TaskExecutionDetails.Failed("Startup sequence was cancelled");
                 }
 
+                // Game already running on the base or map view: skip the app launch and its loading waits (~15 s)
+                if (await IsInGameViewAsync(account, logger, cancellationToken))
+                {
+                    logger.LogInfo($"[{account.AccountName}] ✅ Game already running, skipping app launch and loading screen");
+                    return await FinishStartupAsync(account, logger, cancellationToken, userNotifications);
+                }
+
                 // Phase 1: Find and click Kingshot app icon
                 NotifyProgress(userNotifications, "Finding game app", 10);
                 logger.LogInfo($"[{account.AccountName}] Starting Phase 1: Finding Kingshot app...");
@@ -302,23 +309,7 @@ namespace Bot.Core.Tasks.Modules
 
                 // --- End new post-loading loop logic ---
 
-                // Phase 5: Final verification to ensure bot is in a known state
-                NotifyProgress(userNotifications, "Verifying game state", 90);
-                logger.LogInfo($"[{account.AccountName}] Starting Phase 5: Final state verification...");
-                if (!await VerifyGameState(account, logger, cancellationToken))
-                {
-                    logger.LogError($"[{account.AccountName}] ❌ Failed to verify game state after recovery attempts.");
-                    UpdatePhaseStatus(account.InstanceNumber, account.AccountName, "Verification Failed");
-                    return FailGameState("Phase 5: Verification", "Game state could not be verified after startup", recoveryNeeded: true);
-                }
-
-                // Phase 6: Startup complete
-                logger.LogInfo($"[{account.AccountName}] ✅ 🎉 STARTUP PHASE COMPLETE! 🎉");
-                UpdatePhaseStatus(account.InstanceNumber, account.AccountName, "Startup Complete");
-                
-                await Task.Delay(GameCoordinates.Delays.AfterCompletion, cancellationToken); // Brief delay after completion
-                
-                return TaskExecutionDetails.Succeeded();
+                return await FinishStartupAsync(account, logger, cancellationToken, userNotifications);
             }
             catch (OperationCanceledException)
             {
@@ -340,6 +331,42 @@ namespace Bot.Core.Tasks.Modules
         }
 
         /// <summary>
+        /// Phase 5 and 6: final verification that the bot is in a known state, then startup complete.
+        /// </summary>
+        private async Task<TaskExecutionDetails> FinishStartupAsync(AccountSettings account, LogService logger, CancellationToken cancellationToken, IUserNotificationService? userNotifications)
+        {
+            NotifyProgress(userNotifications, "Verifying game state", 90);
+            logger.LogInfo($"[{account.AccountName}] Starting Phase 5: Final state verification...");
+            if (!await VerifyGameState(account, logger, cancellationToken))
+            {
+                logger.LogError($"[{account.AccountName}] ❌ Failed to verify game state after recovery attempts.");
+                UpdatePhaseStatus(account.InstanceNumber, account.AccountName, "Verification Failed");
+                return FailGameState("Phase 5: Verification", "Game state could not be verified after startup", recoveryNeeded: true);
+            }
+
+            logger.LogInfo($"[{account.AccountName}] ✅ 🎉 STARTUP PHASE COMPLETE! 🎉");
+            UpdatePhaseStatus(account.InstanceNumber, account.AccountName, "Startup Complete");
+
+            await Task.Delay(GameCoordinates.Delays.AfterCompletion, cancellationToken); // Brief delay after completion
+
+            return TaskExecutionDetails.Succeeded();
+        }
+
+        /// <summary>
+        /// True when the game is already showing the base or map view (the same check the post-loading loop ends on).
+        /// </summary>
+        private async Task<bool> IsInGameViewAsync(AccountSettings account, LogService logger, CancellationToken cancellationToken)
+        {
+            var viewDetectionArea = new Rectangle(589, 1157, 125, 108);
+            var locatorFolder = Path.Combine(AppContext.BaseDirectory, "templates", "images", "locator");
+            if (await WaitForImageAsync(Path.Combine(locatorFolder, "base-view.png"), account.InstanceNumber, logger,
+                    cancellationToken, timeoutMs: 500, threshold: 0.65, searchArea: viewDetectionArea))
+                return true;
+            return await WaitForImageAsync(Path.Combine(locatorFolder, "map-view.png"), account.InstanceNumber, logger,
+                cancellationToken, timeoutMs: 500, threshold: 0.7, searchArea: viewDetectionArea);
+        }
+
+        /// <summary>
         /// Phase 1: Launches the Kingshot app using dnconsole.exe runapp command
         /// </summary>
         private async Task<bool> FindAndClickKingshotApp(AccountSettings account, LogService logger, CancellationToken cancellationToken, IUserNotificationService? userNotifications = null)
@@ -350,8 +377,7 @@ namespace Bot.Core.Tasks.Modules
                 userNotifications?.ShowStatus("Launching Kingshot App", NotificationType.Info);
                 
                 logger.LogInfo($"[{account.AccountName}] Launching Kingshot App");
-                logger.LogInfo($"[{account.AccountName}] ⏳ Waiting 5 seconds to ensure LDPlayer is fully ready...");
-                await Task.Delay(5000, cancellationToken); // Wait 5 seconds to ensure LDPlayer is ready
+                await Task.Delay(1000, cancellationToken); // CanExecuteAsync (and the cycle's boot wait) already confirmed the instance is up
                 
                 logger.LogInfo($"[{account.AccountName}] 🚀 Launching Kingshot app using dnconsole.exe...");
                 
@@ -394,8 +420,8 @@ namespace Bot.Core.Tasks.Modules
                 if (process.ExitCode == 0)
                 {
                     logger.LogInfo($"[{account.AccountName}] ✅ Successfully launched Kingshot app");
-                    logger.LogInfo($"[{account.AccountName}] Waiting 5 seconds before checking for loading menu...");
-                    await Task.Delay(5000, cancellationToken); // Wait 5 seconds before looking for loading menu
+                    // Short wait only: the loading-screen check polls for up to 45 s, and the logo was already up after 5 s
+                    await Task.Delay(1000, cancellationToken);
                     return true;
                 }
                 else
@@ -424,9 +450,9 @@ namespace Bot.Core.Tasks.Modules
         /// Returns the name of the loading screen template that matches, or null. loading-screen3.png is the current
         /// Kingshot logo (0.99-1.00 on the loading screen, <= 0.25 on popups, base view and shop); the older two are kept for other builds.
         /// </summary>
-        private async Task<string?> FindLoadingScreenAsync(AccountSettings account, LogService logger, CancellationToken cancellationToken, int timeoutMs)
+        private async Task<string?> FindLoadingScreenAsync(AccountSettings account, LogService logger, CancellationToken cancellationToken, int timeoutMs, string? only = null)
         {
-            foreach (var name in new[] { "loading-screen3.png", "loading-screen.png", "loading-screen2.png" })
+            foreach (var name in only != null ? new[] { only } : new[] { "loading-screen3.png", "loading-screen.png", "loading-screen2.png" })
             {
                 if (await WaitForImageAsync(name, account.InstanceNumber, logger, cancellationToken,
                         timeoutMs: timeoutMs, threshold: 0.5, useEnhancedMatching: true, searchArea: LoadingScreenArea))
@@ -561,8 +587,8 @@ namespace Bot.Core.Tasks.Modules
                         return false;
                     }
 
-                    // Check if either loading screen is still visible
-                    var loadingScreenName = await FindLoadingScreenAsync(account, logger, cancellationToken, POLL_INTERVAL_MS);
+                    // Only the loading screen that was seen: checking the other variants added ~2.5 s once it was gone
+                    var loadingScreenName = await FindLoadingScreenAsync(account, logger, cancellationToken, POLL_INTERVAL_MS, detectedLoadingScreen);
 
                     var stillLoading = loadingScreenName != null;
 

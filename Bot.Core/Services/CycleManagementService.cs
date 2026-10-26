@@ -423,9 +423,8 @@ namespace Bot.Core.Services
                 if (instanceStarted)
                 {
                     _logger.LogInfo($"✅ LDPlayer instance {account.InstanceNumber} confirmed running/started for {account.AccountName}.");
-                    
-                    // Add a delay after starting the instance to let it fully initialize
-                    await Task.Delay(2000, cycleToken);
+
+                    // No extra wait: the boot wait has already checked ADB and taken a screenshot
 
                     // Ensure ADB connection is established before running tasks
                     _logger.LogInfo($"🔌 Ensuring ADB connection for instance {account.InstanceNumber}...");
@@ -436,9 +435,6 @@ namespace Bot.Core.Services
                         return false;
                     }
                     _logger.LogInfo($"✅ ADB connection established for instance {account.InstanceNumber}");
-
-                    // Add a small delay after ADB connection
-                    await Task.Delay(1000, cycleToken);
 
                     accountOverallSuccess = await _taskManager.RunTasksForAccountAsync(account, cycleToken);
 
