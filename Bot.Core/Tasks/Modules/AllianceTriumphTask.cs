@@ -13,8 +13,8 @@ using System.Drawing;
 namespace Bot.Core.Tasks.Modules
 {
     /// <summary>
-    /// Side panel > Daily tab > Alliance Triumph "Daily Activity Triumph" row (at the bottom of the list) >
-    /// Activity Triumph screen: claims the Personal Activity Triumph Chest (free, once per day at 800/800 points).
+    /// Bottom bar Alliance > Triumph button > Activity Triumph screen: claims last week's alliance reward (the big chest at the top, while it shows
+    /// "Claimable Rewards") and the Personal Activity Triumph Chest (free, once per day at 800/800 points).
     ///
     /// SAFETY: the chest is only tapped while its red dot shows. Nothing on this screen costs gems.
     /// </summary>
@@ -25,32 +25,28 @@ namespace Bot.Core.Tasks.Modules
 
         private LocatorService? _locatorService;
 
-        private const string PanelOpenArrowTemplate = "panel-open-arrow.png";
-        private const string PanelCloseArrowTemplate = "panel-close-arrow.png";
-        private const string TriumphRowIconTemplate = "triumph-row-icon.png";  // Daily Activity Triumph row
+        private const string AllianceMenuTemplate = "alliance-menu.png";       // Alliance button of the bottom bar
+        private const string TriumphButtonTemplate = "triumph-button.png";     // Triumph button at the bottom of the Alliance screen
         private const string TriumphTitleTemplate = "triumph-title.png";       // "Activity Triumph" screen title
         private const string PersonalChestTemplate = "personal-chest.png";     // unopened chest body (no hero portrait or points counter)
-        private const string TriumphBackTemplate = "triumph-back.png";
-        private static readonly Rectangle PanelOpenArrowArea = new Rectangle(0, 420, 60, 260);
-        private static readonly Rectangle PanelCloseArrowArea = new Rectangle(400, 420, 120, 260);
-        private static readonly Rectangle PanelListArea = new Rectangle(0, 290, 120, 540);
+        private const string WeeklyClaimableTemplate = "weekly-claimable.png"; // "Claimable Rewards:" label; "Current Rewards:" once claimed
+        private static readonly Rectangle AllianceMenuArea = new Rectangle(480, 1160, 150, 110);
+        private static readonly Rectangle TriumphButtonArea = new Rectangle(240, 1140, 240, 140);
         private static readonly Rectangle TriumphTitleArea = new Rectangle(70, 0, 300, 80);
         private static readonly Rectangle PersonalChestArea = new Rectangle(20, 780, 230, 190);
         private static readonly Rectangle ChestRedDotArea = new Rectangle(680, 788, 24, 24);
-        private static readonly Rectangle TriumphBackArea = new Rectangle(0, 0, 110, 90);
-        private static readonly Point DailyTabPoint = new Point(370, 268);
+        private static readonly Rectangle WeeklyClaimableArea = new Rectangle(80, 700, 560, 120);
+        private static readonly Point WeeklyChestPoint = new Point(360, 460);
+        private static readonly Point BackArrowPoint = new Point(45, 40);
         private static readonly Point RewardsDismissPoint = new Point(60, 640);  // "Tap anywhere to exit", away from buttons
-        private const int PanelRowTitleDx = 180;
-        private const double PanelArrowThreshold = 0.88;
-        private const double PanelRowThreshold = 0.93;  // other row icons score <= 0.80
-        private const double Threshold = 0.90;          // screen elements: 1.00 present, <= 0.70 elsewhere
+        private const double Threshold = 0.90;          // screen elements and buttons: 1.00 present, <= 0.70 elsewhere
         // The chest shimmers and differs a little per account: ~0.90-1.00 unopened, <= 0.60 once opened
         private const double ChestThreshold = 0.80;
         private const int MinRedDotPixels = 60;
+        private const double WeeklyThreshold = 0.85;    // 1.00 claimable, <= 0.67 elsewhere ("Current Rewards:" after the claim)
 
-        // The daily chest resets at 00:00 UTC; once claimed, skip until then
+        // Both chests reset at 00:00 UTC (the weekly one on the weekly tally day); once the daily chest is claimed, skip until then
         private static readonly ConcurrentDictionary<string, DateTime> _lastClaimUtcDate = new();
-        private bool _rowHidden;
 
         protected override async Task<TaskExecutionDetails> ExecuteTaskLogicAsync(AccountSettings account, LogService logger, CancellationToken cancellationToken, bool isReRun = false, IUserNotificationService? userNotifications = null)
         {
@@ -65,27 +61,25 @@ namespace Bot.Core.Tasks.Modules
                 int instance = account.InstanceNumber;
                 await _locatorService.EnsureViewAsync(ViewType.BaseView, instance, cancellationToken);
 
-                _rowHidden = false;
                 if (!await OpenTriumphAsync(account, logger, instance, cancellationToken))
                 {
-                    // a hidden row means today's chest is already claimed; a panel that failed to open is retried next cycle
-                    if (_rowHidden) _lastClaimUtcDate[accountKey] = DateTime.UtcNow.Date;
                     await _locatorService.EnsureViewAsync(ViewType.BaseView, instance, cancellationToken);
-                    return TaskExecutionDetails.Succeeded("Row hidden or screen did not open");
+                    return TaskExecutionDetails.Failed("Activity Triumph screen did not open");
                 }
 
+                bool weeklyClaimed = await ClaimWeeklyAsync(account, logger, instance, cancellationToken);
                 bool claimedNow = await ClaimChestAsync(account, logger, instance, cancellationToken);
                 if (claimedNow) _lastClaimUtcDate[accountKey] = DateTime.UtcNow.Date;
 
-                var back = await MatchAsync(TriumphBackTemplate, TriumphBackArea, Threshold, instance, logger);
-                if (back.found)
+                // Activity Triumph screen > Alliance screen > base
+                for (int i = 0; i < 2; i++)
                 {
-                    await ClickCenterInRectAsync(instance, logger, back.rect);
+                    await ClickAsync(instance, logger, BackArrowPoint);
                     await Task.Delay(1500, cancellationToken);
                 }
                 await _locatorService.EnsureViewAsync(ViewType.BaseView, instance, cancellationToken);
 
-                string result = claimedNow ? "personal chest claimed" : "chest not claimable";
+                string result = (weeklyClaimed ? "weekly reward claimed, " : "") + (claimedNow ? "personal chest claimed" : "personal chest not claimable");
                 logger.LogInfo($"[{account.AccountName}] Alliance Triumph done: {result}");
                 return TaskExecutionDetails.Succeeded(result);
             }
@@ -101,37 +95,26 @@ namespace Bot.Core.Tasks.Modules
         }
 
         /// <summary>
-        /// Side panel > Daily tab, scrolled down to the Alliance Triumph row. The panel hides completed rows,
-        /// so a row missing after scrolling means there is nothing to claim.
+        /// Bottom bar Alliance > Triumph button.
         /// </summary>
         private async Task<bool> OpenTriumphAsync(AccountSettings account, LogService logger, int instance, CancellationToken cancellationToken)
         {
-            if (!(await MatchAsync(PanelCloseArrowTemplate, PanelCloseArrowArea, PanelArrowThreshold, instance, logger)).found)
+            var menu = await MatchAsync(AllianceMenuTemplate, AllianceMenuArea, Threshold, instance, logger);
+            if (!menu.found)
             {
-                var arrow = await MatchAsync(PanelOpenArrowTemplate, PanelOpenArrowArea, PanelArrowThreshold, instance, logger);
-                if (!arrow.found)
-                {
-                    logger.LogWarning($"[{account.AccountName}] Alliance Triumph: side panel arrow not found");
-                    return false;
-                }
-                await ClickCenterInRectAsync(instance, logger, arrow.rect);
-                await Task.Delay(1500, cancellationToken);
-            }
-            await ClickAsync(instance, logger, DailyTabPoint);
-            await Task.Delay(1200, cancellationToken);
-
-            var row = await FindDailyPanelRowAsync(() => MatchAsync(TriumphRowIconTemplate, PanelListArea, PanelRowThreshold, instance, logger), instance, logger, cancellationToken);
-            if (!row.found)
-            {
-                logger.LogInfo($"[{account.AccountName}] Alliance Triumph: row hidden, nothing to claim ({row.confidence:F2})");
-                _rowHidden = true;
-                var close = await MatchAsync(PanelCloseArrowTemplate, PanelCloseArrowArea, PanelArrowThreshold, instance, logger);
-                if (close.found) await ClickCenterInRectAsync(instance, logger, close.rect);
-                await Task.Delay(1000, cancellationToken);
+                logger.LogWarning($"[{account.AccountName}] Alliance Triumph: Alliance button not found ({menu.confidence:F2})");
                 return false;
             }
+            await ClickCenterInRectAsync(instance, logger, menu.rect);
+            await Task.Delay(2000, cancellationToken);
 
-            await ClickAsync(instance, logger, new Point(row.rect.X + row.rect.Width / 2 + PanelRowTitleDx, row.rect.Y + row.rect.Height / 2));
+            var button = await MatchAsync(TriumphButtonTemplate, TriumphButtonArea, Threshold, instance, logger);
+            if (!button.found)
+            {
+                logger.LogWarning($"[{account.AccountName}] Alliance Triumph: Triumph button not found ({button.confidence:F2})");
+                return false;
+            }
+            await ClickCenterInRectAsync(instance, logger, button.rect);
             for (int i = 0; i < 4; i++)
             {
                 await Task.Delay(1500, cancellationToken);
@@ -139,6 +122,28 @@ namespace Bot.Core.Tasks.Modules
             }
             logger.LogWarning($"[{account.AccountName}] Alliance Triumph screen did not open");
             return false;
+        }
+
+        /// <summary>
+        /// Taps the big chest while the "Claimable Rewards" label shows (last week's alliance reward), then
+        /// dismisses the Weekly Rewards popup.
+        /// </summary>
+        private async Task<bool> ClaimWeeklyAsync(AccountSettings account, LogService logger, int instance, CancellationToken cancellationToken)
+        {
+            var label = await MatchAsync(WeeklyClaimableTemplate, WeeklyClaimableArea, WeeklyThreshold, instance, logger);
+            if (!label.found) return false;
+
+            await ClickAsync(instance, logger, WeeklyChestPoint);
+            await Task.Delay(2500, cancellationToken);
+            await ClickAsync(instance, logger, RewardsDismissPoint);
+            await Task.Delay(1500, cancellationToken);
+            if (!(await MatchAsync(TriumphTitleTemplate, TriumphTitleArea, Threshold, instance, logger)).found)
+            {
+                await ClickAsync(instance, logger, RewardsDismissPoint);
+                await Task.Delay(1500, cancellationToken);
+            }
+            logger.LogInfo($"[{account.AccountName}] Alliance Triumph: weekly reward claimed ({label.confidence:F2})");
+            return true;
         }
 
         /// <summary>

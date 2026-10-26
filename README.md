@@ -39,7 +39,7 @@ KingshotAuto drives the game through a set of pluggable automation **tasks**. Ea
 **Alliance**
 - **Alliance Help** — send alliance help
 - **Alliance Technology** — contribute to the recommended alliance technology
-- **Alliance Triumph** — claim the daily Personal Activity Triumph chest
+- **Alliance Triumph** — claim last week's alliance reward and the daily Personal Activity Triumph chest
 - **Alliance Chests** — Claim All on the Loot Chest and Alliance Gift tabs, and open the key chest
 
 **System**
