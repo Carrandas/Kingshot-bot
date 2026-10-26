@@ -13,17 +13,43 @@ ITask (Interface)
 │   ├── Unified ADB operations, screenshot caching
 │   ├── Template matching and error recovery
 │   └── Common automation patterns
-└── Concrete Tasks (Tasks/Modules/)
-    ├── FarmingTask, AutoHuntTask, AutoShieldTask
-    └── 15+ specialized automation tasks
+└── Concrete Tasks (Tasks/Modules/), about 30
+    ├── System: StartupTask, AccountDetectionTask, ChangeAccountTask, RecoveryTask
+    ├── Map/combat: AutoHuntTask (+ AutoHunt/ coordinator), AutoRallyTask, FarmingTask, AutoShieldTask, AutoHealTask
+    ├── Town: AutoBuildTask, TroopTrainingTask, AutoTechnologyTask, SuggestionBoxTask, ResidentWelcomeTask
+    ├── Daily rewards: CollectOnlineRewardsTask, CollectRewardsTask, NomadicMerchantTask, PetAdventureTask,
+    │   JourneyTask, TruegoldCrucibleTask, WaterEssenceTask, ConquestCollectTask, CollectVipTask,
+    │   ClaimMailTask, ClaimMissionsTask, AutoClaimHeroTask
+    └── Alliance: AllianceHelpTask, AllianceTechnologyTask, AllianceTriumphTask, AllianceChestsTask
 ```
 
-**Adding new tasks:**
-1. Inherit from `BaseTaskWithCommonPatterns`
-2. Use unified template matching methods (`FindAndClickImageAsync`, etc.)
-3. Implement proper error recovery patterns
-4. Add task-specific configuration model if needed
-5. Register in TaskManager constructor
+**Adding new tasks:** see [CONTRIBUTING.md](../CONTRIBUTING.md#how-to-add-a-new-automation-task). A task is registered in five places: the `TaskType` enum, `_availableTasks` and the priority dictionary in `TaskManager`, `RecoveryTask.GetUserFriendlyTaskName`, and the GUI's `TaskTypeToDisplayNameConverter`.
+
+### Task Order
+`TaskManager` sorts the enabled tasks by a priority dictionary (lower runs first). The order matters in a few places:
+- `AccountDetection` runs first, since other tasks key their state on the account ID.
+- `CollectOnlineRewards` runs before `AutoHunt`: the online rewards include the stamina the Intel missions spend.
+- `SuggestionBox` runs before `ResidentWelcome`, whose zoom-out shrinks the Suggestion Box envelope.
+- `ChangeAccount` runs at both ends of the list (see Multiple Characters).
+
+Only one task loop runs per instance at a time: `TaskManager` keeps a per-instance run guard, so the cycle service and the instance's Start button can't run two loops on the same emulator.
+
+### Multiple Characters
+One game login can hold several characters. `ChangeAccountTask` runs the task list once on every enabled character:
+- At the start it reads the game's Characters screen. If the active character is disabled, it switches to an enabled one.
+- At the end it switches to the next enabled character that hasn't run yet this cycle, and the list restarts.
+
+The character list is kept in `AccountSettings.Characters` (`CharacterRoster`). Names come from OCR, so they're compared loosely: the alliance tag is ignored, and I/l/1/| count as the same letter.
+
+### Daily Gates and Saved State
+The game resets at **00:00 UTC**. Tasks that can only be done once a day record `DateTime.UtcNow.Date` per account (keyed by `AccountDetectionTask.GetCachedAccountId`) and skip until the date changes:
+- Collect Store Rewards (saved to disk), Nomadic Merchant, Truegold Crucible, Alliance Triumph (in memory, reset when the app restarts)
+
+Other tasks repeat on their own timers: Conquest Collect every `WaitHours` (default 4), Alliance Technology every 10 hours, and Journey's free supplies at 08:00 and 16:00 UTC.
+
+Saved state lives in `data/` next to the executable:
+- `collect_rewards_daily_runs.json` and `collect_rewards_bank_times.json`
+- `suggestion_box_answers.json`, the Suggestion Box answers learned on top of the built-in table in `SuggestionBoxTask`
 
 ### Multi-Instance Management (Resource Pool Pattern)
 ```
@@ -70,8 +96,8 @@ ADBConnectionManager (Static Service)
 ### Cycle Management Flow
 1. Start cycle with random wait time (20-40 min configurable)
 2. Process accounts (parallel or sequential based on `TotalRunningInstances`)
-3. Per account: Start instance → Establish ADB → Run tasks → Shutdown (optional)
-4. Wait between cycles → Repeat
+3. Per account: Start instance → Establish ADB → Run tasks (on every enabled character) → Shutdown (optional)
+4. Wait between cycles → Repeat. During the wait the GUI shows each instance as "Done, next cycle in N min".
 
 ### Error Recovery Hierarchy
 1. Task-level retry (BaseTaskWithCommonPatterns)
@@ -118,17 +144,21 @@ var cacheKey = $"template_{account.InstanceNumber}_{templateName}";
 ```
 
 ### Template Matching Usage
+Recent tasks use a private `MatchAsync` helper around `UnifiedTemplateMatchingService`, at scale 1.0 and with a tight search area:
 ```csharp
-// UI elements (buttons, icons) - use isUIElement: true
-FindAndClickImageAsync("button.png", instanceNumber, logger,
-    threshold: 0.6, searchArea: ButtonArea, isUIElement: true);
+private const double Threshold = 0.90;   // 1.00 present, <= 0.18 elsewhere
+private static readonly Rectangle TabArea = new Rectangle(0, 1180, 230, 100);
 
-// Game elements - default grayscale matching
-FindAndClickImageAsync("target.png", instanceNumber, logger,
-    threshold: 0.6, searchArea: GameArea);
-
-// Always use search areas and appropriate thresholds (0.5-0.8)
+var result = _templateMatcher.MatchTemplate(screenshot, Path.Combine(ImageTemplateFolder, "tab.png"), instance,
+    threshold: Threshold, scales: new[] { 1.0 }, verboseLogging: false, searchArea: TabArea);
+if (result.found) await ClickCenterInRectAsync(instance, logger, result.matchRect);
 ```
+Thresholds come from measured scores: score the template where it is present and where it isn't, and put the threshold in the gap. Write those scores in a comment next to the constant.
+
+Older tasks use `FindAndClickImageAsync("button.png", instance, logger, threshold: 0.6, searchArea: ..., isUIElement: true)`.
+
+### OCR of Coloured Text
+The OCR preprocessing (grayscale, invert, Otsu) loses coloured or outlined text. Mask the text colour with HSV `InRange` into a white-on-black image first, then run `OCRService` on it with a whitelist and a page segmentation mode (`SingleLine`, `SingleWord` or `SingleBlock`). See `JourneyTask.ReadIdleSuppliesAsync` and `SuggestionBoxTask.ReadText`.
 
 ## Versioning
 

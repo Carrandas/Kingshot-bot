@@ -60,7 +60,7 @@ templates/images/          # CV template images, one folder per task
 docs/                      # ARCHITECTURE.md and more
 ```
 
-For deeper detail on the task system, multi-instance management, configuration, and the CV pipeline, read **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**. There is also a **[CLAUDE.md](CLAUDE.md)** with project conventions for contributors who use AI coding assistants.
+For deeper detail on the task system, multi-instance management, configuration, and the CV pipeline, read **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**.
 
 ## How to add a new automation task
 
@@ -71,15 +71,26 @@ The task system uses a common abstract base so each task only has to implement i
    ```csharp
    public override TaskType TaskType => TaskType.MyNewTask;
    public override string Name => "My New Task";
-   protected override string GetImageFolderName() => "mynewtask"; // folder under templates/images/
    ```
-3. **Add a `TaskType` enum value** for your task in `Bot.Core/Models/AccountSettings.cs` (where the `TaskType` enum lives).
-4. **Implement the task logic** using the base class's unified helpers rather than raw ADB calls — e.g. `FindAndClickImageAsync(...)`, screenshot caching, and the retry/recovery patterns. Follow the established structure: validate state → ensure the correct view → run the core logic with sensible randomized delays → handle errors and return a `TaskExecutionDetails` result.
-5. **Register the task** in the `TaskManager` constructor (`Bot.Core/Tasks/TaskManager.cs`), e.g. `_availableTasks[TaskType.MyNewTask] = new MyNewTask();`.
+   Templates load from `templates/images/<tasktype in lowercase>/`. Override `GetImageFolderName()` only if your folder is named differently.
+3. **Register the task in five places:**
+   - a `TaskType` enum value in `Bot.Core/Models/AccountSettings.cs`
+   - `_availableTasks` in the `TaskManager` constructor (`Bot.Core/Tasks/TaskManager.cs`), e.g. `_availableTasks[TaskType.MyNewTask] = new MyNewTask();`
+   - the task priority dictionary in `TaskManager.cs`, which sets the order tasks run in (lower runs first)
+   - `GetUserFriendlyTaskName` in `Bot.Core/Tasks/Modules/RecoveryTask.cs`
+   - `DisplayNames` in `Bot.GUI/Converters/TaskTypeToDisplayNameConverter.cs`, the name shown in the GUI
+
+   The GUI's task list is built from the enum, so the task shows up there automatically.
+4. **Implement the task logic** using the base class's helpers rather than raw ADB calls: `TakeScreenshotAsync`, `ClickAsync` / `ClickCenterInRectAsync`, and `UnifiedTemplateMatchingService` for matching. Follow the established structure:
+   - start with `LocatorService.EnsureViewAsync(ViewType.BaseView, ...)`
+   - run the core logic, keeping the waits long enough for the game's animations
+   - return to the base view
+   - return `TaskExecutionDetails.Succeeded(...)` or `Failed(...)`
+5. **Once-a-day tasks:** the game resets at 00:00 UTC. If a task can only be done once a day, record `DateTime.UtcNow.Date` per account once it's done (keyed by `AccountDetectionTask.GetCachedAccountId`) and skip until the date changes. See `NomadicMerchantTask` and `CollectRewardsTask`.
 6. **Add template images** for the buttons/icons your task needs (see below).
 7. Prefer instance-specific operations everywhere (pass the instance number through) so the task is multi-instance safe.
 
-Use existing modules (for example `AutoBuildTask.cs`) as a reference for structure and the available helpers.
+Recent tasks are the best reference for structure and helpers: `JourneyTask.cs`, `WaterEssenceTask.cs`, `NomadicMerchantTask.cs`, `SuggestionBoxTask.cs`.
 
 ## Capturing and adding template images
 
@@ -88,7 +99,9 @@ The CV pipeline matches small reference images ("templates") against the emulato
 - Template images live in `templates/images/<taskFolder>/`, where `<taskFolder>` is the name returned by your task's `GetImageFolderName()`.
 - Capture crops of the **exact UI element** you want to match (button, icon, label) from a screenshot of the running game, and save them as PNG.
 - Keep crops tight and unambiguous; avoid including large amounts of changing background.
-- **Resolution matters.** Templates were originally captured at a specific emulator resolution, so matches can fail at other resolutions/DPI. When adding templates, note the resolution you captured at, and prefer thresholds and search areas that the base helpers already use (`isUIElement: true` for UI buttons, thresholds roughly `0.5`–`0.8`).
+- **Resolution matters.** Templates are captured on a 720x1280 emulator screen, so matches can fail at other resolutions/DPI.
+- **Pick thresholds from measured scores.** Score the template on screenshots where the element is present and on screens where it isn't, put the threshold in the gap, and write the scores next to the constant, e.g. `// 0.97-1.00 present, <= 0.47 elsewhere`. A threshold that sits just below a "wrong" score (say 0.85 against a 0.855 false match) is a bug waiting to happen.
+- Give every match a tight search area. Animated elements (wobbling bubbles, pulsing buttons) can score well below 1.00 on some frames, so check a few frames.
 - Test your templates against real screenshots before submitting; flaky matching is the most common source of bugs here.
 
 ## Coding conventions

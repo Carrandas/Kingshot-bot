@@ -11,22 +11,42 @@ A Windows desktop automation tool for the mobile strategy game **Kingshot**. It 
 
 KingshotAuto drives the game through a set of pluggable automation **tasks**. Each task uses screen captures from the emulator plus template matching / OCR to find and click the right UI elements. Current task modules include:
 
-- **Farming** — gather resources on the world map
-- **Auto Hunt** — attack hunting / beast targets
+**Combat and the world map**
+- **Intel Missions** (Auto Hunt) — attack beasts and run the Intel missions
 - **Auto Rally** — start and join rallies
+- **Farming** — send marches to gather resources on the world map
 - **Auto Shield** — keep your city shield active
 - **Auto Heal** — heal wounded troops
+
+**Town**
 - **Auto Build** — queue building upgrades
 - **Troop Training** — train troops
-- **Auto Technology** & **Alliance Technology** — research / alliance tech
-- **Auto Claim Hero** — claim hero rewards
+- **Auto Technology** — research technology (hidden in the GUI, not ready yet)
+- **Suggestion Box** — answer the residents' SOS letters; picks the right answer from a built-in table and learns new letters from the Public Opinion result
+- **Resident Welcome** — welcome new residents at the gate (mostly useful for younger towns)
+
+**Daily rewards**
+- **Collect Online Rewards** — the Online Rewards chest and Gourmet Feast; runs before Intel Missions because it gives the stamina the Intel missions use
+- **Collect Store Rewards** — free chests in the store and the Weekly/Monthly Cards claims, once a day
+- **Nomadic Merchant** — buy every item priced in resources and use the free refresh; never buys with gems
+- **Pet Adventure** — claim finished chests, send pets out with Hunt All, share and claim Ally Treasure
+- **Journey** — claim the free Journey Supplies (08:00 and 16:00 UTC) and spend them on an Idle Journey
+- **Truegold Crucible** — the daily Refines and the -50% Super Refine
+- **Water Essence** — collect the water essence at the Fountain of Life
+- **Conquest Collect** — collect the conquest idle income
+- **Collect VIP**, **Claim Mail**, **Claim Missions**, **Auto Claim Hero** — claim VIP, mail, mission and hero rewards
+
+**Alliance**
 - **Alliance Help** — send alliance help
-- **Conquest Collect** — collect conquest rewards
-- **Collect VIP** — claim VIP rewards
-- **Claim Mail** & **Claim Missions** — collect mail and mission rewards
-- **Resident Welcome** — welcome residents
-- **Account Detection / Change Account** — multi-account switching
+- **Alliance Technology** — contribute to the recommended alliance technology
+- **Alliance Triumph** — claim the daily Personal Activity Triumph chest
+- **Alliance Chests** — Claim All on the Loot Chest and Alliance Gift tabs, and open the key chest
+
+**System**
+- **Account Detection / Change Account** — identify the account and run the task list on every enabled character of a game login
 - **Startup / Recovery** — bring the game to a known state and recover from unexpected UI
+
+The game resets at **00:00 UTC**. Tasks that can only be done once a day (Collect Store Rewards, Nomadic Merchant, Truegold Crucible, Alliance Triumph) skip themselves for the rest of the UTC day once they are done, so repeated cycles don't waste time on them.
 
 Additional capabilities:
 
@@ -119,8 +139,7 @@ KingshotAuto/
 │   └── Converters/
 ├── Bot.Core.Tests/            # Tests
 ├── configs/                    # Config + documented example
-├── templates/images/          # CV template images (one folder per task)
-└── docs/                       # ARCHITECTURE.md, etc.
+├── templates/images/          # CV template images (one folder per task)└── docs/                       # ARCHITECTURE.md, etc.
 ```
 
 ## Contributing
