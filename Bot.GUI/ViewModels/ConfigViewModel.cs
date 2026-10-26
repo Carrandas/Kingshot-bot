@@ -159,6 +159,7 @@ namespace Bot.GUI.ViewModels
         public ICommand ApplyTroopTrainingSettingsToAllCommand { get; }
         public ICommand ApplyAllianceTechnologySettingsToAllCommand { get; }
         public ICommand ApplyConquestCollectSettingsToAllCommand { get; }
+        public ICommand SaveCharactersCommand { get; }
 
         private AccountSettings? _selectedAccount;
         public AccountSettings? SelectedAccount
@@ -472,8 +473,13 @@ namespace Bot.GUI.ViewModels
             ApplyTroopTrainingSettingsToAllCommand = new RelayCommand(_ => ApplyTroopTrainingSettingsToAll(), _ => SelectedAccount != null);
             ApplyAllianceTechnologySettingsToAllCommand = new RelayCommand(_ => ApplyAllianceTechnologySettingsToAll(), _ => SelectedAccount != null);
             ApplyConquestCollectSettingsToAllCommand = new RelayCommand(_ => ApplyConquestCollectSettingsToAll(), _ => SelectedAccount != null);
+            SaveCharactersCommand = new RelayCommand(_ => SaveConfigIfNotApplying());
 
             LoadConfigOrDefault();
+
+            // Change Account updates the character list from the bot thread: apply it on the UI thread and save it
+            CharacterRoster.Dispatch = action => WPFApplication.Current.Dispatcher.Invoke(action);
+            CharacterRoster.Changed += _ => SaveConfigIfNotApplying();
         }
 
         private void UpdateSelectedAccountFarmingTargets()
@@ -575,6 +581,7 @@ namespace Bot.GUI.ViewModels
             foreach (var acc in config.Accounts)
             {
                 if (acc.FarmingTargets == null) acc.FarmingTargets = new ObservableCollection<FarmingTarget>();
+                if (acc.Characters == null) acc.Characters = new ObservableCollection<CharacterEntry>();
                 // Fix-up: Convert any string values in EnabledTasks to TaskType enum values
                 if (acc.EnabledTasks != null)
                 {

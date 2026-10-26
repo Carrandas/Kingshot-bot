@@ -385,7 +385,17 @@ namespace Bot.GUI.ViewModels
                     if (parts.Length >= 4)
                     {
                         var actualMessage = string.Join("|", parts.Skip(3)); // Rejoin in case message contains |
-                        
+
+                        // "Waiting {n} minutes before next cycle": the cycle is over, so the last task shown is finished
+                        var waitMatch = System.Text.RegularExpressions.Regex.Match(actualMessage, @"Waiting ([\d.,]+) minutes before next cycle");
+                        if (waitMatch.Success)
+                        {
+                            var minutes = (int)Math.Round(double.Parse(waitMatch.Groups[1].Value.Replace(',', '.'), System.Globalization.CultureInfo.InvariantCulture));
+                            foreach (var inst in InstanceVM.Instances)
+                                inst.LastTask = $"Done, next cycle in {minutes} min";
+                            return;
+                        }
+
                         string taskType = null;
                         string accountName = null;
                         

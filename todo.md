@@ -28,7 +28,9 @@ Unattended test runs: start the app with `KingshotAuto.exe --launch` (presses La
 | 18 | CollectVip | `vip-chest.png` (8×6 red-dot template) matches the open chest lid at 0.878 every run | Open (low) – costs 5 s, re-cut the template |
 | 19 | All template matching | Screenshots were converted with `RGBA2BGR` but Windows bitmaps are BGRA: red and blue were swapped before grayscale, so colourful templates scored low (Journey supplies 0.72, VIP claim/plus 0.39/0.64, Crucible rows) | **Fixed 2026-10-23**: `BGRA2BGR` in all 4 matchers. Checked every template on 9 screenshots: only real matches went up |
 | 20 | CollectRewards | Bank 24 h cooldown keyed by instance number, so a second character on the same instance skipped the bank | **Fixed 2026-10-23**: keyed by account ID |
-| 21 | ClaimMissions | `Chapter tab not found` warning | Info only – the Missions screen no longer has a Chapter tab |
+| 21 | ClaimMissions | `Chapter tab not found` warning | Info only – the Missions screen no longer has a Chapter tab. The Chapter notification OCR still reads a false '8' there |
+| 23 | Startup | "The account has been logged in on another device" dialog: Back does nothing, Startup timed out after 300 s | **Fixed 2026-10-25, verified live**: Startup presses Reconnect (`startup/reconnect.png`, 1.00 on the dialog). Mid-run the dialog still sends tasks into recovery ("bot is lost") |
+| 22 | AutoHunt | `Skipping bear.png ...: it overlaps the King item` – a bear 18 px next to the King was never hunted (2 intel missions left) | **Fixed 2026-10-25**: King no-click zone margin 25 → 5 px. The King itself is still never tapped (on purpose). Verify live |
 
 ## Verified live 2026-10-23
 
@@ -93,6 +95,25 @@ Unattended test runs: start the app with `KingshotAuto.exe --launch` (presses La
 - [x] Templates, red-dot gate and Rewards dismiss tested against the recording (claimed manually today)
 - [x] Full run verified live 2026-10-23 on the second character (scroll, red dot 170 px, claim, dismiss, back)
 - Chest template re-cut to the chest body only: the hero portrait and the "N/800" counter differ per account (0.88 before). Threshold 0.80: ~0.90 unopened, <= 0.60 opened
+
+## Planned (to work out and discuss)
+
+- [ ] **Per-task scheduling.** Every task currently runs on every cycle (Collect Store Rewards runs again even though the store is once a day). Each task needs its own schedule type:
+  - once a day (e.g. store, Nomadic Merchant, VIP, Alliance Triumph; resets 00:00 UTC)
+  - several times a day, at an interval (e.g. hunt, farming, alliance help)
+  - at fixed clock times (e.g. Journey free supplies at 08:00/16:00 UTC)
+  - Keep last run + result per task per character, so a restart doesn't repeat done tasks
+- [ ] **New main screen (GUI).** The current screen only shows the running task. Replace it with a per-character overview of all tasks:
+  - last run time + result (OK / failed)
+  - next planned run (from the schedule above)
+  - manual "run now" button per task
+  - enable checkbox per task
+  - reorderable task list (run order)
+  - one view per character (tabs or a character selector)
+- [x] **Character list** (2026-10-25). Change Account scans the Characters screen (one row per "Town Center Level" label, name/kingdom by masked OCR, active row = green tick) and keeps `characters` per account; Task Settings > Characters has a tick per character (new ones ticked). It runs first (switches away from an unticked character) and last (next ticked character not run yet this cycle, then restarts the list)
+  - [ ] Verify a full cycle live: Asli -> Ilsa -> "all enabled characters done"
+  - [ ] Lists longer than the panel (rows below y 1100) need a scroll: logged as a warning, not handled
+  - OCR reads "]" of the alliance tag as l/J or drops it; capital I and l are the same glyph. Names are compared without the tag, I/l folded
 
 ## Not done yet
 

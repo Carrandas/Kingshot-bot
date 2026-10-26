@@ -50,6 +50,7 @@ namespace Bot.Core.Tasks.Modules
 
         // The daily chest resets at 00:00 UTC; once claimed, skip until then
         private static readonly ConcurrentDictionary<string, DateTime> _lastClaimUtcDate = new();
+        private bool _rowHidden;
 
         protected override async Task<TaskExecutionDetails> ExecuteTaskLogicAsync(AccountSettings account, LogService logger, CancellationToken cancellationToken, bool isReRun = false, IUserNotificationService? userNotifications = null)
         {
@@ -64,8 +65,11 @@ namespace Bot.Core.Tasks.Modules
                 int instance = account.InstanceNumber;
                 await _locatorService.EnsureViewAsync(ViewType.BaseView, instance, cancellationToken);
 
+                _rowHidden = false;
                 if (!await OpenTriumphAsync(account, logger, instance, cancellationToken))
                 {
+                    // a hidden row means today's chest is already claimed; a panel that failed to open is retried next cycle
+                    if (_rowHidden) _lastClaimUtcDate[accountKey] = DateTime.UtcNow.Date;
                     await _locatorService.EnsureViewAsync(ViewType.BaseView, instance, cancellationToken);
                     return TaskExecutionDetails.Succeeded("Row hidden or screen did not open");
                 }
@@ -120,6 +124,7 @@ namespace Bot.Core.Tasks.Modules
             if (!row.found)
             {
                 logger.LogInfo($"[{account.AccountName}] Alliance Triumph: row hidden, nothing to claim ({row.confidence:F2})");
+                _rowHidden = true;
                 var close = await MatchAsync(PanelCloseArrowTemplate, PanelCloseArrowArea, PanelArrowThreshold, instance, logger);
                 if (close.found) await ClickCenterInRectAsync(instance, logger, close.rect);
                 await Task.Delay(1000, cancellationToken);

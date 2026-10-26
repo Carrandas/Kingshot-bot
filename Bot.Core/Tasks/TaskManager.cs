@@ -25,6 +25,7 @@ namespace Bot.Core.Tasks
         private readonly IUserNotificationService? _userNotifications;
         private readonly ConcurrentDictionary<TaskType, ITask> _availableTasks = new();
         private readonly ConcurrentDictionary<int, bool> _instanceStartupComplete = new();
+        private static readonly ConcurrentDictionary<int, byte> _activeInstanceRuns = new();
         private readonly StartupTask _startupTask;
         private readonly List<AccountSettings> _accounts = new();
         private readonly InstanceManager _instanceManager;
@@ -106,6 +107,26 @@ namespace Bot.Core.Tasks
         }
 
         public async Task<bool> RunTasksForAccountAsync(AccountSettings account, CancellationToken cancellationToken = default, bool runStartup = true)
+        {
+            // one task loop per instance: the cycle service and the instance Start button both land here,
+            // and two loops on one emulator tap over each other. Static so it holds across TaskManager instances.
+            if (!_activeInstanceRuns.TryAdd(account.InstanceNumber, 0))
+            {
+                _logger.LogWarning($"[{account.AccountName}] Tasks already running for instance {account.InstanceNumber}, ignoring second run");
+                return false;
+            }
+
+            try
+            {
+                return await RunTasksForAccountCoreAsync(account, cancellationToken, runStartup);
+            }
+            finally
+            {
+                _activeInstanceRuns.TryRemove(account.InstanceNumber, out _);
+            }
+        }
+
+        private async Task<bool> RunTasksForAccountCoreAsync(AccountSettings account, CancellationToken cancellationToken, bool runStartup)
         {
             // Create instance-specific logger if not provided
             using var contextLogger = LogService.ForInstance(account.InstanceNumber, account.AccountName);
@@ -261,6 +282,9 @@ namespace Bot.Core.Tasks
                     _logger.LogWarning($"[{account.AccountName}] No tasks to run - both TaskSequence and EnabledTasks are empty!");
                     return;
                 }
+
+                // A new task list run: every enabled character gets its turn again (ChangeAccount restarts happen inside the loop below)
+                Tasks.Modules.ChangeAccountTask.ClearInstanceTracking(account.InstanceNumber);
                 
                 _logger.LogInfo($"[{account.AccountName}] Executing {tasksToRun.Count} tasks: {string.Join(", ", tasksToRun)}");
                 _userNotifications?.ShowStatus($"Starting {tasksToRun.Count} tasks for {account.AccountName}: {string.Join(", ", tasksToRun)}");
@@ -604,23 +628,23 @@ namespace Bot.Core.Tasks
             {
                 { TaskType.AccountDetection, -1 }, // AccountDetection must run first (after Startup)
                 { TaskType.AutoShield, 0 },        // AutoShield should run first to ensure protection
-                { TaskType.AutoHunt, 1 },          // AutoHunt should run after shield
-                { TaskType.Farming, 2 },           // Farming should run after AutoHunt
-                { TaskType.AutoAllianceHelp, 3 },
-                { TaskType.TroopTraining, 4 },
-                { TaskType.ConquestCollect, 5 },
-                { TaskType.ClaimMail, 6 },
-                { TaskType.AutoHeal, 7 },
-                { TaskType.AutoBuild, 8 },
-                { TaskType.AutoClaimHero, 9 },     // Add AutoClaimHero to the priority list
-                { TaskType.AllianceTechnology, 10 },
-                { TaskType.AutoTechnology, 11 },   // Auto Technology after AllianceTechnology
-                { TaskType.CollectVip, 12 },
-                { TaskType.ClaimMissions, 13 },
-                { TaskType.ResidentWelcome, 14 },
-                { TaskType.CollectRewards, 15 },
-                { TaskType.PetAdventure, 16 },
-                { TaskType.CollectOnlineRewards, 17 },
+                { TaskType.CollectOnlineRewards, 1 }, // before AutoHunt: the online rewards include stamina for the intel missions
+                { TaskType.AutoHunt, 2 },          // AutoHunt should run after shield
+                { TaskType.Farming, 3 },           // Farming should run after AutoHunt
+                { TaskType.AutoAllianceHelp, 4 },
+                { TaskType.TroopTraining, 5 },
+                { TaskType.ConquestCollect, 6 },
+                { TaskType.ClaimMail, 7 },
+                { TaskType.AutoHeal, 8 },
+                { TaskType.AutoBuild, 9 },
+                { TaskType.AutoClaimHero, 10 },    // Add AutoClaimHero to the priority list
+                { TaskType.AllianceTechnology, 11 },
+                { TaskType.AutoTechnology, 12 },   // Auto Technology after AllianceTechnology
+                { TaskType.CollectVip, 13 },
+                { TaskType.ClaimMissions, 14 },
+                { TaskType.ResidentWelcome, 15 },
+                { TaskType.CollectRewards, 16 },
+                { TaskType.PetAdventure, 17 },
                 { TaskType.Journey, 18 },
                 { TaskType.TruegoldCrucible, 19 },
                 { TaskType.AllianceTriumph, 20 },
@@ -631,9 +655,17 @@ namespace Bot.Core.Tasks
             };
 
             // Filter out system tasks (but keep AccountDetection since it's auto-enabled above) and sort by priority
-            return taskList
+            var ordered = taskList
                 .Where(task => task != TaskType.Startup && task != TaskType.Recovery)
-                .OrderBy(task => taskPriority.ContainsKey(task) ? taskPriority[task] : 998);
+                .OrderBy(task => taskPriority.ContainsKey(task) ? taskPriority[task] : 998)
+                .ToList();
+
+            // ChangeAccount also runs first: it switches away from a disabled character before any task runs on it
+            if (ordered.Contains(TaskType.ChangeAccount))
+            {
+                ordered.Insert(0, TaskType.ChangeAccount);
+            }
+            return ordered;
         }
     }
 

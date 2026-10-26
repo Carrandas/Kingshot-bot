@@ -4,7 +4,9 @@ using Bot.Core.Utils;
 using Bot.Core.ImageDetection;
 using Bot.Core.Services;
 using System;
+using System.Collections.Concurrent;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Drawing;
@@ -46,11 +48,21 @@ namespace Bot.Core.Tasks.Modules
         private const int CardAboveTheStrip = 170;     // item icon, amount and "Left:" line above the price strip
         private const double UnchangedMeanDiff = 3.0;  // mean absolute pixel difference of the card, 0-255
         private const int MaxRefreshes = 10;
+        private const int MaxPopupsPerRound = 3;
+
+        // The stock and the free refresh reset at 00:00 UTC; once everything left costs gems, skip until then
+        private static readonly ConcurrentDictionary<string, DateTime> _doneUtcDate = new();
+        private bool _allGemPriced;
 
         protected override async Task<TaskExecutionDetails> ExecuteTaskLogicAsync(AccountSettings account, LogService logger, CancellationToken cancellationToken, bool isReRun = false, IUserNotificationService? userNotifications = null)
         {
             try
             {
+                string accountId = AccountDetectionTask.GetCachedAccountId(account.InstanceNumber);
+                string accountKey = string.IsNullOrEmpty(accountId) ? $"Account_{account.AccountName}_{account.InstanceNumber}" : accountId;
+                if (_doneUtcDate.TryGetValue(accountKey, out var done) && done == DateTime.UtcNow.Date)
+                    return TaskExecutionDetails.Succeeded("Already done today");
+
                 _locatorService = new LocatorService(logger, account, TaskType);
                 int instance = account.InstanceNumber;
                 await _locatorService.EnsureViewAsync(ViewType.BaseView, instance, cancellationToken);
@@ -62,12 +74,17 @@ namespace Bot.Core.Tasks.Modules
                 }
 
                 int bought = 0, refreshes = 0;
+                bool soldOut = false;
                 while (true)
                 {
                     bought += await BuyResourceItemsAsync(account, logger, instance, cancellationToken);
                     if (refreshes >= MaxRefreshes) break;
                     var refresh = await MatchAsync(FreeRefreshTemplate, FreeRefreshArea, Threshold, instance, logger);
-                    if (!refresh.found) break;
+                    if (!refresh.found)
+                    {
+                        soldOut = _allGemPriced;
+                        break;
+                    }
                     await ClickCenterInRectAsync(instance, logger, refresh.rect);
                     refreshes++;
                     logger.LogInfo($"[{account.AccountName}] Nomadic Merchant: free refresh {refreshes}");
@@ -77,6 +94,9 @@ namespace Bot.Core.Tasks.Modules
                 await ClickAsync(instance, logger, BackArrowPoint);
                 await Task.Delay(2000, cancellationToken);
                 await _locatorService.EnsureViewAsync(ViewType.BaseView, instance, cancellationToken);
+
+                // only gem items and no free refresh left: nothing more until the 00:00 UTC reset
+                if (soldOut) _doneUtcDate[accountKey] = DateTime.UtcNow.Date;
 
                 string result = $"{bought} item(s) bought, {refreshes} free refresh(es)";
                 logger.LogInfo($"[{account.AccountName}] Nomadic Merchant done: {result}");
@@ -118,16 +138,39 @@ namespace Bot.Core.Tasks.Modules
         private async Task<int> BuyResourceItemsAsync(AccountSettings account, LogService logger, int instance, CancellationToken cancellationToken)
         {
             var unchanged = new int[PriceAreas.Length];
-            int bought = 0;
+            int bought = 0, popups = 0;
+            _allGemPriced = false;
             while (bought < MaxBuysPerRound)
             {
+                // A popup (e.g. the gem purchase confirmation) dims the grid so gem prices no longer match:
+                // close it and look again instead of tapping a slot under it
+                if (!(await MatchAsync(MerchantTabTemplate, MerchantTabArea, Threshold, instance, logger)).found)
+                {
+                    if (++popups > MaxPopupsPerRound) break;
+                    logger.LogWarning($"[{account.AccountName}] Nomadic Merchant: screen covered by a popup, closing it");
+                    await ClickAsync(instance, logger, BackArrowPoint);
+                    await Task.Delay(1500, cancellationToken);
+                    if (!(await MatchAsync(MerchantTabTemplate, MerchantTabArea, Threshold, instance, logger)).found) break;
+                    continue;
+                }
+
                 int slot = -1;
                 for (int i = 0; i < PriceAreas.Length && slot < 0; i++)
                 {
                     if (unchanged[i] >= MaxUnchangedTapsPerSlot) continue;
-                    if (!(await MatchAsync(GemPriceTemplate, PriceAreas[i], GemThreshold, instance, logger)).found) slot = i;
+                    var gem = await MatchAsync(GemPriceTemplate, PriceAreas[i], GemThreshold, instance, logger);
+                    if (!gem.found)
+                    {
+                        slot = i;
+                        logger.LogInfo($"[{account.AccountName}] Nomadic Merchant: slot {i + 1} not gem-priced ({gem.confidence:F2})");
+                    }
                 }
-                if (slot < 0) break;
+                if (slot < 0)
+                {
+                    // a slot skipped as unchanged (e.g. not affordable yet) may be buyable later today
+                    _allGemPriced = unchanged.All(u => u < MaxUnchangedTapsPerSlot);
+                    break;
+                }
 
                 var before = await TakeScreenshotAsync(instance, logger);
                 await ClickCenterInRectAsync(instance, logger, PriceAreas[slot]);

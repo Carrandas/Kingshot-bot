@@ -48,6 +48,7 @@ namespace Bot.Core.Models
             EnabledTasks = new ObservableCollection<TaskType>();
             TaskSettings = new Dictionary<string, string>();
             FarmingTargets = new ObservableCollection<FarmingTarget>();
+            Characters = new ObservableCollection<CharacterEntry>();
             AutoHuntSettings = new AutoHuntSettings();
             AutoRallySettings = new AutoRallySettings();
             AutoBuildSettings = new AutoBuildSettings();
@@ -106,6 +107,10 @@ namespace Bot.Core.Models
 
         [JsonPropertyName("farmingTargets")]
         public ObservableCollection<FarmingTarget> FarmingTargets { get; set; }
+
+        /// <summary>Characters on this instance's game login, refreshed each time Change Account opens the Characters screen.</summary>
+        [JsonPropertyName("characters")]
+        public ObservableCollection<CharacterEntry> Characters { get; set; }
 
         private bool _isEnabled = true;
         [JsonPropertyName("isEnabled")]

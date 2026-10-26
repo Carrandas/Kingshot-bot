@@ -1140,12 +1140,13 @@ namespace Bot.Core.Tasks.Modules.AutoHunt
                 ("attack.png", false)
             };
 
-            // Where the (six-sided) King item is on screen: never click it, nor anything overlapping it
+            // Where the (six-sided) King item is on screen: never click it, nor anything overlapping it.
+            // Small margin only: with 25 px a bear 18 px next to the King was skipped every scan
             var kingZones = bestConfidences
                 .Where(kv => kv.Key == "king.png")
                 .SelectMany(kv => kv.Value)
                 .Where(d => d.confidence >= 0.6)
-                .Select(d => Rectangle.Inflate(d.location, 25, 25))
+                .Select(d => Rectangle.Inflate(d.location, 5, 5))
                 .ToList();
 
             foreach (var (imageName, detections) in bestConfidences)

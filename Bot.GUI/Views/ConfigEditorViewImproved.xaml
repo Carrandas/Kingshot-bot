@@ -936,6 +936,41 @@
                                             </StackPanel>
                                         </Border>
 
+                                        <!-- Change Account: characters -->
+                                        <Border Style="{StaticResource CardStyle}"
+                                                Visibility="{Binding SelectedAccount.EnabledTasks,
+                                                            Converter={StaticResource TaskTypeToVisibilityConverter},
+                                                            ConverterParameter=ChangeAccount}">
+                                            <StackPanel>
+                                                <TextBlock Text="Characters" FontWeight="SemiBold" Margin="0,0,0,6"/>
+                                                <TextBlock Text="The task list runs on every ticked character, one after the other. The list is read from the game's Characters screen on each run; new characters are ticked."
+                                                           TextWrapping="Wrap" Foreground="#FFB0B0B0" FontSize="12" Margin="0,0,0,8"/>
+                                                <ItemsControl ItemsSource="{Binding SelectedAccount.Characters}">
+                                                    <ItemsControl.ItemTemplate>
+                                                        <DataTemplate>
+                                                            <CheckBox Content="{Binding DisplayName}"
+                                                                      IsChecked="{Binding Enabled}"
+                                                                      Margin="0,2"
+                                                                      Command="{Binding DataContext.SaveCharactersCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"/>
+                                                        </DataTemplate>
+                                                    </ItemsControl.ItemTemplate>
+                                                </ItemsControl>
+                                                <TextBlock Text="No characters found yet: they appear after the first run with Change Account."
+                                                           Foreground="#FFB0B0B0" FontSize="12" FontStyle="Italic">
+                                                    <TextBlock.Style>
+                                                        <Style TargetType="TextBlock">
+                                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding SelectedAccount.Characters.Count}" Value="0">
+                                                                    <Setter Property="Visibility" Value="Visible"/>
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </TextBlock.Style>
+                                                </TextBlock>
+                                            </StackPanel>
+                                        </Border>
+
                                         <!-- Conquest Collect Settings -->
                                         <Border Style="{StaticResource CardStyle}"
                                                 Visibility="{Binding SelectedAccount.EnabledTasks,

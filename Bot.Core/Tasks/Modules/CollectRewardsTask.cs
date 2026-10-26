@@ -50,12 +50,23 @@ namespace Bot.Core.Tasks.Modules
         private const string FreeButtonTemplate = "free-button.png";           // GREEN button labelled "Free"
         private const string FreeDealTemplate = "free-deal.png";           // GREEN "Free" button of the Free Weekly Deal Pack (orange price buttons never match)
         private const string FreeChestTemplate = "free-chest.png";   // chest with "Free" label (Daily Deals)
+        private const string ClaimableTemplate3 = "claimable3.png";  // same label at the left under the banner chest (Kingdom Waystation)
+        private const string CardsTabTemplate = "cards-tab.png";     // selected Weekly/Monthly Cards tab (icon on the white tab)
+        private const string CardClaimTemplate = "card-claim.png";   // green "Claim" of a bought card's daily reward (price buttons are orange)
 
         // Search areas
         private static readonly Rectangle StoreIconArea = new Rectangle(560, 0, 160, 90);
         private static readonly Rectangle StoreBackArea = new Rectangle(0, 0, 100, 90);
         // The "Claimable" label under the free chest sits at slightly different heights on different tabs
         private static readonly Rectangle ClaimableArea = new Rectangle(560, 260, 160, 100);
+        private static readonly Rectangle ClaimableLeftArea = new Rectangle(20, 370, 190, 90);
+        // Weekly/Monthly Cards: the list is about three screens long, the Claim buttons sit under the cards that were bought
+        private static readonly Rectangle CardsTabArea = new Rectangle(0, 90, 720, 100);
+        private static readonly Rectangle CardClaimArea = new Rectangle(20, 190, 680, 1080);
+        private const double CardsThreshold = 0.85;
+        private const double CardClaimThreshold = 0.95; // green Claim 0.99, the grey "Claimed" it turns into 0.855
+        private const int MaxCardScrolls = 4;
+        private const int MaxCardClaims = 6;
         private static readonly Rectangle FreeDealArea = new Rectangle(380, 560, 320, 260);
         private const double FreeDealThreshold = 0.85;
 
@@ -98,6 +109,13 @@ namespace Bot.Core.Tasks.Modules
         private static bool _bankTimesLoaded;
         private static readonly Rectangle WithdrawArea = new Rectangle(0, 540, 720, 720);
 
+        // The free store/hub rewards refresh at the daily reset (00:00 UTC), so a complete pass is done once per UTC day.
+        // A pass that was cut short (left the store, claim cap, hub did not open) is not recorded and runs again next cycle.
+        private static readonly ConcurrentDictionary<string, DateTime> _lastCompleteRun = new();
+        private static readonly string DailyRunFile = Path.Combine(AppContext.BaseDirectory, "data", "collect_rewards_daily_runs.json");
+        private static bool _dailyRunsLoaded;
+        private bool _runComplete;
+
         // Hall of Heroes -> "A Hero's Witness": the daily free chest and the free attempt.
         // SAFETY: after the free attempt is used the same button turns into an orange gem-cost button (150 gems).
         // Only a button that matches the GREEN "Free" template is tapped, and it is re-checked before every single tap.
@@ -136,6 +154,14 @@ namespace Bot.Core.Tasks.Modules
                 _locatorService = new LocatorService(logger, account, TaskType);
                 int instance = account.InstanceNumber;
 
+                string accountKey = GetAccountKey(account, instance);
+                if (AlreadyRanToday(accountKey))
+                {
+                    logger.LogInfo($"[{account.AccountName}] Collect Rewards already done today (UTC), skipping");
+                    return TaskExecutionDetails.Succeeded("Skipped - already collected today");
+                }
+                _runComplete = true;
+
                 logger.LogInfo($"[{account.AccountName}] Collect Rewards: navigating to base view...");
                 if (!await _locatorService.EnsureViewAsync(ViewType.BaseView, instance, cancellationToken))
                 {
@@ -144,7 +170,7 @@ namespace Bot.Core.Tasks.Modules
 
                 // Step 1: open the store
                 logger.LogInfo($"[{account.AccountName}] Looking for the store icon...");
-                int claims = 0;
+                int claims = 0, cardClaims = 0;
                 // Reward animations can cover the icon for a moment
                 var icon = await MatchAsync(StoreIconTemplate, StoreIconArea, StoreIconThreshold, instance, logger);
                 for (int i = 0; i < 3 && !icon.found; i++)
@@ -197,6 +223,7 @@ namespace Bot.Core.Tasks.Modules
                         if (!await IsInStoreAsync(instance, logger))
                         {
                             logger.LogWarning($"[{account.AccountName}] Left the store unexpectedly, stopping tab scan");
+                            _runComplete = false;
                             page = MaxTabPages;
                             break;
                         }
@@ -205,6 +232,8 @@ namespace Bot.Core.Tasks.Modules
                         var claimable = await MatchAsync(ClaimableTemplate, ClaimableArea, ClaimableThreshold, instance, logger);
                         if (!claimable.found)
                             claimable = await MatchAsync(ClaimableTemplate2, ClaimableArea, ClaimableThreshold, instance, logger);
+                        if (!claimable.found)
+                            claimable = await MatchAsync(ClaimableTemplate3, ClaimableLeftArea, ClaimableThreshold, instance, logger);
                         if (claimable.found)
                         {
                             logger.LogInfo($"[{account.AccountName}] Free claimable chest found (confidence {claimable.confidence:F3}), claiming...");
@@ -232,6 +261,9 @@ namespace Bot.Core.Tasks.Modules
                             claims++;
                             await FinishClaimAsync(instance, logger, claims, cancellationToken);
                         }
+
+                        if ((await MatchAsync(CardsTabTemplate, CardsTabArea, CardsThreshold, instance, logger)).found)
+                            cardClaims += await ClaimCardsAsync(account, logger, instance, cancellationToken);
                     }
 
                     if (page < MaxTabPages - 1 && claims < MaxClaimsPerRun)
@@ -255,8 +287,21 @@ namespace Bot.Core.Tasks.Modules
                 }
                 await _locatorService.EnsureViewAsync(ViewType.BaseView, instance, cancellationToken);
 
+                // the store cap may have left free items unclaimed; the hub has its own cap
+                if (claims >= MaxClaimsPerRun) _runComplete = false;
+
                 // Step 4: the Deals hub (Sign-in calendar, Hero Rally, Frontier Encounter, ...)
-                claims += await CollectDealsHubAsync(account, logger, instance, cancellationToken);
+                claims += cardClaims + await CollectDealsHubAsync(account, logger, instance, cancellationToken);
+
+                if (_runComplete)
+                {
+                    _lastCompleteRun[accountKey] = DateTime.UtcNow;
+                    SaveDailyRuns();
+                }
+                else
+                {
+                    logger.LogInfo($"[{account.AccountName}] Collect Rewards pass was incomplete, it runs again next cycle");
+                }
 
                 logger.LogInfo($"[{account.AccountName}] Collect Rewards done: {claims} free reward(s) claimed");
                 return TaskExecutionDetails.Succeeded($"Claimed {claims} free reward(s)");
@@ -277,6 +322,34 @@ namespace Bot.Core.Tasks.Modules
             await Task.Delay(1500, cancellationToken);
             await SaveDebugScreenshotAsync(instance, logger, $"collectrewards_claim_{claimNumber}.png");
             await DismissPopupIfAnyAsync(instance, logger, cancellationToken, inHub);
+        }
+
+        /// <summary>
+        /// Weekly/Monthly Cards tab: taps every green "Claim" (the daily reward of a bought card), scrolling down the list.
+        /// Only the green Claim template is ever tapped; the orange price buttons do not match it.
+        /// </summary>
+        private async Task<int> ClaimCardsAsync(AccountSettings account, LogService logger, int instance, CancellationToken cancellationToken)
+        {
+            int claims = 0;
+            for (int scroll = 0; scroll <= MaxCardScrolls && claims < MaxCardClaims; scroll++)
+            {
+                var claim = await MatchAsync(CardClaimTemplate, CardClaimArea, CardClaimThreshold, instance, logger);
+                while (claim.found && claims < MaxCardClaims)
+                {
+                    logger.LogInfo($"[{account.AccountName}] Card daily reward found (confidence {claim.confidence:F3}), claiming...");
+                    await ClickCenterInRectAsync(instance, logger, claim.rect);
+                    claims++;
+                    await FinishClaimAsync(instance, logger, 200 + claims, cancellationToken);
+                    if (!await IsInStoreAsync(instance, logger)) return claims;
+                    claim = await MatchAsync(CardClaimTemplate, CardClaimArea, CardClaimThreshold, instance, logger);
+                }
+                if (scroll < MaxCardScrolls)
+                {
+                    await SwipeAsync(instance, logger, new Point(360, 1100), new Point(360, 400), 1000);
+                    await Task.Delay(1200, cancellationToken);
+                }
+            }
+            return claims;
         }
 
         private async Task<(bool found, Rectangle rect, double confidence)> MatchAsync(
@@ -336,9 +409,7 @@ namespace Bot.Core.Tasks.Modules
         private async Task<int> HandleBankAsync(AccountSettings account, LogService logger, int instance, CancellationToken cancellationToken)
         {
             LoadBankTimes();
-            // Keyed by game account, so a character switch on the same instance gets its own cooldown
-            string accountId = AccountDetectionTask.GetCachedAccountId(instance);
-            string bankKey = string.IsNullOrEmpty(accountId) ? $"Account_{account.AccountName}_{instance}" : accountId;
+            string bankKey = GetAccountKey(account, instance);
             if (_lastBankDeposit.TryGetValue(bankKey, out var last) && DateTime.UtcNow - last < BankInterval)
                 return 0;
 
@@ -389,6 +460,61 @@ namespace Bot.Core.Tasks.Modules
             logger.LogInfo($"[{account.AccountName}] Bank deposit done, next bank visit in {BankInterval.TotalHours:F0}h");
             await DismissPopupIfAnyAsync(instance, logger, cancellationToken, inHub: true);
             return actions;
+        }
+
+        // Keyed by game account, so a character switch on the same instance gets its own cooldowns
+        private static string GetAccountKey(AccountSettings account, int instance)
+        {
+            string accountId = AccountDetectionTask.GetCachedAccountId(instance);
+            return string.IsNullOrEmpty(accountId) ? $"Account_{account.AccountName}_{instance}" : accountId;
+        }
+
+        private static bool AlreadyRanToday(string accountKey)
+        {
+            LoadDailyRuns();
+            LoadBankTimes();
+            if (!_lastCompleteRun.TryGetValue(accountKey, out var lastRun) || lastRun.Date != DateTime.UtcNow.Date)
+                return false;
+
+            // The 24h bank vault can come due later in the same UTC day: allow one more pass for it,
+            // otherwise the deposit slips to the next day's pass
+            if (_lastBankDeposit.TryGetValue(accountKey, out var lastDeposit))
+            {
+                var bankDue = lastDeposit + BankInterval;
+                if (DateTime.UtcNow >= bankDue && lastRun < bankDue) return false;
+            }
+            return true;
+        }
+
+        private static void LoadDailyRuns()
+        {
+            if (_dailyRunsLoaded) return;
+            _dailyRunsLoaded = true;
+            try
+            {
+                if (!File.Exists(DailyRunFile)) return;
+                var times = JsonSerializer.Deserialize<Dictionary<string, DateTime>>(File.ReadAllText(DailyRunFile));
+                if (times == null) return;
+                foreach (var kvp in times) _lastCompleteRun[kvp.Key] = kvp.Value;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[CollectRewardsTask] Error loading daily runs: {ex.Message}");
+            }
+        }
+
+        private static void SaveDailyRuns()
+        {
+            try
+            {
+                var dir = Path.GetDirectoryName(DailyRunFile);
+                if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
+                File.WriteAllText(DailyRunFile, JsonSerializer.Serialize(_lastCompleteRun.ToDictionary(k => k.Key, k => k.Value)));
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[CollectRewardsTask] Error saving daily runs: {ex.Message}");
+            }
         }
 
         private static void LoadBankTimes()
@@ -498,6 +624,7 @@ namespace Bot.Core.Tasks.Modules
             if (!icon.found)
             {
                 logger.LogInfo($"[{account.AccountName}] Deals icon not found, skipping the Deals hub");
+                _runComplete = false;
                 return 0;
             }
             await ClickCenterInRectAsync(instance, logger, icon.rect);
@@ -512,6 +639,7 @@ namespace Bot.Core.Tasks.Modules
             if (!open)
             {
                 logger.LogWarning($"[{account.AccountName}] Deals hub did not open");
+                _runComplete = false;
                 return 0;
             }
 
@@ -536,6 +664,7 @@ namespace Bot.Core.Tasks.Modules
                     if (!await IsInHubAsync(instance, logger))
                     {
                         logger.LogWarning($"[{account.AccountName}] Left the Deals hub unexpectedly, stopping");
+                        _runComplete = false;
                         page = MaxHubPages;
                         break;
                     }
@@ -586,6 +715,7 @@ namespace Bot.Core.Tasks.Modules
                 await Task.Delay(1000, cancellationToken);
             }
             await _locatorService!.EnsureViewAsync(ViewType.BaseView, instance, cancellationToken);
+            if (claims >= MaxHubClaims) _runComplete = false;
             return claims;
         }
 

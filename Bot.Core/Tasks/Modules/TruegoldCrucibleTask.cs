@@ -4,6 +4,7 @@ using Bot.Core.Utils;
 using Bot.Core.ImageDetection;
 using Bot.Core.Services;
 using System;
+using System.Collections.Concurrent;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -52,16 +53,28 @@ namespace Bot.Core.Tasks.Modules
         // The grey (used up) Refine button still scores 0.92, so the teal colour decides: ~11,700 teal pixels vs 0
         private const int RefineMinTealPixels = 5000;
 
+        // The refines and the -50% Super Refine reset at 00:00 UTC; once the panel hides both rows, skip until then
+        private static readonly ConcurrentDictionary<string, DateTime> _doneUtcDate = new();
+        private bool _rowsHidden;
+
         protected override async Task<TaskExecutionDetails> ExecuteTaskLogicAsync(AccountSettings account, LogService logger, CancellationToken cancellationToken, bool isReRun = false, IUserNotificationService? userNotifications = null)
         {
             try
             {
+                string accountId = AccountDetectionTask.GetCachedAccountId(account.InstanceNumber);
+                string accountKey = string.IsNullOrEmpty(accountId) ? $"Account_{account.AccountName}_{account.InstanceNumber}" : accountId;
+                if (_doneUtcDate.TryGetValue(accountKey, out var done) && done == DateTime.UtcNow.Date)
+                    return TaskExecutionDetails.Succeeded("Already done today");
+
                 _locatorService = new LocatorService(logger, account, TaskType);
                 int instance = account.InstanceNumber;
                 await _locatorService.EnsureViewAsync(ViewType.BaseView, instance, cancellationToken);
 
+                _rowsHidden = false;
                 if (!await OpenCrucibleAsync(account, logger, instance, cancellationToken))
                 {
+                    // hidden rows mean today's refines and discount are used; a panel that failed to open is retried next cycle
+                    if (_rowsHidden) _doneUtcDate[accountKey] = DateTime.UtcNow.Date;
                     await _locatorService.EnsureViewAsync(ViewType.BaseView, instance, cancellationToken);
                     return TaskExecutionDetails.Succeeded("Crucible rows hidden or screen did not open");
                 }
@@ -119,6 +132,7 @@ namespace Bot.Core.Tasks.Modules
             if (!row.found)
             {
                 logger.LogInfo($"[{account.AccountName}] Truegold Crucible: rows hidden, nothing to do");
+                _rowsHidden = true;
                 var close = await MatchAsync(PanelCloseArrowTemplate, PanelCloseArrowArea, PanelArrowThreshold, instance, logger);
                 if (close.found) await ClickCenterInRectAsync(instance, logger, close.rect);
                 await Task.Delay(1000, cancellationToken);

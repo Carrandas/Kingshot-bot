@@ -35,6 +35,8 @@ namespace Bot.Core.Tasks.Modules
         
         private static readonly Rectangle LoadingScreenArea = new Rectangle(74, 173, 587, 197);  // Loading screen search area
         private static readonly Rectangle BaseViewDetectionArea = new Rectangle(589, 1157, 125, 108);  // Town/World button at the bottom right
+        private static readonly Rectangle ReconnectButtonArea = new Rectangle(340, 720, 380, 160);     // Reconnect button of the "logged in on another device" dialog
+        private const double ReconnectThreshold = 0.8;  // 1.00 on the dialog, 0.51 on its Contact Us button, 0.15 on the Welcome back popup
         
         /// <summary>
         /// Verifies if the LDPlayer instance is running before attempting startup
@@ -183,6 +185,19 @@ namespace Bot.Core.Tasks.Modules
 
                     if (!baseViewFound && !mapViewFound)
                     {
+                        // "The account has been logged in on another device": Reconnect takes the session back (signs the other device out)
+                        var reconnectResult = await WaitForImageWithPositionAsync("reconnect.png", account.InstanceNumber, logger,
+                            cancellationToken, timeoutMs: 500, threshold: ReconnectThreshold, searchArea: ReconnectButtonArea);
+                        if (reconnectResult.found)
+                        {
+                            logger.LogWarning($"[{account.AccountName}] Account was logged in on another device, pressing Reconnect (confidence: {reconnectResult.confidence:F3})");
+                            userNotifications?.ShowWarning($"{account.AccountName}: logged in on another device, reconnecting");
+                            await ClickRandomInRectAsync(account.InstanceNumber, logger, reconnectResult.position);
+                            await Task.Delay(5000, cancellationToken);
+                            startTime = DateTime.UtcNow; // the game reloads: give the post-load sequence its full time again
+                            continue;
+                        }
+
                         adResult1 = await WaitForImageWithPositionAsync("ad-close.png", account.InstanceNumber, logger,
                             cancellationToken, timeoutMs: 500, threshold: 0.65, searchArea: adCloseArea);
 
