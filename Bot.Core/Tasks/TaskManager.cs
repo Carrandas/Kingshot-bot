@@ -79,6 +79,7 @@ namespace Bot.Core.Tasks
             _availableTasks[TaskType.WaterEssence] = new WaterEssenceTask();
             _availableTasks[TaskType.NomadicMerchant] = new NomadicMerchantTask();
             _availableTasks[TaskType.AllianceChests] = new AllianceChestsTask();
+            _availableTasks[TaskType.SuggestionBox] = new SuggestionBoxTask();
             
             _logger.LogInfo($"TaskManager initialized with {_availableTasks.Count} tasks plus startup task");
         }
@@ -642,6 +643,7 @@ namespace Bot.Core.Tasks
                 { TaskType.AutoTechnology, 12 },   // Auto Technology after AllianceTechnology
                 { TaskType.CollectVip, 13 },
                 { TaskType.ClaimMissions, 14 },
+                { TaskType.SuggestionBox, 14 },    // before ResidentWelcome: its zoom-out shrinks the envelope bubble
                 { TaskType.ResidentWelcome, 15 },
                 { TaskType.CollectRewards, 16 },
                 { TaskType.PetAdventure, 17 },
