@@ -25,7 +25,7 @@ namespace Bot.Core.Tasks.Modules
     /// the back arrow, and a blank spot on the screen border to dismiss a reward popup.
     /// Nothing is ever tapped by "searching for a button" inside the store content area.
     /// </summary>
-    public class CollectRewardsTask : BaseTaskWithCommonPatterns
+    public class CollectRewardsTask : BaseTaskWithCommonPatterns, IScheduledTask
     {
         public override TaskType TaskType => TaskType.CollectRewards;
         public override string Name => "Collect Store Rewards";
@@ -112,6 +112,15 @@ namespace Bot.Core.Tasks.Modules
         // The free store/hub rewards refresh at the daily reset (00:00 UTC), so a complete pass is done once per UTC day.
         // A pass that was cut short (left the store, claim cap, hub did not open) is not recorded and runs again next cycle.
         private static readonly ConcurrentDictionary<string, DateTime> _lastCompleteRun = new();
+
+        public void ClearSchedule(string accountKey)
+        {
+            LoadDailyRuns();
+            if (_lastCompleteRun.TryRemove(accountKey, out _)) SaveDailyRuns();
+        }
+
+        public DateTime? GetNextRunUtc(string accountKey, AccountSettings account) =>
+            AlreadyRanToday(accountKey) ? Schedule.NextUtcMidnight : null;
         private static readonly string DailyRunFile = Path.Combine(AppContext.BaseDirectory, "data", "collect_rewards_daily_runs.json");
         private static bool _dailyRunsLoaded;
         private bool _runComplete;
@@ -158,7 +167,7 @@ namespace Bot.Core.Tasks.Modules
                 if (AlreadyRanToday(accountKey))
                 {
                     logger.LogInfo($"[{account.AccountName}] Collect Rewards already done today (UTC), skipping");
-                    return TaskExecutionDetails.Succeeded("Skipped - already collected today");
+                    return TaskExecutionDetails.SkippedBecause("Skipped - already collected today");
                 }
                 _runComplete = true;
 

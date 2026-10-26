@@ -124,6 +124,7 @@ namespace Bot.Core.Tasks
             }
             finally
             {
+                TaskRunHistory.SetCurrent(account.InstanceNumber, null);
                 _activeInstanceRuns.TryRemove(account.InstanceNumber, out _);
             }
         }
@@ -139,8 +140,39 @@ namespace Bot.Core.Tasks
 
                 if (runStartup)
                 {
+                    if (!await RunStartupAsync(account, contextLogger, cancellationToken)) return false;
+                }
+                else
+                {
+                    contextLogger.LogInfo($"🔄 Skipping startup sequence for persistent account {account.AccountName} (subsequent cycle)");
+                }
+
+                // Run all configured tasks in sequence
+                contextLogger.LogInfo($"📋 Found {account.EnabledTasks.Count} enabled tasks: {string.Join(", ", account.EnabledTasks)}");
+                
+                await ExecuteTasksForAccount(account, cancellationToken, runStartup);
+
+                contextLogger.LogInfo($"✅ All tasks completed successfully");
+                return true;
+            }
+            catch (OperationCanceledException)
+            {
+                contextLogger.LogInfo($"Task sequence was cancelled");
+                throw;
+            }
+            catch (Exception ex)
+            {
+                contextLogger.LogError($"❌ Error running tasks: {ex.Message}");
+                contextLogger.LogError($"❌ Stack trace: {ex.StackTrace}");
+                return false;
+            }
+        }
+
+        /// <summary>Startup sequence with a 5 minute timeout, a reboot on timeout and recovery on request. False: stop the account's tasks.</summary>
+        private async Task<bool> RunStartupAsync(AccountSettings account, LogService contextLogger, CancellationToken cancellationToken)
+        {
                     // --- STARTUP SEQUENCE WITH TIMEOUT AND RECOVERY ---
-                    TaskExecutionDetails startupResult;
+            TaskExecutionDetails startupResult;
                     bool initialStartupAttempt = true;
 
                     while (true) // Loop for startup attempts
@@ -184,7 +216,7 @@ namespace Bot.Core.Tasks
 
                     if (startupResult.Success)
                     {
-                        break; // Startup successful, exit loop
+                        return true; // Startup successful
                     }
 
                     // Startup failed, check for recovery
@@ -214,32 +246,6 @@ namespace Bot.Core.Tasks
                     contextLogger.LogError($"❌ Startup failed but did not request recovery. Stopping task execution for this account.");
                     return false;
                 }
-                // --- END OF STARTUP SEQUENCE ---
-                }
-                else
-                {
-                    contextLogger.LogInfo($"🔄 Skipping startup sequence for persistent account {account.AccountName} (subsequent cycle)");
-                }
-
-                // Run all configured tasks in sequence
-                contextLogger.LogInfo($"📋 Found {account.EnabledTasks.Count} enabled tasks: {string.Join(", ", account.EnabledTasks)}");
-                
-                await ExecuteTasksForAccount(account, cancellationToken, runStartup);
-
-                contextLogger.LogInfo($"✅ All tasks completed successfully");
-                return true;
-            }
-            catch (OperationCanceledException)
-            {
-                contextLogger.LogInfo($"Task sequence was cancelled");
-                throw;
-            }
-            catch (Exception ex)
-            {
-                contextLogger.LogError($"❌ Error running tasks: {ex.Message}");
-                contextLogger.LogError($"❌ Stack trace: {ex.StackTrace}");
-                return false;
-            }
         }
 
         public async Task<Dictionary<string, bool>> RunTasksForMultipleAccountsAsync(
@@ -276,7 +282,7 @@ namespace Bot.Core.Tasks
                 }
                 else
                 {
-                    tasksToRun = GetProperlyOrderedTasks(account.EnabledTasks, runStartup, account.InstanceNumber).ToList();
+                    tasksToRun = GetProperlyOrderedTasks(account.EnabledTasks.Where(t => account.HiddenTasks?.Contains(t) != true), runStartup, account.InstanceNumber).ToList();
                 }
                 
                 if (!tasksToRun.Any())
@@ -304,6 +310,7 @@ namespace Bot.Core.Tasks
                     // Skip disabled tasks (only check if we're using TaskSequence, but never skip system tasks)
                     var systemTasks = new[] { TaskType.Startup, TaskType.Recovery, TaskType.AccountDetection };
                     if (account.TaskSequence.Any() && !account.EnabledTasks.Contains(taskType) && !systemTasks.Contains(taskType)) continue;
+                    if (account.HiddenTasks?.Contains(taskType) == true) continue; // hidden under Settings > Tasks: never runs
 
                     // Check if task can run (e.g., AutoHunt before Farming)
                     if (!CanRunTask(taskType, account))
@@ -344,8 +351,11 @@ namespace Bot.Core.Tasks
                             taskCts.CancelAfter(TimeSpan.FromMinutes(15)); // 15 minute timeout per task
 
                             var taskStartTime = DateTime.UtcNow;
+                            TaskRunHistory.SetCurrent(account.InstanceNumber, taskType);
                             var result = await task.ExecuteAsync(account, _logger, taskCts.Token, false, _userNotifications);
+                            TaskRunHistory.SetCurrent(account.InstanceNumber, null);
                             var taskDuration = DateTime.UtcNow - taskStartTime;
+                            RecordResult(account, taskType, result);
 
                             // Log performance warning for tasks that take longer than 5 minutes
                             if (taskDuration.TotalMinutes > 5)
@@ -527,6 +537,87 @@ namespace Bot.Core.Tasks
             }
         }
 
+        /// <summary>Task run history for the dashboard, keyed like the task gates. Account Detection also ties the account ID to the active character.</summary>
+        private static void RecordResult(AccountSettings account, TaskType taskType, TaskExecutionDetails result)
+        {
+            var accountId = Tasks.Modules.AccountDetectionTask.GetCachedAccountId(account.InstanceNumber);
+            if (taskType == TaskType.AccountDetection && result.Success)
+                CharacterRoster.LinkAccountId(account, accountId);
+            if (taskType is TaskType.Startup or TaskType.Recovery or TaskType.AccountDetection or TaskType.ChangeAccount) return;
+            TaskRunHistory.RecordRun(Schedule.AccountKey(accountId, account), taskType, result);
+        }
+
+        /// <summary>The registered task object, e.g. to ask an <see cref="IScheduledTask"/> for its next run.</summary>
+        public ITask? GetTask(TaskType taskType) => _availableTasks.TryGetValue(taskType, out var task) ? task : null;
+
+        /// <summary>
+        /// Runs one task on one character, for the dashboard's play button: startup (skipped quickly when the game is open),
+        /// a switch to the character if another one is active, Account Detection, then the task. The instance must be running.
+        /// Shares the one-run-per-instance guard with the cycle, so it never runs next to a task list.
+        /// </summary>
+        public async Task<TaskExecutionDetails> RunSingleTaskAsync(AccountSettings account, TaskType taskType, string? characterName, CancellationToken cancellationToken)
+        {
+            if (!_activeInstanceRuns.TryAdd(account.InstanceNumber, 0))
+                return TaskExecutionDetails.Failed($"Tasks already running on instance {account.InstanceNumber}");
+
+            using var contextLogger = LogService.ForInstance(account.InstanceNumber, account.AccountName);
+            try
+            {
+                contextLogger.LogInfo($"▶ Single run: {taskType}{(characterName != null ? $" on {characterName}" : "")}");
+                if (!await RunStartupAsync(account, contextLogger, cancellationToken))
+                    return TaskExecutionDetails.Failed("Startup failed");
+
+                // Change Account on its own: only scan the Characters screen (the dashboard's character list)
+                if (taskType == TaskType.ChangeAccount && GetTask(TaskType.ChangeAccount) is Tasks.Modules.ChangeAccountTask scanner)
+                {
+                    var scanResult = await scanner.ScanAsync(account, contextLogger, cancellationToken);
+                    contextLogger.LogInfo($"Characters: {scanResult.Message}");
+                    if (scanResult.Success)
+                        RecordResult(account, TaskType.AccountDetection,
+                            await GetTask(TaskType.AccountDetection)!.ExecuteAsync(account, _logger, cancellationToken, false, _userNotifications));
+                    return scanResult;
+                }
+
+                if (characterName != null && GetTask(TaskType.ChangeAccount) is Tasks.Modules.ChangeAccountTask changeAccount)
+                {
+                    var switchResult = await changeAccount.SwitchToCharacterAsync(account, contextLogger, characterName, cancellationToken);
+                    contextLogger.LogInfo($"Character: {switchResult.Message}");
+                    if (!switchResult.Success) return switchResult;
+                    if (switchResult.RequiresTaskRestart && _startupTask is StartupTask startup)
+                        await startup.WaitForLoadingToComplete(account, contextLogger, cancellationToken);
+                }
+
+                var detection = GetTask(TaskType.AccountDetection)!;
+                var detectionResult = await detection.ExecuteAsync(account, _logger, cancellationToken, false, _userNotifications);
+                RecordResult(account, TaskType.AccountDetection, detectionResult);
+
+                var task = GetTask(taskType);
+                if (task == null) return TaskExecutionDetails.Failed($"{taskType} is not registered");
+
+                // A run by hand ignores the task's own timer or daily gate ("Ran 3 min ago"): that is what the button is for
+                if (task is IScheduledTask scheduled)
+                {
+                    var accountKey = Schedule.AccountKey(Tasks.Modules.AccountDetectionTask.GetCachedAccountId(account.InstanceNumber), account);
+                    scheduled.ClearSchedule(accountKey);
+                    contextLogger.LogInfo($"▶ {taskType}: timer cleared for {accountKey}, running regardless");
+                }
+
+                _userNotifications?.ShowStatus($"Running {taskType} for {account.AccountName}");
+                using var taskCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                taskCts.CancelAfter(TimeSpan.FromMinutes(15));
+                TaskRunHistory.SetCurrent(account.InstanceNumber, taskType);
+                var result = await task.ExecuteAsync(account, _logger, taskCts.Token, false, _userNotifications);
+                RecordResult(account, taskType, result);
+                contextLogger.LogInfo($"▶ Single run of {taskType} done: {(result.Success ? "ok" : "failed")} {result.Message}");
+                return result;
+            }
+            finally
+            {
+                TaskRunHistory.SetCurrent(account.InstanceNumber, null);
+                _activeInstanceRuns.TryRemove(account.InstanceNumber, out _);
+            }
+        }
+
         private bool CanRunTask(TaskType task, AccountSettings account)
         {
             return true;
@@ -588,6 +679,42 @@ namespace Bot.Core.Tasks
             return null;
         }
 
+        // Task execution order (lower runs first)
+        private static readonly Dictionary<TaskType, int> TaskPriority = new Dictionary<TaskType, int>
+        {
+            { TaskType.AccountDetection, -1 }, // AccountDetection must run first (after Startup)
+            { TaskType.AutoShield, 0 },        // AutoShield should run first to ensure protection
+            { TaskType.CollectOnlineRewards, 1 }, // before AutoHunt: the online rewards include stamina for the intel missions
+            { TaskType.AutoHunt, 2 },          // AutoHunt should run after shield
+            { TaskType.Farming, 3 },           // Farming should run after AutoHunt
+            { TaskType.AutoAllianceHelp, 4 },
+            { TaskType.TroopTraining, 5 },
+            { TaskType.ConquestCollect, 6 },
+            { TaskType.ClaimMail, 7 },
+            { TaskType.AutoHeal, 8 },
+            { TaskType.AutoBuild, 9 },
+            { TaskType.AutoClaimHero, 10 },    // Add AutoClaimHero to the priority list
+            { TaskType.AllianceTechnology, 11 },
+            { TaskType.AutoTechnology, 12 },   // Auto Technology after AllianceTechnology
+            { TaskType.CollectVip, 13 },
+            { TaskType.ClaimMissions, 14 },
+            { TaskType.SuggestionBox, 14 },    // before ResidentWelcome: its zoom-out shrinks the envelope bubble
+            { TaskType.ResidentWelcome, 15 },
+            { TaskType.CollectRewards, 16 },
+            { TaskType.PetAdventure, 17 },
+            { TaskType.Journey, 18 },
+            { TaskType.TruegoldCrucible, 19 },
+            { TaskType.AllianceTriumph, 20 },
+            { TaskType.WaterEssence, 21 },
+            { TaskType.NomadicMerchant, 22 },
+            { TaskType.AllianceChests, 23 },
+            { TaskType.AllianceMobilization, 24 },
+            { TaskType.ChangeAccount, 999 }    // ChangeAccount should always run last
+        };
+
+        /// <summary>Position in the cycle's task list (lower runs first); tasks not in the list run just before Change Account.</summary>
+        public static int GetRunOrder(TaskType task) => TaskPriority.TryGetValue(task, out var order) ? order : 998;
+
         private IEnumerable<TaskType> GetProperlyOrderedTasks(IEnumerable<TaskType> enabledTasks, bool runStartup = true, int instanceNumber = -1)
         {
             var taskList = enabledTasks.ToList();
@@ -625,43 +752,11 @@ namespace Bot.Core.Tasks
                 }
             }
             
-            // Define proper task execution order
-            var taskPriority = new Dictionary<TaskType, int>
-            {
-                { TaskType.AccountDetection, -1 }, // AccountDetection must run first (after Startup)
-                { TaskType.AutoShield, 0 },        // AutoShield should run first to ensure protection
-                { TaskType.CollectOnlineRewards, 1 }, // before AutoHunt: the online rewards include stamina for the intel missions
-                { TaskType.AutoHunt, 2 },          // AutoHunt should run after shield
-                { TaskType.Farming, 3 },           // Farming should run after AutoHunt
-                { TaskType.AutoAllianceHelp, 4 },
-                { TaskType.TroopTraining, 5 },
-                { TaskType.ConquestCollect, 6 },
-                { TaskType.ClaimMail, 7 },
-                { TaskType.AutoHeal, 8 },
-                { TaskType.AutoBuild, 9 },
-                { TaskType.AutoClaimHero, 10 },    // Add AutoClaimHero to the priority list
-                { TaskType.AllianceTechnology, 11 },
-                { TaskType.AutoTechnology, 12 },   // Auto Technology after AllianceTechnology
-                { TaskType.CollectVip, 13 },
-                { TaskType.ClaimMissions, 14 },
-                { TaskType.SuggestionBox, 14 },    // before ResidentWelcome: its zoom-out shrinks the envelope bubble
-                { TaskType.ResidentWelcome, 15 },
-                { TaskType.CollectRewards, 16 },
-                { TaskType.PetAdventure, 17 },
-                { TaskType.Journey, 18 },
-                { TaskType.TruegoldCrucible, 19 },
-                { TaskType.AllianceTriumph, 20 },
-                { TaskType.WaterEssence, 21 },
-                { TaskType.NomadicMerchant, 22 },
-                { TaskType.AllianceChests, 23 },
-                { TaskType.AllianceMobilization, 24 },
-                { TaskType.ChangeAccount, 999 }    // ChangeAccount should always run last
-            };
 
             // Filter out system tasks (but keep AccountDetection since it's auto-enabled above) and sort by priority
             var ordered = taskList
                 .Where(task => task != TaskType.Startup && task != TaskType.Recovery)
-                .OrderBy(task => taskPriority.ContainsKey(task) ? taskPriority[task] : 998)
+                .OrderBy(task => GetRunOrder(task))
                 .ToList();
 
             // ChangeAccount also runs first: it switches away from a disabled character before any task runs on it

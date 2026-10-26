@@ -68,7 +68,7 @@ namespace Bot.Core.Tasks.Modules
                 {
                     var nextCollection = GetNextCollectionTime(account.InstanceNumber);
                     logger.LogInfo($"[{account.AccountName}] Too soon to collect VIP rewards. Next collection at: {nextCollection}");
-                    return new TaskExecutionDetails(true, nextCollection, "Skipped - Too soon to collect");
+                    return new TaskExecutionDetails(true, nextCollection, "Skipped - Too soon to collect") { Skipped = true };
                 }
 
                 logger.LogInfo($"[{account.AccountName}] Starting VIP collection process...");

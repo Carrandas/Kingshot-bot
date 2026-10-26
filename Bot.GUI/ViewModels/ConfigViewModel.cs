@@ -150,6 +150,7 @@ namespace Bot.GUI.ViewModels
         public ICommand AddFarmingTargetCommand { get; }
         public ICommand RemoveFarmingTargetCommand { get; }
         public ICommand ToggleTaskEnabledCommand { get; }
+        public ICommand ToggleTaskVisibleCommand { get; }
         public ICommand ApplyFarmingTargetsToAllCommand { get; }
         public ICommand ApplyEnabledTasksToAllCommand { get; }
         public ICommand ApplyAutoShieldSettingsToAllCommand { get; }
@@ -464,6 +465,7 @@ namespace Bot.GUI.ViewModels
             AddFarmingTargetCommand = new RelayCommand(_ => AddFarmingTarget(), _ => SelectedAccount != null);
             RemoveFarmingTargetCommand = new RelayCommand(param => RemoveFarmingTarget(param as FarmingTargetViewModel), _ => SelectedAccount != null);
             ToggleTaskEnabledCommand = new RelayCommand(param => ToggleTaskEnabled(param as TaskType?));
+            ToggleTaskVisibleCommand = new RelayCommand(ToggleTaskVisible);
             ApplyFarmingTargetsToAllCommand = new RelayCommand(_ => ApplyFarmingTargetsToAll(), _ => SelectedAccount != null);
             ApplyEnabledTasksToAllCommand = new RelayCommand(_ => ApplyEnabledTasksToAll(), _ => SelectedAccount != null);
             ApplyAutoShieldSettingsToAllCommand = new RelayCommand(_ => ApplyAutoShieldSettingsToAll(), _ => SelectedAccount != null);
@@ -582,6 +584,7 @@ namespace Bot.GUI.ViewModels
             {
                 if (acc.FarmingTargets == null) acc.FarmingTargets = new ObservableCollection<FarmingTarget>();
                 if (acc.Characters == null) acc.Characters = new ObservableCollection<CharacterEntry>();
+                if (acc.HiddenTasks == null) acc.HiddenTasks = new ObservableCollection<TaskType>();
                 // Fix-up: Convert any string values in EnabledTasks to TaskType enum values
                 if (acc.EnabledTasks != null)
                 {
@@ -860,6 +863,20 @@ namespace Bot.GUI.ViewModels
             SaveConfigIfNotApplying(); // Auto-save after reordering
         }
 
+        /// <summary>Settings > Tasks: show or hide a task in the Bot tab's task list (a hidden task never runs)</summary>
+        private void ToggleTaskVisible(object? param)
+        {
+            if (SelectedAccount == null) return;
+            TaskType taskType;
+            if (param is TaskType t) taskType = t;
+            else if (param is string s && Enum.TryParse(s, out TaskType parsed)) taskType = parsed;
+            else return;
+
+            if (!SelectedAccount.HiddenTasks.Remove(taskType)) SelectedAccount.HiddenTasks.Add(taskType);
+            SelectedAccount.OnPropertyChanged(nameof(AccountSettings.HiddenTasks));
+            SaveConfigIfNotApplying();
+        }
+
         private void ToggleTaskEnabled(object? param)
         {
             if (SelectedAccount == null || param == null)
@@ -929,7 +946,8 @@ namespace Bot.GUI.ViewModels
             if (SelectedAccount == null) return;
 
             var enabledTasks = new HashSet<TaskType>(SelectedAccount.EnabledTasks);
-            
+            var hiddenTasks = new HashSet<TaskType>(SelectedAccount.HiddenTasks);
+
             foreach (var account in Accounts.Where(a => a != SelectedAccount))
             {
                 account.EnabledTasks.Clear();
@@ -937,6 +955,9 @@ namespace Bot.GUI.ViewModels
                 {
                     account.EnabledTasks.Add(task);
                 }
+                account.HiddenTasks.Clear();
+                foreach (var task in hiddenTasks) account.HiddenTasks.Add(task);
+                account.OnPropertyChanged(nameof(AccountSettings.HiddenTasks));
             }
 
             SaveConfig();

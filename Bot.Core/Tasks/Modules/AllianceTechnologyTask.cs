@@ -21,7 +21,7 @@ namespace Bot.Core.Tasks.Modules
     /// SAFETY: the orange "Contribute 💎10" next to it spends gems and is never tapped. The teal button is only held
     /// while its colour is verified teal (grey = no attempts left).
     /// </summary>
-    public class AllianceTechnologyTask : BaseTaskWithCommonPatterns
+    public class AllianceTechnologyTask : BaseTaskWithCommonPatterns, IScheduledTask
     {
         public override TaskType TaskType => TaskType.AllianceTechnology;
         public override string Name => "Alliance Technology";
@@ -47,6 +47,21 @@ namespace Bot.Core.Tasks.Modules
 
         // Default timer settings (used as fallback)
         private static readonly TimeSpan DefaultInterval = TimeSpan.FromHours(10);
+
+        public void ClearSchedule(string accountKey)
+        {
+            LoadExecutionTimes();
+            if (_lastExecutionTimes.TryRemove(accountKey, out _)) SaveExecutionTimes();
+        }
+
+        public DateTime? GetNextRunUtc(string accountKey, AccountSettings account)
+        {
+            // no Load here: it re-reads (and on a read error clears) the gate the running task uses; shows nothing until the task ran once since start
+            if (!_lastExecutionTimes.TryGetValue(accountKey, out var last)) return null;
+            // WaitHours with a random +-10%; show the earliest
+            var next = last.AddHours((account.AllianceTechnologySettings?.WaitHours ?? DefaultInterval.TotalHours) * 0.9);
+            return next > DateTime.UtcNow ? next : null;
+        }
         private static readonly Random _random = new Random();
 
         // Static dictionary to track last execution times per account
@@ -76,7 +91,7 @@ namespace Bot.Core.Tasks.Modules
                 {
                     var nextExecution = GetNextExecutionTime(accountKey, account);
                     logger.LogInfo($"[{account.AccountName}] Too soon to run Alliance Technology. Next execution at: {nextExecution}");
-                    return new TaskExecutionDetails(true, nextExecution, "Skipped - Too soon to execute");
+                    return new TaskExecutionDetails(true, nextExecution, "Skipped - Too soon to execute") { Skipped = true };
                 }
 
                 _locatorService = new LocatorService(logger, account, TaskType);

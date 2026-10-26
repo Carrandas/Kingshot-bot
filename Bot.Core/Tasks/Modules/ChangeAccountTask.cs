@@ -89,6 +89,7 @@ namespace Bot.Core.Tasks.Modules
                 }
 
                 CharacterRoster.Merge(account, rows.Select(r => (r.Name, r.Kingdom)));
+                CharacterRoster.SetActive(account.InstanceNumber, active.Name, active.Kingdom);
 
                 var activeKey = CharacterRoster.NormalizeKey(active.Name);
                 bool activeEnabled = CharacterRoster.IsEnabled(account, active.Name, active.Kingdom);
@@ -137,6 +138,7 @@ namespace Bot.Core.Tasks.Modules
 
                 // Clear cached account ID for this instance since we've switched accounts
                 AccountDetectionTask.ClearCacheForInstance(account.InstanceNumber);
+                CharacterRoster.SetActive(account.InstanceNumber, next.Name, next.Kingdom);
                 logger.LogInfo($"[{account.AccountName}] Cleared cached account ID for instance {account.InstanceNumber}");
 
                 // Signal that tasks need to be restarted from loading screen
@@ -153,59 +155,112 @@ namespace Bot.Core.Tasks.Modules
             }
         }
 
+        /// <summary>Opens the Characters screen only to refresh the roster and the active character (dashboard "Scan characters").</summary>
+        public async Task<TaskExecutionDetails> ScanAsync(AccountSettings account, LogService logger, CancellationToken cancellationToken)
+        {
+            var openError = await OpenCharactersScreenAsync(account, logger, cancellationToken);
+            if (openError != null) return TaskExecutionDetails.Failed(openError);
+
+            var rows = await ScanCharactersAsync(account, logger, cancellationToken);
+            CharacterRoster.Merge(account, rows.Select(r => (r.Name, r.Kingdom)));
+            var active = rows.FirstOrDefault(r => r.IsActive);
+            if (active != null) CharacterRoster.SetActive(account.InstanceNumber, active.Name, active.Kingdom);
+            await CloseCharactersScreenAsync(account, logger, cancellationToken);
+            return rows.Count == 0
+                ? TaskExecutionDetails.Failed("No characters found on the Characters screen")
+                : TaskExecutionDetails.Succeeded($"Found {rows.Count} character(s){(active != null ? $", {active.Name} active" : "")}");
+        }
+
+        /// <summary>
+        /// Makes the named character the active one, for a single task run from the dashboard. Also refreshes the roster.
+        /// Returns Succeeded with RequiresTaskRestart when it switched (the game reloads), Succeeded when that character was already active.
+        /// </summary>
+        public async Task<TaskExecutionDetails> SwitchToCharacterAsync(AccountSettings account, LogService logger, string name, CancellationToken cancellationToken)
+        {
+            var openError = await OpenCharactersScreenAsync(account, logger, cancellationToken);
+            if (openError != null) return TaskExecutionDetails.Failed(openError);
+
+            var rows = await ScanCharactersAsync(account, logger, cancellationToken);
+            CharacterRoster.Merge(account, rows.Select(r => (r.Name, r.Kingdom)));
+            var active = rows.FirstOrDefault(r => r.IsActive);
+            if (active != null) CharacterRoster.SetActive(account.InstanceNumber, active.Name, active.Kingdom);
+
+            if (active != null && CharacterRoster.SameName(active.Name, name))
+            {
+                await CloseCharactersScreenAsync(account, logger, cancellationToken);
+                return TaskExecutionDetails.Succeeded($"{active.Name} already active");
+            }
+
+            var target = rows.FirstOrDefault(r => CharacterRoster.SameName(r.Name, name));
+            if (target == null)
+            {
+                await CloseCharactersScreenAsync(account, logger, cancellationToken);
+                return TaskExecutionDetails.Failed($"{name} not found on the Characters screen");
+            }
+
+            logger.LogInfo($"[{account.AccountName}] Switching to {target.Name}{KingdomSuffix(target.Kingdom)}...");
+            if (!await ClickRandomInRectAsync(account.InstanceNumber, logger, target.TapArea))
+                return TaskExecutionDetails.Failed("Failed to click character row");
+            await Task.Delay(1000, cancellationToken);
+            if (!await FindAndClickImageAsync("confirm.png", account.InstanceNumber, logger, threshold: 0.7))
+                return TaskExecutionDetails.Failed("Could not find confirm button");
+            await Task.Delay(3000, cancellationToken);  // the loading screen comes up
+
+            AccountDetectionTask.ClearCacheForInstance(account.InstanceNumber);
+            CharacterRoster.SetActive(account.InstanceNumber, target.Name, target.Kingdom);
+            return new TaskExecutionDetails(true, message: $"Switched to {target.Name}", requiresTaskRestart: true);
+        }
+
         private static string KingdomSuffix(int? kingdom) => kingdom.HasValue ? $" (#{kingdom})" : string.Empty;
 
         /// <summary>Profile > Settings > Characters. Returns an error message, or null when the Characters screen is open.</summary>
         private async Task<string?> OpenCharactersScreenAsync(AccountSettings account, LogService logger, CancellationToken cancellationToken)
         {
             var locator = new LocatorService(logger, account);
-            await locator.EnsureViewAsync(ViewType.BaseView, account.InstanceNumber, cancellationToken);
+            string? error = null;
 
-            logger.LogInfo($"[{account.AccountName}] Clicking profile button...");
-            if (!await ClickAsync(account.InstanceNumber, logger, ProfileButtonPoint))
+            // Right after a cold start the Settings screen can take a few seconds to open: each button gets up to 4 s,
+            // and a miss goes back to the town and runs the whole Profile > Settings > Characters path once more
+            for (int attempt = 1; attempt <= 2; attempt++)
             {
-                return "Failed to click profile button";
-            }
-            await Task.Delay(1000, cancellationToken);
+                await locator.EnsureViewAsync(ViewType.BaseView, account.InstanceNumber, cancellationToken);
 
-            if (!await FindAndClickWithRecoveryAsync(account, logger, "settings.png", SettingsButtonArea, cancellationToken))
-            {
-                return "Could not find settings button";
-            }
-            await Task.Delay(1000, cancellationToken);
+                logger.LogInfo($"[{account.AccountName}] Clicking profile button...");
+                if (!await ClickAsync(account.InstanceNumber, logger, ProfileButtonPoint))
+                {
+                    return "Failed to click profile button";
+                }
+                await Task.Delay(1000, cancellationToken);
 
-            if (!await FindAndClickWithRecoveryAsync(account, logger, "characters.png", CharactersButtonArea, cancellationToken))
-            {
-                return "Could not find characters button";
+                if (!await WaitAndClickAsync(account, logger, "settings.png", SettingsButtonArea, cancellationToken))
+                {
+                    error = "Could not find settings button";
+                    continue;
+                }
+                await Task.Delay(1000, cancellationToken);
+
+                if (!await WaitAndClickAsync(account, logger, "characters.png", CharactersButtonArea, cancellationToken))
+                {
+                    error = "Could not find characters button";
+                    continue;
+                }
+                await Task.Delay(1000, cancellationToken);
+                return null;
             }
-            await Task.Delay(1000, cancellationToken);
-            return null;
+            return error;
         }
 
-        private async Task<bool> FindAndClickWithRecoveryAsync(AccountSettings account, LogService logger, string template, Rectangle searchArea, CancellationToken cancellationToken)
+        private async Task<bool> WaitAndClickAsync(AccountSettings account, LogService logger, string template, Rectangle searchArea, CancellationToken cancellationToken)
         {
             logger.LogInfo($"[{account.AccountName}] Looking for {template}...");
-            if (await FindAndClickImageAsync(template, account.InstanceNumber, logger, threshold: 0.7, searchArea: searchArea))
+            var match = await WaitForImageWithPositionAsync(template, account.InstanceNumber, logger, cancellationToken,
+                timeoutMs: 4000, threshold: 0.7, searchArea: searchArea);
+            if (!match.found)
             {
-                return true;
+                logger.LogWarning($"[{account.AccountName}] {template} not found within 4 s");
+                return false;
             }
-
-            logger.LogError($"[{account.AccountName}] Error: Failed to find {template}, calling locator module for recovery");
-            try
-            {
-                await new LocatorService(logger, account).EnsureViewAsync(ViewType.BaseView, account.InstanceNumber, cancellationToken);
-                logger.LogInfo($"[{account.AccountName}] Locator service completed view recovery, retrying {template} detection");
-                if (await FindAndClickImageAsync(template, account.InstanceNumber, logger, threshold: 0.7, searchArea: searchArea))
-                {
-                    return true;
-                }
-                logger.LogError($"[{account.AccountName}] Could not find {template} even after locator recovery");
-            }
-            catch (Exception ex)
-            {
-                logger.LogError($"[{account.AccountName}] Locator service failed: {ex.Message}");
-            }
-            return false;
+            return await ClickCenterInRectAsync(account.InstanceNumber, logger, match.position);
         }
 
         private async Task CloseCharactersScreenAsync(AccountSettings account, LogService logger, CancellationToken cancellationToken)

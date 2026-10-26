@@ -35,6 +35,15 @@ namespace Bot.Core.Models
             set { if (_enabled != value) { _enabled = value; OnPropertyChanged(); } }
         }
 
+        /// <summary>Game account ID (Account Detection) of this character: the key the task gates and the run history use</summary>
+        [JsonPropertyName("accountId")]
+        public string? AccountId
+        {
+            get => _accountId;
+            set { if (_accountId != value) { _accountId = value; OnPropertyChanged(); } }
+        }
+        private string? _accountId;
+
         [JsonIgnore]
         public string DisplayName => Kingdom.HasValue ? $"{Name}  (Kingdom #{Kingdom})" : Name;
 

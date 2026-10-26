@@ -21,7 +21,7 @@ namespace Bot.Core.Tasks.Modules
     /// SAFETY: only the two green Claim buttons are tapped (colour checked). The big "Conquer" button (starts a battle)
     /// sits under the "Tap anywhere to exit" banner, so the Rewards screen is dismissed on empty sky instead.
     /// </summary>
-    public class ConquestCollectTask : BaseTaskWithCommonPatterns
+    public class ConquestCollectTask : BaseTaskWithCommonPatterns, IScheduledTask
     {
         public override TaskType TaskType => TaskType.ConquestCollect;
         public override string Name => "Conquest Collection";
@@ -52,6 +52,21 @@ namespace Bot.Core.Tasks.Modules
 
         // Default collection interval settings (used as fallback)
         private static readonly TimeSpan DefaultCollectionInterval = TimeSpan.FromHours(4);
+
+        public void ClearSchedule(string accountKey)
+        {
+            LoadCollectionTimes();
+            if (_lastCollectionTimes.TryRemove(accountKey, out _)) SaveCollectionTimes();
+        }
+
+        public DateTime? GetNextRunUtc(string accountKey, AccountSettings account)
+        {
+            // no Load here: it re-reads (and on a read error clears) the gate the running task uses; shows nothing until the task ran once since start
+            if (!_lastCollectionTimes.TryGetValue(accountKey, out var last)) return null;
+            // WaitHours with a random +-10%; show the earliest
+            var next = last.AddHours((account.ConquestCollectSettings?.WaitHours ?? DefaultCollectionInterval.TotalHours) * 0.9);
+            return next > DateTime.UtcNow ? next : null;
+        }
         private static readonly Random _random = new Random();
 
         private LocatorService? _locatorService;
@@ -73,7 +88,7 @@ namespace Bot.Core.Tasks.Modules
                 {
                     var nextCollection = GetNextCollectionTime(accountId, account);
                     logger.LogInfo($"[{account.AccountName}] Too soon to collect conquest rewards. Next collection at: {nextCollection}");
-                    return new TaskExecutionDetails(true, nextCollection, "Skipped - Too soon to collect");
+                    return new TaskExecutionDetails(true, nextCollection, "Skipped - Too soon to collect") { Skipped = true };
                 }
 
                 int instance = account.InstanceNumber;

@@ -53,6 +53,12 @@ namespace Bot.GUI.Converters
             { TaskType.AllianceMobilization, "Alliance Mobilization" }
         };
 
+        public static string GetDisplayName(TaskType taskType) =>
+            DisplayNames.TryGetValue(taskType, out var name) ? name : taskType.ToString();
+
+        /// <summary>Tasks the user can enable and run: not the system tasks or the hidden ones.</summary>
+        public static bool IsUserTask(TaskType taskType) => !SystemTasks.Contains(taskType) && !DisabledTasks.Contains(taskType);
+
         public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
         {
             // If converting a collection, filter out system tasks and disabled tasks and convert the rest

@@ -1,0 +1,221 @@
+<UserControl x:Class="Bot.GUI.Views.TaskDashboardView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <UserControl.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVisibility"/>
+        <SolidColorBrush x:Key="CardBrush" Color="#FF2D2D2D"/>
+        <SolidColorBrush x:Key="RowBrush" Color="#FF333333"/>
+        <SolidColorBrush x:Key="MutedBrush" Color="#FFAAAAAA"/>
+        <SolidColorBrush x:Key="AccentBrush" Color="#FF14A085"/>
+
+        <Style x:Key="CardStyle" TargetType="Border">
+            <Setter Property="Background" Value="{StaticResource CardBrush}"/>
+            <Setter Property="CornerRadius" Value="12"/>
+            <Setter Property="Padding" Value="20"/>
+        </Style>
+
+        <Style x:Key="ActionButton" TargetType="Button">
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Height" Value="44"/>
+            <Setter Property="Padding" Value="18,0"/>
+            <Setter Property="Margin" Value="0,0,12,0"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Bg" Background="{TemplateBinding Background}" CornerRadius="8" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="Bg" Property="Opacity" Value="0.35"/>
+                            </Trigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bg" Property="Opacity" Value="0.85"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="PlayButton" TargetType="Button" BasedOn="{StaticResource ActionButton}">
+            <Setter Property="Height" Value="28"/>
+            <Setter Property="Width" Value="36"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="Margin" Value="0"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Background" Value="#FF4CAF50"/>
+            <Setter Property="ToolTipService.ShowOnDisabled" Value="True"/>
+        </Style>
+
+        <Style x:Key="HeaderText" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource MutedBrush}"/>
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+        </Style>
+    </UserControl.Resources>
+
+    <Grid Margin="20,16,20,16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <!-- Cycle controls and the next run -->
+        <Border Style="{StaticResource CardStyle}" Margin="0,0,0,12">
+            <StackPanel>
+                <StackPanel Orientation="Horizontal">
+                    <Button Content="▶  Run on schedule" Background="#FF4CAF50" Style="{StaticResource ActionButton}"
+                            Command="{Binding RunOnScheduleCommand}"
+                            ToolTip="Run a cycle now, then again after every cycle wait (Settings: min-max minutes)"/>
+                    <Button Content="①  Run once" Background="#FF0D7377" Style="{StaticResource ActionButton}"
+                            Command="{Binding RunOnceCommand}"
+                            ToolTip="Run the task list once on every enabled character, then stop"/>
+                    <Button Content="⏸  Pause / Resume" Background="#FFFF9800" Style="{StaticResource ActionButton}"
+                            Command="{Binding DataContext.ViewModel.PauseResumeCommand, RelativeSource={RelativeSource AncestorType=Window}}"/>
+                    <Button Content="⏹  Stop" Background="#FFD32F2F" Style="{StaticResource ActionButton}"
+                            Command="{Binding DataContext.ViewModel.StopCommand, RelativeSource={RelativeSource AncestorType=Window}}"/>
+                </StackPanel>
+                <TextBlock Text="{Binding CycleStatus}" Foreground="White" FontSize="18" FontWeight="SemiBold"
+                           Margin="0,16,0,0" TextWrapping="Wrap"/>
+                <TextBlock Text="{Binding ActiveCharacterText}" Foreground="{StaticResource MutedBrush}" FontSize="12" Margin="0,4,0,0"/>
+            </StackPanel>
+        </Border>
+
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="220"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+
+            <!-- Characters -->
+            <Border Style="{StaticResource CardStyle}" Margin="0,0,12,0">
+                <DockPanel>
+                    <TextBlock DockPanel.Dock="Top" Text="Characters" Foreground="White" FontSize="16" FontWeight="Bold" Margin="0,0,0,10"/>
+                    <ComboBox DockPanel.Dock="Top" Margin="0,0,0,10"
+                              ItemsSource="{Binding Accounts}" SelectedItem="{Binding SelectedAccount}" DisplayMemberPath="AccountName"
+                              Visibility="{Binding ShowAccountPicker, Converter={StaticResource BoolToVisibility}}"/>
+                    <Button DockPanel.Dock="Bottom" Content="🔍  Scan characters" Background="#FF0D7377" Height="34" Margin="0,10,0,0"
+                            Style="{StaticResource ActionButton}" Command="{Binding ScanCharactersCommand}"
+                            ToolTip="Start the game and read the Characters screen once"/>
+                    <TextBlock DockPanel.Dock="Bottom" Foreground="{StaticResource MutedBrush}" FontSize="11" TextWrapping="Wrap" Margin="0,8,0,0"
+                               Text="Unticked characters are left out of the cycle."/>
+                    <CheckBox DockPanel.Dock="Bottom" IsChecked="{Binding SwitchCharacters}" Margin="0,10,0,0"
+                              ToolTip="Change Account: the cycle runs the task list on every ticked character. Off: only on the character that is active in the game.">
+                        <TextBlock Text="Switch characters each cycle" Foreground="White" FontSize="12" TextWrapping="Wrap"/>
+                    </CheckBox>
+                    <ListBox ItemsSource="{Binding Characters}" SelectedItem="{Binding SelectedCharacter}"
+                             Background="Transparent" BorderThickness="0" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                        <ListBox.ItemContainerStyle>
+                            <Style TargetType="ListBoxItem">
+                                <Setter Property="Margin" Value="0,0,0,6"/>
+                                <Setter Property="Template">
+                                    <Setter.Value>
+                                        <ControlTemplate TargetType="ListBoxItem">
+                                            <Border x:Name="Bg" Background="{StaticResource RowBrush}" CornerRadius="8" Padding="10,8">
+                                                <ContentPresenter/>
+                                            </Border>
+                                            <ControlTemplate.Triggers>
+                                                <Trigger Property="IsSelected" Value="True">
+                                                    <Setter TargetName="Bg" Property="Background" Value="{StaticResource AccentBrush}"/>
+                                                </Trigger>
+                                            </ControlTemplate.Triggers>
+                                        </ControlTemplate>
+                                    </Setter.Value>
+                                </Setter>
+                            </Style>
+                        </ListBox.ItemContainerStyle>
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <StackPanel Orientation="Horizontal">
+                                    <CheckBox IsChecked="{Binding Entry.Enabled}" VerticalAlignment="Center" Margin="0,0,8,0"
+                                              Visibility="{Binding HasEntry, Converter={StaticResource BoolToVisibility}}"
+                                              ToolTip="Run the cycle on this character"/>
+                                    <TextBlock Text="{Binding Name}" Foreground="White" FontSize="14" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </DockPanel>
+            </Border>
+
+            <!-- Tasks of the selected character -->
+            <Border Grid.Column="1" Style="{StaticResource CardStyle}">
+                <DockPanel Grid.IsSharedSizeScope="True">
+                    <Grid DockPanel.Dock="Top" Margin="10,0,10,8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="32"/>
+                            <ColumnDefinition Width="46"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="190"/>
+                            <ColumnDefinition Width="160"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="ON" Style="{StaticResource HeaderText}" ToolTip="In the cycle's task list (all characters)"/>
+                        <TextBlock Grid.Column="1" Text="RUN" Style="{StaticResource HeaderText}"/>
+                        <TextBlock Grid.Column="2" Text="TASK" Style="{StaticResource HeaderText}"/>
+                        <TextBlock Grid.Column="3" Text="LAST RUN" Style="{StaticResource HeaderText}"/>
+                        <TextBlock Grid.Column="4" Text="NEXT RUN" Style="{StaticResource HeaderText}"/>
+                    </Grid>
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                        <ItemsControl x:Name="TaskList" ItemsSource="{Binding Tasks}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Margin="0,0,0,4" Padding="10,6" CornerRadius="8">
+                                        <Border.Style>
+                                            <Style TargetType="Border">
+                                                <Setter Property="Background" Value="{StaticResource RowBrush}"/>
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding IsRunningNow}" Value="True">
+                                                        <Setter Property="Background" Value="#FF1E4D45"/>
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Border.Style>
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="32"/>
+                                                <ColumnDefinition Width="46"/>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="190"/>
+                                                <ColumnDefinition Width="160"/>
+                                            </Grid.ColumnDefinitions>
+                                            <CheckBox Grid.Column="0" IsChecked="{Binding Enabled}" VerticalAlignment="Center"/>
+                                            <TextBlock Grid.Column="2" Text="{Binding DisplayName}" TextTrimming="CharacterEllipsis" Foreground="White" FontSize="13" VerticalAlignment="Center"/>
+                                            <StackPanel Grid.Column="3" Orientation="Horizontal" VerticalAlignment="Center" ToolTip="{Binding LastRunTooltip}">
+                                                <Ellipse Width="9" Height="9" Margin="0,0,8,0" VerticalAlignment="Center">
+                                                    <Ellipse.Style>
+                                                        <Style TargetType="Ellipse">
+                                                            <Setter Property="Fill" Value="#FF666666"/>
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding LastRunState}" Value="ok">
+                                                                    <Setter Property="Fill" Value="#FF4CAF50"/>
+                                                                </DataTrigger>
+                                                                <DataTrigger Binding="{Binding LastRunState}" Value="failed">
+                                                                    <Setter Property="Fill" Value="#FFE57373"/>
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </Ellipse.Style>
+                                                </Ellipse>
+                                                <TextBlock Text="{Binding LastRunText}" Foreground="#FFCCCCCC" FontSize="12"/>
+                                            </StackPanel>
+                                            <TextBlock Grid.Column="4" Text="{Binding NextRunText}" TextTrimming="CharacterEllipsis" ToolTip="{Binding NextRunText}" Foreground="#FFCCCCCC" FontSize="12" VerticalAlignment="Center"/>
+                                            <Button Grid.Column="1" Content="▶" HorizontalAlignment="Left" Style="{StaticResource PlayButton}"
+                                                    Command="{Binding DataContext.RunTaskCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                                    CommandParameter="{Binding}"
+                                                    ToolTip="Run only this task on the selected character now (disabled while the bot runs)"/>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                </DockPanel>
+            </Border>
+        </Grid>
+    </Grid>
+</UserControl>

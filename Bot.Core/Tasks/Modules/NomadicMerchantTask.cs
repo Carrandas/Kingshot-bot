@@ -18,7 +18,7 @@ namespace Bot.Core.Tasks.Modules
     /// new one right away, so it keeps buying until all six slots cost gems, then uses the Free Refresh when it is
     /// offered and goes again. Gem-priced items and the paid refresh are never tapped.
     /// </summary>
-    public class NomadicMerchantTask : BaseTaskWithCommonPatterns
+    public class NomadicMerchantTask : BaseTaskWithCommonPatterns, IScheduledTask
     {
         public override TaskType TaskType => TaskType.NomadicMerchant;
         public override string Name => "Nomadic Merchant";
@@ -52,6 +52,14 @@ namespace Bot.Core.Tasks.Modules
 
         // The stock and the free refresh reset at 00:00 UTC; once everything left costs gems, skip until then
         private static readonly ConcurrentDictionary<string, DateTime> _doneUtcDate = new();
+
+        public void ClearSchedule(string accountKey)
+        {
+            _doneUtcDate.TryRemove(accountKey, out _);
+        }
+
+        public DateTime? GetNextRunUtc(string accountKey, AccountSettings account) =>
+            _doneUtcDate.TryGetValue(accountKey, out var done) && done == DateTime.UtcNow.Date ? Schedule.NextUtcMidnight : null;
         private bool _allGemPriced;
 
         protected override async Task<TaskExecutionDetails> ExecuteTaskLogicAsync(AccountSettings account, LogService logger, CancellationToken cancellationToken, bool isReRun = false, IUserNotificationService? userNotifications = null)
@@ -61,7 +69,7 @@ namespace Bot.Core.Tasks.Modules
                 string accountId = AccountDetectionTask.GetCachedAccountId(account.InstanceNumber);
                 string accountKey = string.IsNullOrEmpty(accountId) ? $"Account_{account.AccountName}_{account.InstanceNumber}" : accountId;
                 if (_doneUtcDate.TryGetValue(accountKey, out var done) && done == DateTime.UtcNow.Date)
-                    return TaskExecutionDetails.Succeeded("Already done today");
+                    return TaskExecutionDetails.SkippedBecause("Already done today");
 
                 _locatorService = new LocatorService(logger, account, TaskType);
                 int instance = account.InstanceNumber;

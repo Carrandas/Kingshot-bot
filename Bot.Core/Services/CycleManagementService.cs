@@ -47,6 +47,28 @@ namespace Bot.Core.Services
         public bool IsPaused => _isPaused;
         public int CurrentCycle => _currentCycle;
 
+        /// <summary>When the wait between cycles ends; null while a cycle runs or the service is stopped</summary>
+        public DateTime? NextCycleUtc { get; private set; }
+
+        /// <summary>Raised when the cycle state the dashboard shows changes (cycle started/finished, waiting, stopped)</summary>
+        public event Action? OnScheduleChanged;
+
+        /// <summary>
+        /// Runs one task on one character (dashboard play button): starts the instance if needed and leaves it running afterwards.
+        /// </summary>
+        public async Task<TaskExecutionDetails> RunSingleTaskAsync(AccountSettings account, TaskType taskType, string? characterName, CancellationToken cancellationToken)
+        {
+            if (_isRunning) return TaskExecutionDetails.Failed("The cycle is running");
+
+            _logger.LogInfo($"🚀 Ensuring LDPlayer instance {account.InstanceNumber} is running for a single {taskType} run...");
+            if (!await _instanceManager.StartInstanceAsync(account.InstanceNumber, cancellationToken))
+                return TaskExecutionDetails.Failed($"Could not start instance {account.InstanceNumber}");
+            if (await ADBConnectionManager.GetConnectionAsync(account.InstanceNumber, _logger, cancellationToken) == null)
+                return TaskExecutionDetails.Failed($"No ADB connection to instance {account.InstanceNumber}");
+
+            return await _taskManager.RunSingleTaskAsync(account, taskType, characterName, cancellationToken);
+        }
+
         // Performance: expose pause event for efficient event-based waiting instead of polling
         public ManualResetEventSlim PauseEvent => _pauseEvent;
 
@@ -187,6 +209,8 @@ namespace Bot.Core.Services
                     if (cycleToken.IsCancellationRequested) break;
                     
                     _currentCycle++;
+                    NextCycleUtc = null;
+                    OnScheduleChanged?.Invoke();
                     _logger.LogInfo($"🔄 === Starting Cycle {_currentCycle} ===");
                     OnCycleStarted?.Invoke(_currentCycle, TimeSpan.FromMinutes(waitMinutes));
                     
@@ -341,6 +365,8 @@ namespace Bot.Core.Services
                     if (waitMinutes > 0 && !cycleToken.IsCancellationRequested)
                     {
                         _logger.LogInfo($"⏳ Waiting {waitMinutes} minutes before next cycle");
+                        NextCycleUtc = DateTime.UtcNow.AddMinutes(waitMinutes);
+                        OnScheduleChanged?.Invoke();
                         OnWaitingBetweenCycles?.Invoke(TimeSpan.FromMinutes(waitMinutes));
                         
                         for (int minute = 0; minute < waitMinutes; minute++)
@@ -364,6 +390,8 @@ namespace Bot.Core.Services
             finally
             {
                 _isRunning = false;
+                NextCycleUtc = null;
+                OnScheduleChanged?.Invoke();
                 _cycleGlobalCts?.Dispose();
                 _cycleGlobalCts = null;
                 _instanceSemaphore.Dispose();

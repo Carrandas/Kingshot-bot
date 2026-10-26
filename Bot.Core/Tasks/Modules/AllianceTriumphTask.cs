@@ -18,7 +18,7 @@ namespace Bot.Core.Tasks.Modules
     ///
     /// SAFETY: the chest is only tapped while its red dot shows. Nothing on this screen costs gems.
     /// </summary>
-    public class AllianceTriumphTask : BaseTaskWithCommonPatterns
+    public class AllianceTriumphTask : BaseTaskWithCommonPatterns, IScheduledTask
     {
         public override TaskType TaskType => TaskType.AllianceTriumph;
         public override string Name => "Alliance Triumph";
@@ -48,6 +48,14 @@ namespace Bot.Core.Tasks.Modules
         // Both chests reset at 00:00 UTC (the weekly one on the weekly tally day); once the daily chest is claimed, skip until then
         private static readonly ConcurrentDictionary<string, DateTime> _lastClaimUtcDate = new();
 
+        public void ClearSchedule(string accountKey)
+        {
+            _lastClaimUtcDate.TryRemove(accountKey, out _);
+        }
+
+        public DateTime? GetNextRunUtc(string accountKey, AccountSettings account) =>
+            _lastClaimUtcDate.TryGetValue(accountKey, out var claimed) && claimed == DateTime.UtcNow.Date ? Schedule.NextUtcMidnight : null;
+
         protected override async Task<TaskExecutionDetails> ExecuteTaskLogicAsync(AccountSettings account, LogService logger, CancellationToken cancellationToken, bool isReRun = false, IUserNotificationService? userNotifications = null)
         {
             try
@@ -55,7 +63,7 @@ namespace Bot.Core.Tasks.Modules
                 string accountId = AccountDetectionTask.GetCachedAccountId(account.InstanceNumber);
                 string accountKey = string.IsNullOrEmpty(accountId) ? $"Account_{account.AccountName}_{account.InstanceNumber}" : accountId;
                 if (_lastClaimUtcDate.TryGetValue(accountKey, out var claimed) && claimed == DateTime.UtcNow.Date)
-                    return TaskExecutionDetails.Succeeded("Already claimed today");
+                    return TaskExecutionDetails.SkippedBecause("Already claimed today");
 
                 _locatorService = new LocatorService(logger, account, TaskType);
                 int instance = account.InstanceNumber;

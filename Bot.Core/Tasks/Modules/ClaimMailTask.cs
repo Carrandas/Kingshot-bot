@@ -17,7 +17,7 @@ using System.Linq;
 
 namespace Bot.Core.Tasks.Modules
 {
-    public class ClaimMailTask : BaseTaskWithCommonPatterns
+    public class ClaimMailTask : BaseTaskWithCommonPatterns, IScheduledTask
     {
         public override TaskType TaskType => TaskType.ClaimMail;
         public override string Name => "Claim Mail";
@@ -37,6 +37,19 @@ namespace Bot.Core.Tasks.Modules
 
         // Collection interval settings (same as ConquestCollectTask)
         private static readonly TimeSpan MinCollectionInterval = TimeSpan.FromHours(3);
+
+        public void ClearSchedule(string accountKey)
+        {
+            LoadCollectionTimes();
+            if (_lastCollectionTimes.TryRemove(accountKey, out _)) SaveCollectionTimes();
+        }
+
+        public DateTime? GetNextRunUtc(string accountKey, AccountSettings account)
+        {
+            // no Load here: it re-reads (and on a read error clears) the gate the running task uses; shows nothing until the task ran once since start
+            // the real interval is a random 3-6 h; show the earliest
+            return _lastCollectionTimes.TryGetValue(accountKey, out var last) && last + MinCollectionInterval > DateTime.UtcNow ? last + MinCollectionInterval : null;
+        }
         private static readonly TimeSpan MaxCollectionInterval = TimeSpan.FromHours(6);
         private static readonly Random _random = new Random();
 
@@ -69,7 +82,7 @@ namespace Bot.Core.Tasks.Modules
                 {
                     var nextCollection = GetNextCollectionTime(accountKey);
                     logger.LogInfo($"[{account.AccountName}] Too soon to collect mail (Account ID: {accountId}). Next collection at: {nextCollection}");
-                    return new TaskExecutionDetails(true, nextCollection, "Skipped - Too soon to collect");
+                    return new TaskExecutionDetails(true, nextCollection, "Skipped - Too soon to collect") { Skipped = true };
                 }
 
                 logger.LogInfo($"[{account.AccountName}] 📬 Starting mail claim task. IsReRun = {isReRun}");

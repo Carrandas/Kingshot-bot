@@ -48,6 +48,7 @@ namespace Bot.Core.Models
             // Ensure collections are always initialized
             TaskSequence = new ObservableCollection<TaskType>();
             EnabledTasks = new ObservableCollection<TaskType>();
+            HiddenTasks = new ObservableCollection<TaskType>();
             TaskSettings = new Dictionary<string, string>();
             FarmingTargets = new ObservableCollection<FarmingTarget>();
             Characters = new ObservableCollection<CharacterEntry>();
@@ -103,6 +104,10 @@ namespace Bot.Core.Models
 
         [JsonPropertyName("enabledTasks")]
         public ObservableCollection<TaskType> EnabledTasks { get; set; }
+
+        /// <summary>Tasks unticked under Settings > Tasks: left off the Bot tab's task list and never run, whatever EnabledTasks says</summary>
+        [JsonPropertyName("hiddenTasks")]
+        public ObservableCollection<TaskType> HiddenTasks { get; set; }
 
         [JsonPropertyName("taskSettings")]
         public Dictionary<string, string> TaskSettings { get; set; }

@@ -98,12 +98,12 @@ Unattended test runs: start the app with `KingshotAuto.exe --launch` (presses La
 
 ## Planned (to work out and discuss)
 
-- [ ] **Per-task scheduling.** Every task currently runs on every cycle (Collect Store Rewards runs again even though the store is once a day). Each task needs its own schedule type:
+- [ ] **Per-task scheduling.** Partly done: daily gates and timers per task, `IScheduledTask` reports the next run, run history in `data/task_history.json` (branch `poc/task-dashboard`). Originally: every task ran on every cycle (Collect Store Rewards runs again even though the store is once a day). Each task needs its own schedule type:
   - once a day (e.g. store, Nomadic Merchant, VIP, Alliance Triumph; resets 00:00 UTC)
   - several times a day, at an interval (e.g. hunt, farming, alliance help)
   - at fixed clock times (e.g. Journey free supplies at 08:00/16:00 UTC)
   - Keep last run + result per task per character, so a restart doesn't repeat done tasks
-- [ ] **New main screen (GUI).** The current screen only shows the running task. Replace it with a per-character overview of all tasks:
+- [ ] **New main screen (GUI).** In progress on branch `poc/task-dashboard` (2026-10-26): Bot tab = cycle controls + next cycle time, character list, per task last run / next run / play button; Settings > Tasks chooses which tasks show (hidden = never runs). Left: reorderable run order. The current screen only shows the running task. Replace it with a per-character overview of all tasks:
   - last run time + result (OK / failed)
   - next planned run (from the schedule above)
   - manual "run now" button per task
@@ -114,6 +114,12 @@ Unattended test runs: start the app with `KingshotAuto.exe --launch` (presses La
   - [ ] Verify a full cycle live: Asli -> Ilsa -> "all enabled characters done"
   - [ ] Lists longer than the panel (rows below y 1100) need a scroll: logged as a warning, not handled
   - OCR reads "]" of the alliance tag as l/J or drops it; capital I and l are the same glyph. Names are compared without the tag, I/l folded
+
+## Quality (nothing in place yet)
+
+- [ ] **Unit tests.** There are none: `Bot.Core.Tests/` has files but no .csproj and is not in the solution. Start with the pure logic: `CharacterRoster` name matching, daily gates / `GetNextRunUtc`, task ordering, OCR text parsing (march count, Suggestion Box answers)
+- [ ] **Integration tests on screenshots.** Saved screenshots per screen (present / absent / popup variants) with the expected template scores and tap points, so a task's detection can be checked without the emulator. Catches threshold regressions like the BGRA swap (#19)
+- [ ] **Code quality monitoring.** No static analysis or CI at all: add a build + test workflow (GitHub Actions on the fork), .NET analyzers / `dotnet format`, and a quality dashboard (SonarQube / SonarCloud) for bugs, smells and coverage
 
 ## Not done yet
 

@@ -199,8 +199,48 @@ namespace Bot.GUI.ViewModels
                 catch (Exception ex) { _logger.LogError($"Error in StopCommand: {ex}"); }
             });
             
-            LaunchBotCommand = new RelayCommand(async _ => {
-                _logger.LogInfo("LaunchBotCommand executed");
+            LaunchBotCommand = new RelayCommand(_ => LaunchCycle(runOnce: false));
+            RunOnceCommand = new RelayCommand(_ => LaunchCycle(runOnce: true));
+
+            PauseResumeCommand = new AsyncRelayCommand(async _ => {
+                _logger.LogInfo("PauseResumeCommand executed");
+                try {
+                    if (!IsBotRunning)
+                    {
+                        _userNotifications.ShowWarning("Cannot pause/resume - bot is not running", "Please start the bot first");
+                        return;
+                    }
+
+                    if (_cycleService.IsPaused)
+                    {
+                        await _cycleService.ResumeAsync();
+                        IsBotPaused = false;
+                        _userNotifications.ShowSuccess("Bot resumed successfully");
+                        UpdateInstanceStatusToPausedOrRunning(false);
+                    }
+                    else
+                    {
+                        await _cycleService.PauseAsync();
+                        IsBotPaused = true;
+                        _userNotifications.ShowStatus("Bot paused - will complete current tasks then pause", NotificationType.Info);
+                        UpdateInstanceStatusToPausedOrRunning(true);
+                    }
+                } catch (Exception ex) {
+                    _logger.LogError($"Error in PauseResumeCommand: {ex}");
+                    _userNotifications.ShowError($"Failed to pause/resume bot: {ex.Message}");
+                }
+            });
+
+            Dashboard = new TaskDashboardViewModel(this, _cycleService, _taskManager, ConfigVM);
+        }
+
+        public TaskDashboardViewModel Dashboard { get; }
+        public ICommand RunOnceCommand { get; }
+
+        /// <summary>Starts the cycle service: repeating cycles, or a single cycle (Run once).</summary>
+        private async void LaunchCycle(bool runOnce)
+        {
+                _logger.LogInfo($"LaunchBotCommand executed{(runOnce ? " (run once)" : "")}");
                 try {
                     // Clean up any existing ADB connections before starting
                     await ADBConnectionManager.CloseAllConnections(_logger);
@@ -240,42 +280,43 @@ namespace Bot.GUI.ViewModels
                     );
                     _userNotifications.ShowStatus($"Cycle settings: {_currentConfig.CycleManagement.MinWaitTimeBetweenCyclesMinutes}-{_currentConfig.CycleManagement.MaxWaitTimeBetweenCyclesMinutes}min intervals, shutdown: {_currentConfig.CycleManagement.ShutdownEmulatorsAfterCycle}", NotificationType.Info);
                     
+                    _currentConfig.CycleManagement.MaxCycles = runOnce ? 1 : 0;
                     _ = Task.Run(async () => await _cycleService.StartCycleAsync(_currentConfig, _botCancellationTokenSource.Token));
                 }
                 catch (Exception ex) {
                     _logger.LogError($"Error in LaunchBotCommand: {ex}", category: LogCategories.System);
                     _userNotifications.ShowError($"Failed to launch bots: {ex.Message}");
                 }
-            });
-            
-            PauseResumeCommand = new AsyncRelayCommand(async _ => {
-                _logger.LogInfo("PauseResumeCommand executed");
-                try {
-                    if (!IsBotRunning)
-                    {
-                        _userNotifications.ShowWarning("Cannot pause/resume - bot is not running", "Please start the bot first");
-                        return;
-                    }
+        }
 
-                    if (_cycleService.IsPaused)
-                    {
-                        await _cycleService.ResumeAsync();
-                        IsBotPaused = false;
-                        _userNotifications.ShowSuccess("Bot resumed successfully");
-                        UpdateInstanceStatusToPausedOrRunning(false);
-                    }
-                    else
-                    {
-                        await _cycleService.PauseAsync();
-                        IsBotPaused = true;
-                        _userNotifications.ShowStatus("Bot paused - will complete current tasks then pause", NotificationType.Info);
-                        UpdateInstanceStatusToPausedOrRunning(true);
-                    }
-                } catch (Exception ex) {
-                    _logger.LogError($"Error in PauseResumeCommand: {ex}");
-                    _userNotifications.ShowError($"Failed to pause/resume bot: {ex.Message}");
-                }
-            });
+        /// <summary>Dashboard play button: one task on one character. Stop cancels it like a cycle.</summary>
+        public async Task<TaskExecutionDetails> RunSingleTaskAsync(AccountSettings account, TaskType taskType, string? characterName)
+        {
+            if (IsBotRunning) return TaskExecutionDetails.Failed("The bot is already running");
+            if (_botCancellationTokenSource.IsCancellationRequested)
+            {
+                _botCancellationTokenSource.Dispose();
+                _botCancellationTokenSource = new CancellationTokenSource();
+            }
+
+            SetIndividualInstanceRunning(true);
+            try
+            {
+                return await Task.Run(() => _cycleService.RunSingleTaskAsync(account, taskType, characterName, _botCancellationTokenSource.Token));
+            }
+            catch (OperationCanceledException)
+            {
+                return TaskExecutionDetails.Failed("Cancelled");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError($"Single run of {taskType} failed: {ex}", category: LogCategories.TaskExecution);
+                return TaskExecutionDetails.Failed(ex.Message);
+            }
+            finally
+            {
+                SetIndividualInstanceRunning(false);
+            }
         }
 
         private DateTime _lastInitializeGuiCall = DateTime.MinValue;

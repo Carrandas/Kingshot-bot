@@ -25,7 +25,7 @@ namespace Bot.Core.Tasks.Modules
     /// SAFETY: refreshing an open mission is free (R4 and higher). The "Refresh 500 gems" buttons on refreshing slots are
     /// never tapped: only cards with a points coin are opened.
     /// </summary>
-    public class AllianceMobilizationTask : BaseTaskWithCommonPatterns
+    public class AllianceMobilizationTask : BaseTaskWithCommonPatterns, IScheduledTask
     {
         public override TaskType TaskType => TaskType.AllianceMobilization;
         public override string Name => "Alliance Mobilization";
@@ -60,15 +60,21 @@ namespace Bot.Core.Tasks.Modules
         private const int IconOffsetX = -27, IconOffsetY = -160, IconSize = 140;
         private static readonly Point BackArrowPoint = new Point(45, 40);
         private static readonly Point PopupClosePoint = new Point(642, 410);
+        // Page down: a slow 200 px drag. A fast 400 px swipe flung the list 300-566 px, so a row could jump from below the list
+        // straight past its top edge and never be judged (a card is judged while its icon is fully inside a 455 px band)
         private static readonly Point ScrollFrom = new Point(360, 1150);
-        private static readonly Point ScrollTo = new Point(360, 750);
+        private static readonly Point ScrollTo = new Point(360, 950);
+        private const int PageSwipeMs = 1500;
+        // Scroll to top: fast swipes the other way
+        private static readonly Point TopSwipeFrom = new Point(360, 750);
+        private static readonly Point TopSwipeTo = new Point(360, 1150);
 
         private const double Threshold = 0.85;      // buttons, tab and titles: 1.00 present, <= 0.71 elsewhere
         private const double CoinThreshold = 0.80;  // 0.93-1.00 on open cards, <= 0.63 elsewhere
         // Grayscale, so the blue/purple/gold card backgrounds don't matter: 0.82-1.00 on the icon (fist on gold 0.91,
         // bear on gold 0.82), <= 0.52 on every other icon
-        private const double KeepThreshold = 0.70;
-        private const int MaxScrolls = 15;
+        private const double KeepThreshold = 0.70;   // the yellow gem scores 0.42 on keep-gems (blue gems 0.97-0.99): only blue gems are kept
+        private const int MaxScrolls = 30;
         private const int MaxRefreshes = 30;
 
         // The refreshed slots come back after 30 minutes; don't run more often than that per character
@@ -78,6 +84,17 @@ namespace Bot.Core.Tasks.Modules
         // opened and closed again); a character without the button is skipped until the app restarts.
         private static readonly ConcurrentDictionary<string, bool> _hasRights = new();
 
+        public void ClearSchedule(string accountKey)
+        {
+            _lastRunUtc.TryRemove(accountKey, out _);
+        }
+
+        public DateTime? GetNextRunUtc(string accountKey, AccountSettings account)
+        {
+            if (_hasRights.TryGetValue(accountKey, out var rights) && !rights) return null;
+            return _lastRunUtc.TryGetValue(accountKey, out var last) && last + MinInterval > DateTime.UtcNow ? last + MinInterval : null;
+        }
+
         protected override async Task<TaskExecutionDetails> ExecuteTaskLogicAsync(AccountSettings account, LogService logger, CancellationToken cancellationToken, bool isReRun = false, IUserNotificationService? userNotifications = null)
         {
             try
@@ -85,9 +102,9 @@ namespace Bot.Core.Tasks.Modules
                 string accountId = AccountDetectionTask.GetCachedAccountId(account.InstanceNumber);
                 string accountKey = string.IsNullOrEmpty(accountId) ? $"Account_{account.AccountName}_{account.InstanceNumber}" : accountId;
                 if (_hasRights.TryGetValue(accountKey, out var rights) && !rights)
-                    return TaskExecutionDetails.Succeeded("Not R4 or higher on this character, skipped");
+                    return TaskExecutionDetails.SkippedBecause("Not R4 or higher on this character, skipped");
                 if (_lastRunUtc.TryGetValue(accountKey, out var lastRun) && DateTime.UtcNow - lastRun < MinInterval)
-                    return TaskExecutionDetails.Succeeded($"Ran {(int)(DateTime.UtcNow - lastRun).TotalMinutes} min ago");
+                    return TaskExecutionDetails.SkippedBecause($"Ran {(int)(DateTime.UtcNow - lastRun).TotalMinutes} min ago");
 
                 _locatorService = new LocatorService(logger, account, TaskType);
                 int instance = account.InstanceNumber;
@@ -183,11 +200,19 @@ namespace Bot.Core.Tasks.Modules
                         Rectangle? target = null;
                         bool keepCard = false;
                         bool rightsKnown = _hasRights.ContainsKey(accountKey);
-                        foreach (var coin in FindCoins(gray))
+                        var coins = FindCoins(gray);
+                        logger.LogInfo($"[{account.AccountName}] Alliance Mobilization page {page}: {coins.Count} open card(s)");
+                        foreach (var coin in coins)
                         {
                             var icon = new Rectangle(coin.X + IconOffsetX, coin.Y + IconOffsetY, IconSize, IconSize);
-                            if (icon.Top < ListTop || icon.Bottom > ListBottom) continue;   // card cut off; judged on another page
-                            keepCard = MatchKeepIcon(gray, icon) != null;
+                            if (icon.Top < ListTop || icon.Bottom > ListBottom)
+                            {
+                                logger.LogInfo($"[{account.AccountName}]   card at {icon.Location}: cut off, judged on another page");
+                                continue;
+                            }
+                            var keep = MatchKeepIcon(gray, icon);
+                            keepCard = keep != null;
+                            logger.LogInfo($"[{account.AccountName}]   card at {icon.Location}: {(keepCard ? $"keep ({keep})" : "refresh")}");
                             if (keepCard && rightsKnown) continue;
                             target = icon;
                             break;
@@ -220,7 +245,7 @@ namespace Bot.Core.Tasks.Modules
                     }
 
                     // Scroll down; stop once the list no longer moves
-                    await SwipeAsync(instance, logger, ScrollFrom, ScrollTo, 1000);
+                    await SwipeAsync(instance, logger, ScrollFrom, ScrollTo, PageSwipeMs);
                     await Task.Delay(1500, cancellationToken);
                     var after = await TakeScreenshotAsync(instance, logger);
                     if (after == null) break;
@@ -261,7 +286,7 @@ namespace Bot.Core.Tasks.Modules
                     }
                     previous?.Dispose();
                     previous = list;
-                    await SwipeAsync(instance, logger, ScrollTo, ScrollFrom, 500);
+                    await SwipeAsync(instance, logger, TopSwipeFrom, TopSwipeTo, 500);
                     await Task.Delay(1500, cancellationToken);
                 }
             }
@@ -357,7 +382,7 @@ namespace Bot.Core.Tasks.Modules
                 using var result = new Mat();
                 Cv2.MatchTemplate(region, template, result, TemplateMatchModes.CCoeffNormed);
                 Cv2.MinMaxLoc(result, out _, out double max);
-                if (max >= KeepThreshold) return name;
+                if (max >= KeepThreshold) return $"{name} {max:F2}";
             }
             return null;
         }

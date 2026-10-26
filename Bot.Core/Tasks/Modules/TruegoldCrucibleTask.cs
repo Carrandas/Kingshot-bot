@@ -20,7 +20,7 @@ namespace Bot.Core.Tasks.Modules
     /// while the "-50%" Daily Deals badge is shown, once per run; "Super Refine x N" is never tapped.
     /// No step spends gems.
     /// </summary>
-    public class TruegoldCrucibleTask : BaseTaskWithCommonPatterns
+    public class TruegoldCrucibleTask : BaseTaskWithCommonPatterns, IScheduledTask
     {
         public override TaskType TaskType => TaskType.TruegoldCrucible;
         public override string Name => "Truegold Crucible";
@@ -55,6 +55,14 @@ namespace Bot.Core.Tasks.Modules
 
         // The refines and the -50% Super Refine reset at 00:00 UTC; once the panel hides both rows, skip until then
         private static readonly ConcurrentDictionary<string, DateTime> _doneUtcDate = new();
+
+        public void ClearSchedule(string accountKey)
+        {
+            _doneUtcDate.TryRemove(accountKey, out _);
+        }
+
+        public DateTime? GetNextRunUtc(string accountKey, AccountSettings account) =>
+            _doneUtcDate.TryGetValue(accountKey, out var done) && done == DateTime.UtcNow.Date ? Schedule.NextUtcMidnight : null;
         private bool _rowsHidden;
 
         protected override async Task<TaskExecutionDetails> ExecuteTaskLogicAsync(AccountSettings account, LogService logger, CancellationToken cancellationToken, bool isReRun = false, IUserNotificationService? userNotifications = null)
@@ -64,7 +72,7 @@ namespace Bot.Core.Tasks.Modules
                 string accountId = AccountDetectionTask.GetCachedAccountId(account.InstanceNumber);
                 string accountKey = string.IsNullOrEmpty(accountId) ? $"Account_{account.AccountName}_{account.InstanceNumber}" : accountId;
                 if (_doneUtcDate.TryGetValue(accountKey, out var done) && done == DateTime.UtcNow.Date)
-                    return TaskExecutionDetails.Succeeded("Already done today");
+                    return TaskExecutionDetails.SkippedBecause("Already done today");
 
                 _locatorService = new LocatorService(logger, account, TaskType);
                 int instance = account.InstanceNumber;

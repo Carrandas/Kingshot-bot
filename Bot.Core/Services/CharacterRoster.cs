@@ -91,6 +91,29 @@ namespace Bot.Core.Services
             });
         }
 
+        // Character active in the game on each instance, as Change Account last saw it
+        private static readonly System.Collections.Concurrent.ConcurrentDictionary<int, (string Name, int? Kingdom)> _active = new();
+
+        public static void SetActive(int instanceNumber, string name, int? kingdom) => _active[instanceNumber] = (name, kingdom);
+
+        public static string? GetActiveName(int instanceNumber) => _active.TryGetValue(instanceNumber, out var a) ? a.Name : null;
+
+        /// <summary>
+        /// Account Detection found the game account ID: store it on the active character, so the dashboard can find
+        /// that character's gates and run history.
+        /// </summary>
+        public static void LinkAccountId(AccountSettings account, string accountId)
+        {
+            if (string.IsNullOrEmpty(accountId) || !_active.TryGetValue(account.InstanceNumber, out var active)) return;
+            Dispatch(() =>
+            {
+                var entry = Find(account, active.Name, active.Kingdom);
+                if (entry == null || entry.AccountId == accountId) return;
+                entry.AccountId = accountId;
+                Changed?.Invoke(account);
+            });
+        }
+
         private static string TagOf(string name) => AllianceTag.Match(name ?? string.Empty).Value.Trim();
 
         private static int Levenshtein(string a, string b)

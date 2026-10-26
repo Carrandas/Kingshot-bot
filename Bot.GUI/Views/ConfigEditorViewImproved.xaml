@@ -13,6 +13,7 @@
     <UserControl.Resources>
         <local:TaskEnabledReadOnlyConverter x:Key="TaskEnabledReadOnlyConverter" />
         <local:TaskEnabledToCheckedConverter x:Key="TaskEnabledToCheckedConverter" />
+        <local:TaskVisibleConverter x:Key="TaskVisibleConverter" />
         <converters:NotNullToBooleanConverter x:Key="NotNullToBooleanConverter" />
         <converters:TaskTypeToVisibilityConverter x:Key="TaskTypeToVisibilityConverter" />
         <converters:TaskTypeToDisplayNameConverter x:Key="TaskTypeToDisplayNameConverter" />
@@ -478,8 +479,9 @@
                                 <RowDefinition Height="Auto"/>
                             </Grid.RowDefinitions>
                             
-                            <TextBlock Grid.Row="0" Text="Enable Tasks for Selected Account" Style="{StaticResource SectionHeaderStyle}"/>
-                            <TextBlock Grid.Row="1" Text="Select which tasks this account should perform" 
+                            <TextBlock Grid.Row="0" Text="Tasks in Your Task List" Style="{StaticResource SectionHeaderStyle}"/>
+                            <TextBlock Grid.Row="1" Text="Show which tasks to view in your task list. Unticked tasks are hidden on the Bot tab and never run; switch the shown ones on or off for the cycle there."
+                                       TextWrapping="Wrap" 
                                        Foreground="#FFB0B0B0" FontSize="12" Margin="0,0,0,15"/>
                             
                             <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
@@ -494,12 +496,13 @@
                                             <CheckBox Content="{Binding Converter={StaticResource TaskTypeToDisplayNameConverter}}" 
                                                       Margin="5"
                                                       FontSize="14"
-                                                      Command="{Binding DataContext.ToggleTaskEnabledCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                      Command="{Binding DataContext.ToggleTaskVisibleCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
                                                       CommandParameter="{Binding}">
                                                 <CheckBox.IsChecked>
-                                                    <MultiBinding Converter="{StaticResource TaskEnabledReadOnlyConverter}">
+                                                    <MultiBinding Converter="{StaticResource TaskVisibleConverter}" Mode="OneWay">
                                                         <Binding Path="." />
                                                         <Binding Path="DataContext.SelectedAccount" RelativeSource="{RelativeSource AncestorType=UserControl}" />
+                                                        <Binding Path="DataContext.SelectedAccount.HiddenTasks.Count" RelativeSource="{RelativeSource AncestorType=UserControl}" />
                                                     </MultiBinding>
                                                 </CheckBox.IsChecked>
                                             </CheckBox>
@@ -508,7 +511,7 @@
                                 </ItemsControl>
                             </ScrollViewer>
                             
-                            <Button Grid.Row="3" Content="Apply Tasks to All Accounts" 
+                            <Button Grid.Row="3" Content="Apply Task List to All Accounts" 
                                     Margin="0,15,0,0"
                                     Command="{Binding ApplyEnabledTasksToAllCommand}"
                                     HorizontalAlignment="Stretch"/>

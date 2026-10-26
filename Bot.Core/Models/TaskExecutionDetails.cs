@@ -32,6 +32,9 @@ namespace Bot.Core.Models
         public bool RecoveryNeeded { get; set; } = false;
         public bool RequiresTaskRestart { get; set; }
 
+        /// <summary>The task's own timer or daily gate said there is nothing to do yet: a success that did no work, kept out of the run history's last real run</summary>
+        public bool Skipped { get; set; }
+
         /// <summary>Category of failure for troubleshooting guidance</summary>
         public FailureCategory? FailureCategory { get; set; }
 
@@ -66,6 +69,7 @@ namespace Bot.Core.Models
 
         // Helper for simple success/failure
         public static TaskExecutionDetails Succeeded(string message = "") => new TaskExecutionDetails(true, message: message);
+        public static TaskExecutionDetails SkippedBecause(string message) => new TaskExecutionDetails(true, message: message) { Skipped = true };
         public static TaskExecutionDetails Failed(string message) => new TaskExecutionDetails(false, message: message);
         public static TaskExecutionDetails FailedAndNeedsRecovery(string message) => new TaskExecutionDetails(false, message: message, recoveryNeeded: true);
 
