@@ -88,7 +88,7 @@ namespace Bot.Core.LDPlayer
                         adbProcess.Kill();
                         await adbProcess.WaitForExitAsync(cancellationToken);
                     }
-                    catch { }
+                    catch { /* already exited or access denied: nothing to clean up */ }
                 }
                 
                 await Task.Delay(1000, cancellationToken);
@@ -210,7 +210,7 @@ namespace Bot.Core.LDPlayer
                                         _logger.LogInfo($"[ADBRecovery] Killed process {conflictingProcess.ProcessName} using port {port}", category: LogCategories.ADB);
                                     }
                                 }
-                                catch { }
+                                catch { /* the process already exited or can't be killed: the port check below decides */ }
                             }
                         }
                     }
@@ -313,7 +313,7 @@ namespace Bot.Core.LDPlayer
                     return process.ExitCode == 0 && output.Contains("test") && !error.Contains("error");
                 }
             }
-            catch { }
+            catch { /* adb not reachable: the test failed */ }
             
             return false;
         }

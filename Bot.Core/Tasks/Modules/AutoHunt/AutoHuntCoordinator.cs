@@ -80,7 +80,7 @@ namespace Bot.Core.Tasks.Modules.AutoHunt
                 // Ensure map view first
                 logger.LogInfo($"[{account.AccountName}] 🧭 Ensuring bot is in MapView for initial march check...");
                 var locator = new LocatorService(logger, account);
-                await locator.EnsureViewAsync(ViewType.MapView, account.InstanceNumber);
+                await locator.EnsureViewAsync(ViewType.MapView, account.InstanceNumber, cancellationToken);
 
                 // Wait for map view to fully stabilize
                 await WaitIfPausedAsync(cancellationToken);

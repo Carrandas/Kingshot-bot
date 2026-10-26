@@ -10,7 +10,7 @@ namespace Bot.Core.Utils
     /// Monitors system resources (CPU, memory, disk I/O) to prevent overloading during bot operations
     /// Uses .NET built-in methods to avoid external dependencies
     /// </summary>
-    public class SystemResourceMonitor
+    public sealed class SystemResourceMonitor : IDisposable
     {
         private readonly LogService _logger;
         private readonly Timer? _monitoringTimer;

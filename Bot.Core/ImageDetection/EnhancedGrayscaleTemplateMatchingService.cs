@@ -18,7 +18,7 @@ namespace Bot.Core.ImageDetection
     /// Enhanced grayscale template matching service with improved caching, memory management, and performance.
     /// Based on best practices from wosbot-master implementation.
     /// </summary>
-    public class EnhancedGrayscaleTemplateMatchingService : IDisposable
+    public sealed class EnhancedGrayscaleTemplateMatchingService : IDisposable
     {
         private readonly LogService _logger;
         

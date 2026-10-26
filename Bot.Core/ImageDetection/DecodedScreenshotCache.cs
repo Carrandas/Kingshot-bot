@@ -110,7 +110,7 @@ namespace Bot.Core.ImageDetection
             }
         }
 
-        internal sealed class Entry
+        internal sealed class Entry : IDisposable
         {
             public readonly byte[] Key;
             public readonly Mat Bgr;

@@ -40,7 +40,7 @@ namespace Bot.Core.Tasks.Modules
 
                 // Ensure we're in base view
                 _locatorService = new LocatorService(logger, account, TaskType.ResidentWelcome);
-                await _locatorService.EnsureViewAsync(ViewType.BaseView, account.InstanceNumber);
+                await _locatorService.EnsureViewAsync(ViewType.BaseView, account.InstanceNumber, cancellationToken);
                 logger.LogInfo($"[{account.AccountName}] Ensured base view for resident welcome");
 
                 // Execute zoom out to ensure proper visibility of resident icons

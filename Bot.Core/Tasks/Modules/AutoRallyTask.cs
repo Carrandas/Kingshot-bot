@@ -673,9 +673,6 @@ namespace Bot.Core.Tasks.Modules
                             logger.LogInfo($"[{account.AccountName}] 🔍 Found GREY {templateName} at {matchRect} with confidence {confidence:F3} - skipping (button disabled)");
                         }
                     }
-                    else
-                    {
-                    }
                 }
                 catch (Exception ex)
                 {

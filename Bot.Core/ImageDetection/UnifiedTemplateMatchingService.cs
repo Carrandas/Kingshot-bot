@@ -7,7 +7,7 @@ using Rectangle = System.Drawing.Rectangle;
 
 namespace Bot.Core.ImageDetection
 {
-    public class UnifiedTemplateMatchingService : IDisposable
+    public sealed class UnifiedTemplateMatchingService : IDisposable
     {
         private readonly LogService _logger;
         private readonly GrayscaleTemplateMatchingService _grayscaleService;

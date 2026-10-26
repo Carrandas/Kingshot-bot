@@ -351,8 +351,8 @@ namespace Bot.Core.Utils
 
                 _logger.LogInfo($"[Locator] 👀 Looking for {verifyImageName} for 5 seconds to verify navigation...");
                 
-                var startTime = DateTime.Now;
-                while ((DateTime.Now - startTime).TotalSeconds < 5)
+                var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+                while (stopwatch.Elapsed.TotalSeconds < 5)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
                     screenshot = await adbController.TakeScreenshotAsync(cancellationToken);
@@ -364,7 +364,7 @@ namespace Bot.Core.Utils
                             _logger.LogInfo($"[Locator] ✅ Found {verifyImageName}! Navigation successful (confidence: {confidenceVerify:F3})");
                             return true;
                         }
-                        else if ((DateTime.Now - startTime).TotalSeconds >= 4.5)
+                        else if (stopwatch.Elapsed.TotalSeconds >= 4.5)
                         {
                             // Log confidence on last attempt before timeout
                             _logger.LogWarning($"[Locator] {verifyImageName} not found - confidence: {confidenceVerify:F3} < threshold: 0.7");

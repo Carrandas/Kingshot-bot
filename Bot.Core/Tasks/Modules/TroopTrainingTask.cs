@@ -106,7 +106,7 @@ namespace Bot.Core.Tasks.Modules
                 logger.LogInfo($"[{account.AccountName}] 🎯 Starting troop training check. IsReRun = {isReRun}");
 
                 var locator = new LocatorService(logger, account);
-                await locator.EnsureViewAsync(ViewType.BaseView, account.InstanceNumber);
+                await locator.EnsureViewAsync(ViewType.BaseView, account.InstanceNumber, cancellationToken);
 
                 if (cancellationToken.IsCancellationRequested)
                 {
@@ -761,7 +761,7 @@ namespace Bot.Core.Tasks.Modules
                 logger.LogInfo($"[{account.AccountName}] 📸 Performing post-task actions...");
                 
                 var locator = new LocatorService(logger, account);
-                await locator.EnsureViewAsync(ViewType.BaseView, account.InstanceNumber);
+                await locator.EnsureViewAsync(ViewType.BaseView, account.InstanceNumber, cancellationToken);
                 
                 var finalScreenshotCheck = await TakeScreenshotAsync(account.InstanceNumber, logger);
                 if (finalScreenshotCheck != null && CheckForSideMenu(account, logger, finalScreenshotCheck))

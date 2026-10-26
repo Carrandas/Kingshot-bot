@@ -308,6 +308,9 @@ namespace Bot.Core.Tasks
                 // Track farming retries to prevent infinite loops
                 var farmingRetryCount = 0;
                 const int maxFarmingRetries = 3;
+                // a task that asks for a restart on every run would otherwise restart the list forever
+                var taskRestartCount = 0;
+                const int maxTaskRestarts = 5;
                 
                 for (int i = 0; i < tasksToRun.Count; i++)
                 {
@@ -479,8 +482,9 @@ namespace Bot.Core.Tasks
                                     }
                                 }
                             }
-                            else if (result.RequiresTaskRestart)
+                            else if (result.RequiresTaskRestart && taskRestartCount < maxTaskRestarts)
                             {
+                                taskRestartCount++;
                                 _logger.LogInfo($"[{account.AccountName}] Task {taskType} requested task restart. Restarting from loading screen...");
                                 
                                 // Wait for loading screen to appear and disappear

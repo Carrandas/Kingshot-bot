@@ -16,7 +16,7 @@ using System.IO;
 
 namespace Bot.GUI.ViewModels
 {
-    public class MainViewModel : INotifyPropertyChanged, IDisposable
+    public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     {
         // Singleton instance to prevent multiple service initializations
         private static MainViewModel? _instance;
@@ -358,13 +358,17 @@ namespace Bot.GUI.ViewModels
                 }
                 _logger.LogInfo($"InstanceVM.Instances now has {InstanceVM.Instances.Count} items");
 
-                // "--cycle" on the command line presses the main Launch button (repeating cycles), for unattended runs
-                if (!_autoLaunchDone && Environment.GetCommandLineArgs().Contains("--cycle", StringComparer.OrdinalIgnoreCase))
+                // "--schedule" (or the older "--cycle") presses Run on schedule, "--once" presses Run once, for unattended runs
+                var args = Environment.GetCommandLineArgs();
+                bool HasArg(string name) => args.Contains(name, StringComparer.OrdinalIgnoreCase);
+                if (!_autoLaunchDone && (HasArg("--schedule") || HasArg("--cycle") || HasArg("--once")))
                 {
                     _autoLaunchDone = true;
-                    _logger.LogInfo("Auto-launching the cycle service (--cycle)");
-                    // The first call comes from the constructor, before LaunchBotCommand exists: run it once that has finished
-                    System.Windows.Application.Current?.Dispatcher.BeginInvoke(() => LaunchBotCommand?.Execute(null));
+                    var runOnce = HasArg("--once");
+                    _logger.LogInfo(runOnce ? "Auto-starting one cycle (--once)" : "Auto-starting the cycle service on schedule (--schedule)");
+                    // The first call comes from the constructor, before the commands exist: run it once that has finished
+                    System.Windows.Application.Current?.Dispatcher.BeginInvoke(() =>
+                        (runOnce ? RunOnceCommand : LaunchBotCommand)?.Execute(null));
                 }
 
                 // "--launch" on the command line presses Launch on every instance once, for unattended runs
@@ -847,7 +851,7 @@ namespace Bot.GUI.ViewModels
         }
 
         public event PropertyChangedEventHandler? PropertyChanged;
-        protected void OnPropertyChanged([CallerMemberName] string? name = null) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+        private void OnPropertyChanged([CallerMemberName] string? name = null) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 
         private string GetLocalizedString(string english, string japanese, string simplifiedChinese, 
             string traditionalChinese, string german, string french)

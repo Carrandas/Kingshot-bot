@@ -57,7 +57,7 @@ namespace Bot.Core.Tasks.Modules
                 attemptCount++;
                 logger.LogInfo($"[{account.AccountName}] Instance running check attempt {attemptCount} (elapsed time: {(DateTime.UtcNow - startTime).TotalSeconds:F1}s)...");
                 
-                var isRunning = await IsInstanceRunningAsync(account.InstanceNumber, logger);
+                var isRunning = await IsInstanceRunningAsync(account.InstanceNumber, logger, cancellationToken);
                 if (isRunning)
                 {
                     logger.LogInfo($"[{account.AccountName}] ✅ LDPlayer instance {account.InstanceNumber} is running");

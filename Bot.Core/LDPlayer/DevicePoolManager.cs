@@ -12,7 +12,7 @@ namespace Bot.Core.LDPlayer
     /// <summary>
     /// Centralized device pool manager for ADB connections and device lifecycle management
     /// </summary>
-    public class DevicePoolManager : IDisposable
+    public sealed class DevicePoolManager : IDisposable
     {
         private readonly LogService _logger;
         private readonly ConcurrentDictionary<string, DeviceState> _devicePool = new();

@@ -13,7 +13,7 @@ using Bot.Core.Utils;
 
 namespace Bot.Core.Services
 {
-    public class CycleManagementService : IDisposable
+    public sealed class CycleManagementService : IDisposable
     {
         private readonly LogService _logger;
         private readonly TaskManager _taskManager;

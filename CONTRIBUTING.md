@@ -41,7 +41,7 @@ dotnet test Bot.Core.Tests              # unit tests: code only, no emulator
 
 Maintainers can produce a portable packaged build with `./Build.ps1 -Version 0.1.0` (add `-SkipInstaller` to skip the NSIS installer; output goes to `dist/`).
 
-Please make sure `dotnet build` and `dotnet test` pass before opening a PR.
+Please make sure `dotnet build` and `dotnet test` pass before opening a PR. The build runs SonarQube's C# rules (`SonarAnalyzer.CSharp`) and shows their findings as `Sxxxx` warnings: please don't add new ones.
 
 ## Project layout
 

@@ -20,7 +20,7 @@ namespace Bot.Core.LDPlayer
     /// Enhanced ADB controller with persistent connections and performance optimizations.
     /// Inspired by wosbot-master's ddmlib approach with C# AdvancedSharpAdbClient.
     /// </summary>
-    public class ADBControllerV2 : IDisposable
+    public sealed class ADBControllerV2 : IDisposable
     {
         private readonly DeviceData _device;
         private readonly AdbClient _adbClient;

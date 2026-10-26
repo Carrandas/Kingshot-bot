@@ -334,7 +334,7 @@ namespace Bot.Core.Logging
     /// <summary>
     /// Custom Serilog sink that creates dynamic instance-specific log files with proper naming
     /// </summary>
-    public class DynamicInstanceLogSink : ILogEventSink, IDisposable
+    public sealed class DynamicInstanceLogSink : ILogEventSink, IDisposable
     {
         private readonly string _logDirectory;
         private readonly ConcurrentDictionary<string, ILogger> _instanceLoggers = new();

@@ -13,7 +13,7 @@ using System.Threading.Tasks;
 
 namespace Bot.Core.ImageDetection
 {
-    public class GrayscaleTemplateMatchingService : IDisposable
+    public sealed class GrayscaleTemplateMatchingService : IDisposable
     {
         private readonly LogService _logger;
         // Template caches are shared by every instance: tasks create their own matcher,

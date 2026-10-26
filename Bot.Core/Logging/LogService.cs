@@ -262,7 +262,7 @@ namespace Bot.Core.Logging
         }
     }
 
-    public class PerformanceTimer : IDisposable
+    public sealed class PerformanceTimer : IDisposable
     {
         private readonly LogService _logger;
         private readonly string _operationName;

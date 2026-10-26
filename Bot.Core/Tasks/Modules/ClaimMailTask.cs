@@ -88,7 +88,7 @@ namespace Bot.Core.Tasks.Modules
                 logger.LogInfo($"[{account.AccountName}] 📬 Starting mail claim task. IsReRun = {isReRun}");
 
                 var locator = new LocatorService(logger, account);
-                await locator.EnsureViewAsync(ViewType.BaseView, account.InstanceNumber);
+                await locator.EnsureViewAsync(ViewType.BaseView, account.InstanceNumber, cancellationToken);
 
                 if (cancellationToken.IsCancellationRequested)
                 {

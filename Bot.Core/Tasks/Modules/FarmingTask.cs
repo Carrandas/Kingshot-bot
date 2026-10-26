@@ -122,7 +122,7 @@ namespace Bot.Core.Tasks.Modules
                 
                 logger.LogInfo($"[{account.AccountName}] 🧭 Ensuring bot is in MapView for farming...");
                 var locator = new LocatorService(logger, account);
-                await locator.EnsureViewAsync(ViewType.MapView, account.InstanceNumber);
+                await locator.EnsureViewAsync(ViewType.MapView, account.InstanceNumber, cancellationToken);
 
                 // Add 1 second delay after map view
                 await WaitIfPausedAsync(cancellationToken);
@@ -240,7 +240,7 @@ namespace Bot.Core.Tasks.Modules
                 }
 
                 logger.LogInfo($"[{account.AccountName}] 🏠 Returning to base view...");
-                await locator.EnsureViewAsync(ViewType.BaseView, account.InstanceNumber);
+                await locator.EnsureViewAsync(ViewType.BaseView, account.InstanceNumber, cancellationToken);
                 logger.LogInfo($"[{account.AccountName}] ✅ Farming task completed.");
 
                 if (marchesSentSuccessfully > 0)

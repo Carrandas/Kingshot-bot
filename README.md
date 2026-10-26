@@ -61,6 +61,8 @@ The main screen is a task dashboard:
 
 **Settings > Tasks** chooses which tasks appear in the list. A task unticked there is hidden on the Bot tab and never runs.
 
+For unattended starts, `KingshotAuto.exe --schedule` presses **Run on schedule** at startup and `KingshotAuto.exe --once` presses **Run once**.
+
 Additional capabilities:
 
 - **Multi-instance** support — run multiple emulator instances / accounts with per-instance throttling

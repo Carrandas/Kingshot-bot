@@ -264,8 +264,8 @@ namespace Bot.Core.LDPlayer
         public static async Task<bool> AcquireEmulatorSlotAsync(int instanceNumber, LogService logger, int timeoutMs = 30000, CancellationToken cancellationToken = default)
         {
             var startTime = DateTime.UtcNow;
-            var timeoutCts = new CancellationTokenSource(timeoutMs);
-            var combinedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
+            using var timeoutCts = new CancellationTokenSource(timeoutMs);
+            using var combinedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
 
             logger.LogInfo($"[ADBv2] Instance {instanceNumber} requesting emulator slot...");
 

@@ -32,7 +32,7 @@ namespace Bot.Core.Tasks.Modules
 
         private LocatorService? _locatorService;
 
-        private const string EventsButtonTemplate = "events-button.png";
+        internal const string EventsButtonTemplate = "events-button.png";
         private const string MobilizationTabTemplate = "mobilization-tab.png";     // trophy tab, second tab of Events
         private const string MobilizationTitleTemplate = "mobilization-title.png";
         private const string PointsCoinTemplate = "points-coin.png";               // "+points" coin under an open mission
@@ -44,7 +44,7 @@ namespace Bot.Core.Tasks.Modules
             "keep-bear.png", "keep-lion.png", "keep-gems.png", "keep-gift.png", "keep-fist.png", "keep-fist-flag.png"
         };
 
-        private static readonly Rectangle EventsButtonArea = new Rectangle(590, 80, 130, 200);
+        internal static readonly Rectangle EventsButtonArea = new Rectangle(590, 80, 130, 200);
         private static readonly Rectangle TabArea = new Rectangle(30, 85, 690, 110);
         private static readonly Rectangle TitleArea = new Rectangle(20, 195, 460, 80);
         private static readonly Rectangle RefreshMissionArea = new Rectangle(60, 750, 320, 110);
@@ -72,7 +72,7 @@ namespace Bot.Core.Tasks.Modules
         private const double Threshold = 0.85;      // buttons, tab and titles: 1.00 present, <= 0.71 elsewhere
         private const double CoinThreshold = 0.80;  // 0.93-1.00 on open cards, <= 0.63 elsewhere
         // The Events icon is animated and can carry a red dot: 0.77-1.00 on 20 town screens (Ilsa with dot 0.79), <= 0.53 on every other screen
-        private const double EventsThreshold = 0.65;
+        internal const double EventsThreshold = 0.65;
         // Grayscale, so the blue/purple/gold card backgrounds don't matter: 0.82-1.00 on the icon (fist on gold 0.91,
         // bear on gold 0.82), <= 0.52 on every other icon
         private const double KeepThreshold = 0.70;   // the yellow gem scores 0.42 on keep-gems (blue gems 0.97-0.99): only blue gems are kept
@@ -202,21 +202,19 @@ namespace Bot.Core.Tasks.Modules
                         Rectangle? target = null;
                         bool keepCard = false;
                         bool rightsKnown = _hasRights.ContainsKey(accountKey);
-                        var coins = FindCoins(gray);
-                        logger.LogInfo($"[{account.AccountName}] Alliance Mobilization page {page}: {coins.Count} open card(s)");
-                        foreach (var coin in coins)
+                        var cards = CheckCards(gray);
+                        logger.LogInfo($"[{account.AccountName}] Alliance Mobilization page {page}: {cards.Count} open card(s)");
+                        foreach (var card in cards)
                         {
-                            var icon = new Rectangle(coin.X + IconOffsetX, coin.Y + IconOffsetY, IconSize, IconSize);
-                            if (icon.Top < ListTop || icon.Bottom > ListBottom)
+                            if (card.CutOff)
                             {
-                                logger.LogInfo($"[{account.AccountName}]   card at {icon.Location}: cut off, judged on another page");
+                                logger.LogInfo($"[{account.AccountName}]   card at {card.Icon.Location}: cut off, judged on another page");
                                 continue;
                             }
-                            var keep = MatchKeepIcon(gray, icon);
-                            keepCard = keep != null;
-                            logger.LogInfo($"[{account.AccountName}]   card at {icon.Location}: {(keepCard ? $"keep ({keep})" : "refresh")}");
+                            keepCard = card.Keep != null;
+                            logger.LogInfo($"[{account.AccountName}]   card at {card.Icon.Location}: {(keepCard ? $"keep ({card.Keep})" : "refresh")}");
                             if (keepCard && rightsKnown) continue;
-                            target = icon;
+                            target = card.Icon;
                             break;
                         }
                         if (target == null) break;
@@ -344,6 +342,24 @@ namespace Bot.Core.Tasks.Modules
             await Task.Delay(2000, cancellationToken);
             logger.LogInfo($"[{account.AccountName}] Alliance Mobilization: mission refreshed");
             return RefreshOutcome.Refreshed;
+        }
+
+        /// <summary>An open mission card on the visible list. Keep is the matching keep template (null = refresh).</summary>
+        internal readonly record struct CardCheck(Rectangle Icon, bool CutOff, string? Keep);
+
+        /// <summary>
+        /// The open cards of the visible list, top to bottom: cut off at the list edge (judged on another page), keep or refresh.
+        /// </summary>
+        internal List<CardCheck> CheckCards(Mat gray)
+        {
+            var cards = new List<CardCheck>();
+            foreach (var coin in FindCoins(gray))
+            {
+                var icon = new Rectangle(coin.X + IconOffsetX, coin.Y + IconOffsetY, IconSize, IconSize);
+                bool cutOff = icon.Top < ListTop || icon.Bottom > ListBottom;
+                cards.Add(new CardCheck(icon, cutOff, cutOff ? null : MatchKeepIcon(gray, icon)));
+            }
+            return cards;
         }
 
         /// <summary>

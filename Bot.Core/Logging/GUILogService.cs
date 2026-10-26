@@ -26,11 +26,6 @@ namespace Bot.Core.Logging
             _guiLogCallback = guiLogCallback;
         }
 
-        public new void Dispose()
-        {
-            base.Dispose();
-        }
-        
         public override void LogInfo(string message, object? context = null, string? category = null, [CallerMemberName] string? method = null)
         {
             // Call base implementation for console and file logging (developer logs)

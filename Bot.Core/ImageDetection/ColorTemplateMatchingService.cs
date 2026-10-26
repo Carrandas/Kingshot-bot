@@ -14,7 +14,7 @@ using System.Threading.Tasks;
 
 namespace Bot.Core.ImageDetection
 {
-    public class ColorTemplateMatchingService : IDisposable
+    public sealed class ColorTemplateMatchingService : IDisposable
     {
         private readonly LogService _logger;
         // Template caches are shared by every instance (tasks each create their own matcher)

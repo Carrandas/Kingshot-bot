@@ -148,7 +148,7 @@ namespace Bot.Core.Tasks.Modules
                 await ClickAsync(instance, logger, SosTabPoint);
                 await Task.Delay(2000, cancellationToken);
 
-                var answers = LoadAnswers();
+                var answers = LoadAnswers(logger);
                 int answered = 0, right = 0, wrong = 0;
                 while (answered < MaxLetters)
                 {
@@ -285,7 +285,7 @@ namespace Bot.Core.Tasks.Modules
             return Regex.Replace(text, @"\s+", " ").Trim();
         }
 
-        private static List<AnswerEntry> LoadAnswers()
+        private static List<AnswerEntry> LoadAnswers(LogService logger)
         {
             var answers = KnownAnswers.ToList();
             lock (_fileLock)
@@ -295,7 +295,10 @@ namespace Bot.Core.Tasks.Modules
                     if (File.Exists(AnswerFile))
                         answers.AddRange(JsonSerializer.Deserialize<List<AnswerEntry>>(File.ReadAllText(AnswerFile)) ?? new());
                 }
-                catch { }
+                catch (Exception ex)
+                {
+                    logger.LogWarning($"Suggestion Box: could not read learned answers, using the built-in table only: {ex.Message}");
+                }
             }
             return answers;
         }

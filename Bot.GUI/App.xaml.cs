@@ -125,7 +125,7 @@ public partial class App : WPFApplication
             File.WriteAllText("xaml_error_details.txt", errorDetails);
             _logger?.LogError($"Error details written to xaml_error_details.txt");
         }
-        catch { }
+        catch { /* best effort: the message box below still shows the error */ }
 
         WPFMessageBox.Show($"An unhandled UI error occurred:\n\n{exception.Message}\n\nDetails written to xaml_error_details.txt", "UI Error", MessageBoxButton.OK, MessageBoxImage.Error);
         args.Handled = true;
