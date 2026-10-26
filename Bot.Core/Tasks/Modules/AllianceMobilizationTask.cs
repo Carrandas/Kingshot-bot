@@ -71,6 +71,8 @@ namespace Bot.Core.Tasks.Modules
 
         private const double Threshold = 0.85;      // buttons, tab and titles: 1.00 present, <= 0.71 elsewhere
         private const double CoinThreshold = 0.80;  // 0.93-1.00 on open cards, <= 0.63 elsewhere
+        // The Events icon is animated and can carry a red dot: 0.77-1.00 on 20 town screens (Ilsa with dot 0.79), <= 0.53 on every other screen
+        private const double EventsThreshold = 0.65;
         // Grayscale, so the blue/purple/gold card backgrounds don't matter: 0.82-1.00 on the icon (fist on gold 0.91,
         // bear on gold 0.82), <= 0.52 on every other icon
         private const double KeepThreshold = 0.70;   // the yellow gem scores 0.42 on keep-gems (blue gems 0.97-0.99): only blue gems are kept
@@ -148,7 +150,7 @@ namespace Bot.Core.Tasks.Modules
         /// </summary>
         private async Task<TaskExecutionDetails?> OpenMobilizationAsync(AccountSettings account, LogService logger, int instance, CancellationToken cancellationToken)
         {
-            var events = await MatchAsync(EventsButtonTemplate, EventsButtonArea, Threshold, instance, logger);
+            var events = await MatchAsync(EventsButtonTemplate, EventsButtonArea, EventsThreshold, instance, logger);
             if (!events.found)
             {
                 logger.LogWarning($"[{account.AccountName}] Alliance Mobilization: Events button not found ({events.confidence:F2})");

@@ -50,16 +50,12 @@ namespace Bot.Core.Tasks.Modules
         private const int MaxRefreshes = 10;
         private const int MaxPopupsPerRound = 3;
 
-        // The stock and the free refresh reset at 00:00 UTC; once everything left costs gems, skip until then
-        private static readonly ConcurrentDictionary<string, DateTime> _doneUtcDate = new();
+        // The stock and the free refreshes reset at 00:00 UTC: one run a day (DailyGate)
 
-        public void ClearSchedule(string accountKey)
-        {
-            _doneUtcDate.TryRemove(accountKey, out _);
-        }
+        public void ClearSchedule(string accountKey) => DailyGate.Clear(TaskType, accountKey);
 
-        public DateTime? GetNextRunUtc(string accountKey, AccountSettings account) =>
-            _doneUtcDate.TryGetValue(accountKey, out var done) && done == DateTime.UtcNow.Date ? Schedule.NextUtcMidnight : null;
+        public DateTime? GetNextRunUtc(string accountKey, AccountSettings account) => DailyGate.NextRunUtc(TaskType, accountKey);
+
         private bool _allGemPriced;
 
         protected override async Task<TaskExecutionDetails> ExecuteTaskLogicAsync(AccountSettings account, LogService logger, CancellationToken cancellationToken, bool isReRun = false, IUserNotificationService? userNotifications = null)
@@ -68,7 +64,7 @@ namespace Bot.Core.Tasks.Modules
             {
                 string accountId = AccountDetectionTask.GetCachedAccountId(account.InstanceNumber);
                 string accountKey = string.IsNullOrEmpty(accountId) ? $"Account_{account.AccountName}_{account.InstanceNumber}" : accountId;
-                if (_doneUtcDate.TryGetValue(accountKey, out var done) && done == DateTime.UtcNow.Date)
+                if (DailyGate.DoneToday(TaskType, accountKey))
                     return TaskExecutionDetails.SkippedBecause("Already done today");
 
                 _locatorService = new LocatorService(logger, account, TaskType);
@@ -82,7 +78,6 @@ namespace Bot.Core.Tasks.Modules
                 }
 
                 int bought = 0, refreshes = 0;
-                bool soldOut = false;
                 while (true)
                 {
                     bought += await BuyResourceItemsAsync(account, logger, instance, cancellationToken);
@@ -90,7 +85,6 @@ namespace Bot.Core.Tasks.Modules
                     var refresh = await MatchAsync(FreeRefreshTemplate, FreeRefreshArea, Threshold, instance, logger);
                     if (!refresh.found)
                     {
-                        soldOut = _allGemPriced;
                         break;
                     }
                     await ClickCenterInRectAsync(instance, logger, refresh.rect);
@@ -103,8 +97,7 @@ namespace Bot.Core.Tasks.Modules
                 await Task.Delay(2000, cancellationToken);
                 await _locatorService.EnsureViewAsync(ViewType.BaseView, instance, cancellationToken);
 
-                // only gem items and no free refresh left: nothing more until the 00:00 UTC reset
-                if (soldOut) _doneUtcDate[accountKey] = DateTime.UtcNow.Date;
+                DailyGate.MarkDone(TaskType, accountKey);
 
                 string result = $"{bought} item(s) bought, {refreshes} free refresh(es)";
                 logger.LogInfo($"[{account.AccountName}] Nomadic Merchant done: {result}");

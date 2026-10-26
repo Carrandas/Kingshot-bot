@@ -86,7 +86,7 @@ The task system uses a common abstract base so each task only has to implement i
    - run the core logic, keeping the waits long enough for the game's animations
    - return to the base view
    - return `TaskExecutionDetails.Succeeded(...)` or `Failed(...)`
-5. **Once-a-day tasks:** the game resets at 00:00 UTC. If a task can only be done once a day, record `DateTime.UtcNow.Date` per account once it's done (keyed by `AccountDetectionTask.GetCachedAccountId`) and skip until the date changes. See `NomadicMerchantTask` and `CollectRewardsTask`.
+5. **Once-a-day tasks:** the game resets at 00:00 UTC. If a task only needs one run a day, use `DailyGate`: check `DailyGate.DoneToday` first and return `TaskExecutionDetails.SkippedBecause("Already done today")`, then call `DailyGate.MarkDone` after the run. Implement `IScheduledTask` too, so the Bot tab can show the next run and its ▶ button can run the task anyway. See `NomadicMerchantTask` and `CollectVipTask`.
 6. **Add template images** for the buttons/icons your task needs (see below).
 7. Prefer instance-specific operations everywhere (pass the instance number through) so the task is multi-instance safe.
 

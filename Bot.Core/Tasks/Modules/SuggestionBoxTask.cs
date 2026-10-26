@@ -20,8 +20,13 @@ namespace Bot.Core.Tasks.Modules
     /// answer (Public Opinion +3% or 0%, a wrong one -2%; both pay the gem reward). Answers are looked up by the letter text;
     /// an unknown letter gets a guess, and the result decides which answer is stored for next time.
     /// </summary>
-    public class SuggestionBoxTask : BaseTaskWithCommonPatterns
+    public class SuggestionBoxTask : BaseTaskWithCommonPatterns, IScheduledTask
     {
+        // The day's letters come with the 00:00 UTC reset: once the box was opened and answered, skip until then.
+        // "No letters waiting" sets no gate (the envelope check is quick, and letters may still come)
+        public DateTime? GetNextRunUtc(string accountKey, AccountSettings account) => DailyGate.NextRunUtc(TaskType, accountKey);
+        public void ClearSchedule(string accountKey) => DailyGate.Clear(TaskType, accountKey);
+
         public override TaskType TaskType => TaskType.SuggestionBox;
         public override string Name => "Suggestion Box";
 
@@ -113,6 +118,10 @@ namespace Bot.Core.Tasks.Modules
         {
             try
             {
+                string accountKey = Schedule.AccountKey(AccountDetectionTask.GetCachedAccountId(account.InstanceNumber), account);
+                if (DailyGate.DoneToday(TaskType, accountKey))
+                    return TaskExecutionDetails.SkippedBecause("Already done today");
+
                 _locatorService = new LocatorService(logger, account, TaskType);
                 int instance = account.InstanceNumber;
                 await _locatorService.EnsureViewAsync(ViewType.BaseView, instance, cancellationToken);
@@ -211,6 +220,7 @@ namespace Bot.Core.Tasks.Modules
 
                 string summary = $"{answered} letter(s) answered, {right} right, {wrong} wrong";
                 logger.LogInfo($"[{account.AccountName}] Suggestion Box done: {summary}");
+                DailyGate.MarkDone(TaskType, accountKey);
                 return TaskExecutionDetails.Succeeded(summary);
             }
             catch (OperationCanceledException)

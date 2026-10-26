@@ -16,7 +16,7 @@ using System.Linq;
 
 namespace Bot.Core.Tasks.Modules
 {
-    public class CollectVipTask : BaseTaskWithCommonPatterns
+    public class CollectVipTask : BaseTaskWithCommonPatterns, IScheduledTask
     {
         public override TaskType TaskType => TaskType.CollectVip;
         public override string Name => "Collect Vip";
@@ -29,8 +29,11 @@ namespace Bot.Core.Tasks.Modules
             AppContext.BaseDirectory, "data", "vip_collection_times.json"
         );
         
-        // Collection interval when both VIP rewards are collected
+        // Collection interval when both VIP rewards are collected (old 12 h timer per instance; the task now uses DailyGate)
         private static readonly TimeSpan VipRewardsInterval = TimeSpan.FromHours(12);
+
+        public DateTime? GetNextRunUtc(string accountKey, AccountSettings account) => DailyGate.NextRunUtc(TaskType, accountKey);
+        public void ClearSchedule(string accountKey) => DailyGate.Clear(TaskType, accountKey);
         
         // Track if VIP rewards were collected
         private bool _vipRewardsClicked = false;
@@ -60,16 +63,10 @@ namespace Bot.Core.Tasks.Modules
                 _vipRewardsClicked = false;
                 _vipRewards2Clicked = false;
                 
-                // Load collection times
-                LoadCollectionTimes();
-                
-                // Check if enough time has passed since last collection
-                if (!ShouldCollect(account.InstanceNumber))
-                {
-                    var nextCollection = GetNextCollectionTime(account.InstanceNumber);
-                    logger.LogInfo($"[{account.AccountName}] Too soon to collect VIP rewards. Next collection at: {nextCollection}");
-                    return new TaskExecutionDetails(true, nextCollection, "Skipped - Too soon to collect") { Skipped = true };
-                }
+                // The VIP rewards reset at 00:00 UTC: one run a day per character
+                string accountKey = Schedule.AccountKey(AccountDetectionTask.GetCachedAccountId(account.InstanceNumber), account);
+                if (DailyGate.DoneToday(TaskType, accountKey))
+                    return TaskExecutionDetails.SkippedBecause("Already done today");
 
                 logger.LogInfo($"[{account.AccountName}] Starting VIP collection process...");
 
@@ -308,17 +305,8 @@ namespace Bot.Core.Tasks.Modules
 
                 await Task.Delay(500, cancellationToken); // Wait for navigation
 
-                // Update collection time only if both VIP rewards were clicked
-                if (_vipRewardsClicked && _vipRewards2Clicked)
-                {
-                    UpdateCollectionTime(account.InstanceNumber);
-                    logger.LogInfo($"[{account.AccountName}] ✅ Both VIP rewards collected - applying 12-hour cooldown");
-                }
-                else
-                {
-                    logger.LogInfo($"[{account.AccountName}] ℹ️ Not all VIP rewards were collected - no cooldown applied");
-                    logger.LogInfo($"[{account.AccountName}] VIP Rewards: {(_vipRewardsClicked ? "Collected" : "Not found")}, VIP Rewards 2: {(_vipRewards2Clicked ? "Collected" : "Not found")}");
-                }
+                DailyGate.MarkDone(TaskType, accountKey);
+                logger.LogInfo($"[{account.AccountName}] VIP Rewards: {(_vipRewardsClicked ? "Collected" : "Not found")}, VIP Rewards 2: {(_vipRewards2Clicked ? "Collected" : "Not found")}; next run after the 00:00 UTC reset");
 
                 logger.LogInfo($"[{account.AccountName}] VIP collection process completed successfully");
                 return TaskExecutionDetails.Succeeded();

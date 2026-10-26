@@ -53,16 +53,12 @@ namespace Bot.Core.Tasks.Modules
         // The grey (used up) Refine button still scores 0.92, so the teal colour decides: ~11,700 teal pixels vs 0
         private const int RefineMinTealPixels = 5000;
 
-        // The refines and the -50% Super Refine reset at 00:00 UTC; once the panel hides both rows, skip until then
-        private static readonly ConcurrentDictionary<string, DateTime> _doneUtcDate = new();
+        // The refines and the -50% Super Refine reset at 00:00 UTC: one run a day (DailyGate), or none once the panel hides both rows
 
-        public void ClearSchedule(string accountKey)
-        {
-            _doneUtcDate.TryRemove(accountKey, out _);
-        }
+        public void ClearSchedule(string accountKey) => DailyGate.Clear(TaskType, accountKey);
 
-        public DateTime? GetNextRunUtc(string accountKey, AccountSettings account) =>
-            _doneUtcDate.TryGetValue(accountKey, out var done) && done == DateTime.UtcNow.Date ? Schedule.NextUtcMidnight : null;
+        public DateTime? GetNextRunUtc(string accountKey, AccountSettings account) => DailyGate.NextRunUtc(TaskType, accountKey);
+
         private bool _rowsHidden;
 
         protected override async Task<TaskExecutionDetails> ExecuteTaskLogicAsync(AccountSettings account, LogService logger, CancellationToken cancellationToken, bool isReRun = false, IUserNotificationService? userNotifications = null)
@@ -71,7 +67,7 @@ namespace Bot.Core.Tasks.Modules
             {
                 string accountId = AccountDetectionTask.GetCachedAccountId(account.InstanceNumber);
                 string accountKey = string.IsNullOrEmpty(accountId) ? $"Account_{account.AccountName}_{account.InstanceNumber}" : accountId;
-                if (_doneUtcDate.TryGetValue(accountKey, out var done) && done == DateTime.UtcNow.Date)
+                if (DailyGate.DoneToday(TaskType, accountKey))
                     return TaskExecutionDetails.SkippedBecause("Already done today");
 
                 _locatorService = new LocatorService(logger, account, TaskType);
@@ -82,13 +78,14 @@ namespace Bot.Core.Tasks.Modules
                 if (!await OpenCrucibleAsync(account, logger, instance, cancellationToken))
                 {
                     // hidden rows mean today's refines and discount are used; a panel that failed to open is retried next cycle
-                    if (_rowsHidden) _doneUtcDate[accountKey] = DateTime.UtcNow.Date;
+                    if (_rowsHidden) DailyGate.MarkDone(TaskType, accountKey);
                     await _locatorService.EnsureViewAsync(ViewType.BaseView, instance, cancellationToken);
                     return TaskExecutionDetails.Succeeded("Crucible rows hidden or screen did not open");
                 }
 
                 int refines = await RefineAsync(account, logger, instance, cancellationToken);
                 bool superRefined = await SuperRefineDiscountAsync(account, logger, instance, cancellationToken);
+                DailyGate.MarkDone(TaskType, accountKey);
 
                 var back = await MatchAsync(CrucibleBackTemplate, CrucibleBackArea, Threshold, instance, logger);
                 if (back.found)

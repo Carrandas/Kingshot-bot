@@ -26,7 +26,7 @@ ITask (Interface)
 **Adding new tasks:** see [CONTRIBUTING.md](../CONTRIBUTING.md#how-to-add-a-new-automation-task). A task is registered in five places: the `TaskType` enum, `_availableTasks` and the priority dictionary in `TaskManager`, `RecoveryTask.GetUserFriendlyTaskName`, and the GUI's `TaskTypeToDisplayNameConverter`.
 
 ### Task Order
-`TaskManager` sorts the enabled tasks by a priority dictionary (lower runs first). The order matters in a few places:
+`TaskManager` sorts the enabled tasks by a priority dictionary (lower runs first; `TaskManager.GetRunOrder`). The order matters in a few places:
 - `AccountDetection` runs first, since other tasks key their state on the account ID.
 - `CollectOnlineRewards` runs before `AutoHunt`: the online rewards include the stamina the Intel missions spend.
 - `SuggestionBox` runs before `ResidentWelcome`, whose zoom-out shrinks the Suggestion Box envelope.
@@ -41,15 +41,31 @@ One game login can hold several characters. `ChangeAccountTask` runs the task li
 
 The character list is kept in `AccountSettings.Characters` (`CharacterRoster`). Names come from OCR, so they're compared loosely: the alliance tag is ignored, and I/l/1/| count as the same letter.
 
-### Daily Gates and Saved State
-The game resets at **00:00 UTC**. Tasks that can only be done once a day record `DateTime.UtcNow.Date` per account (keyed by `AccountDetectionTask.GetCachedAccountId`) and skip until the date changes:
-- Collect Store Rewards (saved to disk), Nomadic Merchant, Truegold Crucible, Alliance Triumph (in memory, reset when the app restarts)
+### Daily Gates, Timers and Saved State
+The game resets at **00:00 UTC**. Gates are keyed per game account (`AccountDetectionTask.GetCachedAccountId`, or `Schedule.AccountKey`), so each character has its own:
+- **`DailyGate`** (once a day, saved to `data/daily_gates.json`): Collect VIP, Nomadic Merchant, Truegold Crucible, Suggestion Box (only after it answered letters; "no letters" sets no gate). A task calls `DailyGate.DoneToday` first and `DailyGate.MarkDone` after its run.
+- Own daily state: Collect Store Rewards (saved to disk), Alliance Triumph (in memory, reset when the app restarts)
+- Own timers: Alliance Mobilization every 25 minutes (a refreshed mission comes back after 30; skips a character below R4 until the app restarts), Claim Mail 3-6 hours, Conquest Collect every `WaitHours` (default 4), Alliance Technology every 10 hours, Journey's free supplies at 08:00 and 16:00 UTC
 
-Other tasks repeat on their own timers: Conquest Collect every `WaitHours` (default 4), Alliance Technology every 10 hours, Alliance Mobilization every 25 minutes (a refreshed mission comes back after 30), and Journey's free supplies at 08:00 and 16:00 UTC. Alliance Mobilization also skips a character below R4 until the app restarts.
+A gate skip returns `TaskExecutionDetails.SkippedBecause(...)` (`Skipped = true`): a success that did no work.
+
+Gated tasks implement **`IScheduledTask`**:
+- `GetNextRunUtc(accountKey, account)`: when the task has work again, for the dashboard. It is deterministic: random spreads report their lower bound, and it never reads the gate files (some loaders clear the dictionary on a read error).
+- `ClearSchedule(accountKey)`: forgets the gate, so a single run from the dashboard does the work.
 
 Saved state lives in `data/` next to the executable:
+- `daily_gates.json`, `task_history.json` (see Task Dashboard)
 - `collect_rewards_daily_runs.json` and `collect_rewards_bank_times.json`
 - `suggestion_box_answers.json`, the Suggestion Box answers learned on top of the built-in table in `SuggestionBoxTask`
+
+### Task Dashboard (Bot tab)
+`TaskDashboardViewModel` / `TaskDashboardView` in the GUI:
+- **Run history**: `TaskManager` records every task result in `TaskRunHistory` (`data/task_history.json`), keyed by game account and task. A skip (`Skipped`) only updates the "last check", never the last real run. `TaskRunHistory.GetCurrent(instance)` is the task running now.
+- **Characters**: `ChangeAccountTask` records the active character (`CharacterRoster.SetActive`); after Account Detection, `CharacterRoster.LinkAccountId` stores the game account ID on that `CharacterEntry` (`accountId` in the config). The dashboard finds a character's history and gates through that ID.
+- **Next run**: the next cycle (`CycleManagementService.NextCycleUtc`), or later when the task's `IScheduledTask.GetNextRunUtc` says so.
+- **Single runs** (▶): `CycleManagementService.RunSingleTaskAsync` starts the instance, then `TaskManager.RunSingleTaskAsync` runs startup, `ChangeAccountTask.SwitchToCharacterAsync` if another character is active, Account Detection, `ClearSchedule`, and the task. It shares the one-run-per-instance guard with the cycle; the GUI disables ▶ while anything runs. A single run of Change Account only scans the Characters screen (`ChangeAccountTask.ScanAsync`).
+- **Run once** starts the cycle service with `MaxCycles = 1`.
+- The task rows follow `TaskManager.GetRunOrder` (the run order). `AccountSettings.HiddenTasks` (Settings > Tasks) hides tasks from the list, and `TaskManager` never runs them.
 
 ### Multi-Instance Management (Resource Pool Pattern)
 ```

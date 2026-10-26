@@ -47,7 +47,19 @@ KingshotAuto drives the game through a set of pluggable automation **tasks**. Ea
 - **Account Detection / Change Account** — identify the account and run the task list on every enabled character of a game login
 - **Startup / Recovery** — bring the game to a known state and recover from unexpected UI
 
-The game resets at **00:00 UTC**. Tasks that can only be done once a day (Collect Store Rewards, Nomadic Merchant, Truegold Crucible, Alliance Triumph) skip themselves for the rest of the UTC day once they are done, so repeated cycles don't waste time on them.
+The game resets at **00:00 UTC**. Tasks that only need one run a day (Collect Store Rewards, Collect VIP, Nomadic Merchant, Truegold Crucible, Suggestion Box, Alliance Triumph) skip themselves for the rest of the UTC day once they are done, so repeated cycles don't waste time on them. Other tasks have their own timers (Alliance Mobilization 25 min, Claim Mail 3-6 h, Conquest Collect 4 h, Alliance Technology 10 h).
+
+## The Bot tab
+
+The main screen is a task dashboard:
+
+- **Run on schedule** runs a cycle now and again after every cycle wait (Settings: min-max minutes); **Run once** runs one cycle and stops. The status line shows the running task, or when the next cycle starts.
+- **Characters**: the characters on the game login (from the game's Characters screen; **Scan characters** reads it). Untick one to leave it out of the cycle. **Switch characters each cycle** runs the task list on every ticked character.
+- **Tasks**, in run order, for the selected character: a switch to put the task in the cycle, the **last run** (green ok / red failed, the result on hover) and the **next run** (the next cycle, or later when the task's own timer or daily gate says so).
+- **▶** runs only that task on the selected character, right away: it starts LDPlayer if needed, switches character, and ignores the task's own timer. All ▶ buttons are greyed out while the bot runs.
+- While a cycle runs, the dashboard follows the character it runs on and highlights the running task.
+
+**Settings > Tasks** chooses which tasks appear in the list. A task unticked there is hidden on the Bot tab and never runs.
 
 Additional capabilities:
 
