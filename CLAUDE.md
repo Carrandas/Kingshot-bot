@@ -11,12 +11,18 @@ This file is committed: instructions for Claude Code working on this repo.
 | `dotnet restore BotApp.sln` | Restore dependencies |
 | `dotnet build Bot.GUI/Bot.GUI.csproj -c Debug` | Debug build (output: `Bot.GUI/bin/x64/Debug/net10.0-windows/win-x64/KingshotAuto.exe`) |
 | `dotnet run --project Bot.GUI/Bot.GUI.csproj` | Run app |
+| `dotnet test Bot.Core.Tests` | Unit tests (code only, no emulator) |
 | `.\Build.ps1 -Version "x.x.x"` | Package a portable zip + NSIS installer into `dist/` |
 | `.\Build.ps1 -Version "x.x.x" -SkipInstaller` | Portable zip only |
 
 - SDK pinned in `global.json` (10.0.100, rollForward latestMinor).
 - The build fails while KingshotAuto.exe is running (locked DLLs): ask the user to close the GUI first. To only check that the GUI compiles while it runs, build into a scratch folder: `dotnet build Bot.GUI/Bot.GUI.csproj -c Debug -o <scratch>`.
-- `Bot.Core.Tests/` has test files but no .csproj and is not in the solution, so there are no runnable tests.
+- Run the tests per project, not `dotnet test BotApp.sln`: the solution build includes Bot.GUI, whose output is locked while the GUI runs. The test project references only Bot.Core.
+
+## Tests
+- `Bot.Core.Tests` (NUnit 4): pure logic, e.g. `CharacterRoster` name matching, `DailyGate`/`Schedule`, `TaskRunHistory`, task registration and run order. The `InstanceManager*` fixtures drive LDPlayer and are `[Explicit]`: a plain `dotnet test` never touches the emulator.
+  - Don't construct `TaskManager` in a test: its `InstanceManager` searches for the LDPlayer install and never finishes without one. Use `TaskManager.CreateTaskModules` / `GetRunOrder`.
+  - `DailyGate` and `TaskRunHistory` save under `data/` in the test output folder; use a unique account key per test.
 
 ## Project Structure
 ```
@@ -46,9 +52,9 @@ data/                 # next to the exe, created at runtime: daily_gates.json, t
 
 ## Adding a task
 1. Class in `Bot.Core/Tasks/Modules/`, inheriting `BaseTaskWithCommonPatterns`. Templates load from `templates/images/<tasktype lowercase>/`.
-2. Register it in five places:
+2. Register it in five places (`TaskRegistrationTests` checks the first three):
    - `TaskType` enum in `Bot.Core/Models/AccountSettings.cs`
-   - `_availableTasks` in `TaskManager.cs`
+   - `TaskManager.CreateTaskModules` in `TaskManager.cs`
    - the priority dictionary in `TaskManager.cs`
    - `GetUserFriendlyTaskName` in `RecoveryTask.cs`
    - `DisplayNames` in `Bot.GUI/Converters/TaskTypeToDisplayNameConverter.cs`

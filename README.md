@@ -150,7 +150,7 @@ KingshotAuto/
 │   ├── ViewModels/
 │   ├── Views/
 │   └── Converters/
-├── Bot.Core.Tests/            # Tests
+├── Bot.Core.Tests/            # Unit tests
 ├── configs/                    # Config + documented example
 ├── templates/images/          # CV template images (one folder per task)└── docs/                       # ARCHITECTURE.md, etc.
 ```
@@ -168,7 +168,7 @@ This project is honest about its rough edges — these are great places to start
 - **Not all tasks work reliably.** Several task modules need fixing or tuning.
 - **Resolution sensitivity.** Template images were captured at a specific emulator resolution, so matching can fail on other resolutions/DPI settings. Making matching resolution-independent is a high-value contribution.
 - **Flaky ADB / emulator connectivity.** Connection handling can be brittle; improvements to reconnection and recovery are welcome.
-- **Test coverage is thin.** More unit/integration tests would help a lot.
+- **Test coverage is thin.** There are unit tests (`Bot.Core.Tests`) for the core logic; tests on saved screenshots are still to come.
 
 If you want to help, see [CONTRIBUTING.md](CONTRIBUTING.md) and open/claim an issue.
 

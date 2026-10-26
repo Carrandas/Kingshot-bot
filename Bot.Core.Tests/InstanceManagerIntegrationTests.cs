@@ -5,6 +5,7 @@ using Bot.Core.LDPlayer;
 using Bot.Core.Logging;
 using Bot.Core.Utils;
 using NUnit.Framework;
+using NUnit.Framework.Legacy;
 
 namespace Bot.Core.Tests
 {
@@ -14,6 +15,7 @@ namespace Bot.Core.Tests
     /// </summary>
     [TestFixture]
     [Category("Integration")]
+    [Explicit("Drives LDPlayer: run by hand only")]
     public class InstanceManagerIntegrationTests
     {
         private InstanceManager _instanceManager;
@@ -41,7 +43,7 @@ namespace Bot.Core.Tests
             // Assert
             // We can't assert the specific value since we don't know the instance state,
             // but we can verify the method doesn't throw and returns a valid boolean
-            Assert.IsNotNull(isRunning);
+            ClassicAssert.IsNotNull(isRunning);
             Console.WriteLine($"Instance {instanceNumber} running status: {isRunning}");
         }
 
@@ -53,14 +55,14 @@ namespace Bot.Core.Tests
             var statuses = await _instanceManager.GetAllInstanceStatusesAsync();
 
             // Assert
-            Assert.IsNotNull(statuses);
+            ClassicAssert.IsNotNull(statuses);
             Console.WriteLine($"Found {statuses.Count} instances:");
             
             foreach (var status in statuses.Values)
             {
-                Assert.IsNotNull(status);
-                Assert.IsNotNull(status.Title);
-                Assert.GreaterOrEqual(status.Index, 0);
+                ClassicAssert.IsNotNull(status);
+                ClassicAssert.IsNotNull(status.Title);
+                ClassicAssert.GreaterOrEqual(status.Index, 0);
                 
                 Console.WriteLine($"  {status}");
             }
@@ -79,9 +81,9 @@ namespace Bot.Core.Tests
             // Assert
             if (status != null) // Instance exists
             {
-                Assert.AreEqual(instanceNumber, status.Index);
-                Assert.IsNotNull(status.Title);
-                Assert.IsNotNull(status.StatusDescription);
+                ClassicAssert.AreEqual(instanceNumber, status.Index);
+                ClassicAssert.IsNotNull(status.Title);
+                ClassicAssert.IsNotNull(status.StatusDescription);
                 
                 Console.WriteLine($"Instance {instanceNumber} detailed status:");
                 Console.WriteLine($"  Title: {status.Title}");
@@ -129,8 +131,8 @@ namespace Bot.Core.Tests
             {
                 // If successful, verify the instance is indeed ready
                 var finalStatus = await _instanceManager.GetInstanceDetailedStatusAsync(instanceNumber);
-                Assert.IsNotNull(finalStatus);
-                Assert.IsTrue(finalStatus.IsFullyBooted, "Instance should be fully booted after successful wait");
+                ClassicAssert.IsNotNull(finalStatus);
+                ClassicAssert.IsTrue(finalStatus.IsFullyBooted, "Instance should be fully booted after successful wait");
                 
                 Console.WriteLine($"Final status: {finalStatus.StatusDescription}");
             }
@@ -148,7 +150,7 @@ namespace Bot.Core.Tests
             // Clear cache first
             InstanceManager.ClearStatusCache();
             var initialStats = InstanceManager.GetCacheStatistics();
-            Assert.AreEqual(0, initialStats["TotalCachedInstances"]);
+            ClassicAssert.AreEqual(0, initialStats["TotalCachedInstances"]);
 
             // Act - First call should populate cache
             var status1 = await _instanceManager.GetInstanceDetailedStatusAsync(instanceNumber);
@@ -161,14 +163,14 @@ namespace Bot.Core.Tests
             // Assert
             if (status1 != null) // Only test if instance exists
             {
-                Assert.Greater((int)statsAfterFirst["TotalCachedInstances"], 0, "Cache should be populated after first call");
-                Assert.AreEqual(statsAfterFirst["TotalCachedInstances"], statsAfterSecond["TotalCachedInstances"], 
+                ClassicAssert.Greater((int)statsAfterFirst["TotalCachedInstances"], 0, "Cache should be populated after first call");
+                ClassicAssert.AreEqual(statsAfterFirst["TotalCachedInstances"], statsAfterSecond["TotalCachedInstances"], 
                     "Cache size should remain same for second call");
                 
                 // Status objects should be equivalent (same data)
-                Assert.AreEqual(status1.Index, status2.Index);
-                Assert.AreEqual(status1.IsRunning, status2.IsRunning);
-                Assert.AreEqual(status1.AndroidStarted, status2.AndroidStarted);
+                ClassicAssert.AreEqual(status1.Index, status2.Index);
+                ClassicAssert.AreEqual(status1.IsRunning, status2.IsRunning);
+                ClassicAssert.AreEqual(status1.AndroidStarted, status2.AndroidStarted);
             }
             
             Console.WriteLine($"Cache stats after first call: {string.Join(", ", statsAfterFirst.Select(kvp => $"{kvp.Key}={kvp.Value}"))}");
@@ -185,9 +187,9 @@ namespace Bot.Core.Tests
             var stats = InstanceManager.GetCacheStatistics();
 
             // Assert
-            Assert.AreEqual(0, stats["TotalCachedInstances"], "Cache should be empty after clear");
-            Assert.AreEqual(0, stats["FreshEntries"], "No fresh entries should remain");
-            Assert.AreEqual(0, stats["StaleEntries"], "No stale entries should remain");
+            ClassicAssert.AreEqual(0, stats["TotalCachedInstances"], "Cache should be empty after clear");
+            ClassicAssert.AreEqual(0, stats["FreshEntries"], "No fresh entries should remain");
+            ClassicAssert.AreEqual(0, stats["StaleEntries"], "No stale entries should remain");
         }
 
         [TearDown]
@@ -197,3 +199,4 @@ namespace Bot.Core.Tests
             InstanceManager.ClearStatusCache();
         }
     }
+}

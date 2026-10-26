@@ -7,6 +7,7 @@ using Bot.Core.Logging;
 using Bot.Core.Models;
 using Bot.Core.Utils;
 using NUnit.Framework;
+using NUnit.Framework.Legacy;
 
 namespace Bot.Core.Tests
 {
@@ -16,6 +17,7 @@ namespace Bot.Core.Tests
     /// </summary>
     [TestFixture]
     [Category("Performance")]
+    [Explicit("Drives LDPlayer: run by hand only")]
     public class InstanceManagerPerformanceTests
     {
         private InstanceManager _instanceManager;
@@ -44,8 +46,8 @@ namespace Bot.Core.Tests
             stopwatch.Stop();
 
             // Assert
-            Assert.IsNotNull(status, "Status should not be null if instance exists");
-            Assert.Less(stopwatch.ElapsedMilliseconds, 500, 
+            ClassicAssert.IsNotNull(status, "Status should not be null if instance exists");
+            ClassicAssert.Less(stopwatch.ElapsedMilliseconds, 500, 
                 $"Fast status check should complete in under 500ms, took {stopwatch.ElapsedMilliseconds}ms");
             
             Console.WriteLine($"Fast status check completed in {stopwatch.ElapsedMilliseconds}ms");
@@ -64,8 +66,8 @@ namespace Bot.Core.Tests
             stopwatch.Stop();
 
             // Assert
-            Assert.IsNotNull(statuses);
-            Assert.Less(stopwatch.ElapsedMilliseconds, 1000, 
+            ClassicAssert.IsNotNull(statuses);
+            ClassicAssert.Less(stopwatch.ElapsedMilliseconds, 1000, 
                 $"Batch status check should complete in under 1 second, took {stopwatch.ElapsedMilliseconds}ms");
             
             Console.WriteLine($"Batch status check for {statuses.Count} instances completed in {stopwatch.ElapsedMilliseconds}ms");
@@ -89,8 +91,8 @@ namespace Bot.Core.Tests
             stopwatch.Stop();
 
             // Assert
-            Assert.IsNotNull(status);
-            Assert.Less(stopwatch.ElapsedMilliseconds, 10, 
+            ClassicAssert.IsNotNull(status);
+            ClassicAssert.Less(stopwatch.ElapsedMilliseconds, 10, 
                 $"Cached status check should complete in under 10ms, took {stopwatch.ElapsedMilliseconds}ms");
             
             Console.WriteLine($"Cached status check completed in {stopwatch.ElapsedMilliseconds}ms");
@@ -142,7 +144,7 @@ namespace Bot.Core.Tests
             var improvementPercent = ((avgLegacy - avgFast) / avgLegacy) * 100;
 
             // Assert - should be at least 50% faster
-            Assert.Greater(improvementPercent, 50, 
+            ClassicAssert.Greater(improvementPercent, 50, 
                 $"Fast method should be at least 50% faster. Legacy: {avgLegacy:F1}ms, Fast: {avgFast:F1}ms, Improvement: {improvementPercent:F1}%");
 
             Console.WriteLine($"Performance comparison over {iterations} iterations:");
@@ -171,9 +173,9 @@ namespace Bot.Core.Tests
             stopwatch.Stop();
 
             // Assert
-            Assert.IsNotNull(result);
-            Assert.AreEqual(4, result.Count);
-            Assert.Less(stopwatch.ElapsedMilliseconds, 10, 
+            ClassicAssert.IsNotNull(result);
+            ClassicAssert.AreEqual(4, result.Count);
+            ClassicAssert.Less(stopwatch.ElapsedMilliseconds, 10, 
                 $"Parsing should be very fast, took {stopwatch.ElapsedMilliseconds}ms");
             
             Console.WriteLine($"Parsed {result.Count} instances in {stopwatch.ElapsedMilliseconds}ms");
@@ -186,11 +188,11 @@ namespace Bot.Core.Tests
             var stats = InstanceManager.GetCacheStatistics();
 
             // Assert
-            Assert.IsNotNull(stats);
-            Assert.IsTrue(stats.ContainsKey("TotalCachedInstances"));
-            Assert.IsTrue(stats.ContainsKey("FreshEntries"));
-            Assert.IsTrue(stats.ContainsKey("StaleEntries"));
-            Assert.IsTrue(stats.ContainsKey("CacheTTL"));
+            ClassicAssert.IsNotNull(stats);
+            ClassicAssert.IsTrue(stats.ContainsKey("TotalCachedInstances"));
+            ClassicAssert.IsTrue(stats.ContainsKey("FreshEntries"));
+            ClassicAssert.IsTrue(stats.ContainsKey("StaleEntries"));
+            ClassicAssert.IsTrue(stats.ContainsKey("CacheTTL"));
             
             Console.WriteLine($"Cache statistics: {string.Join(", ", stats.Select(kvp => $"{kvp.Key}={kvp.Value}"))}");
         }

@@ -23,7 +23,7 @@ ITask (Interface)
     └── Alliance: AllianceHelpTask, AllianceTechnologyTask, AllianceTriumphTask, AllianceChestsTask, AllianceMobilizationTask
 ```
 
-**Adding new tasks:** see [CONTRIBUTING.md](../CONTRIBUTING.md#how-to-add-a-new-automation-task). A task is registered in five places: the `TaskType` enum, `_availableTasks` and the priority dictionary in `TaskManager`, `RecoveryTask.GetUserFriendlyTaskName`, and the GUI's `TaskTypeToDisplayNameConverter`.
+**Adding new tasks:** see [CONTRIBUTING.md](../CONTRIBUTING.md#how-to-add-a-new-automation-task). A task is registered in five places: the `TaskType` enum, `TaskManager.CreateTaskModules` and the priority dictionary in `TaskManager`, `RecoveryTask.GetUserFriendlyTaskName`, and the GUI's `TaskTypeToDisplayNameConverter`.
 
 ### Task Order
 `TaskManager` sorts the enabled tasks by a priority dictionary (lower runs first; `TaskManager.GetRunOrder`). The order matters in a few places:

@@ -45,6 +45,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="Bot.Core.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="AdvancedSharpAdbClient" Version="3.6.16" />
     <PackageReference Include="OpenCVSharp4" Version="4.13.0.20260627" />
     <PackageReference Include="OpenCVSharp4.Extensions" Version="4.13.0.20260627" />

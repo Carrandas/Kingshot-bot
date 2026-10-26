@@ -1,6 +1,7 @@
 using System;
 using Bot.Core.Models;
 using NUnit.Framework;
+using NUnit.Framework.Legacy;
 
 namespace Bot.Core.Tests
 {
@@ -17,16 +18,16 @@ namespace Bot.Core.Tests
             var status = InstanceDetailedStatus.FromList2Parts(parts);
 
             // Assert
-            Assert.IsNotNull(status);
-            Assert.AreEqual(0, status.Index);
-            Assert.AreEqual("LDPlayer", status.Title);
-            Assert.AreEqual(2032678, status.TopWindowHandle);
-            Assert.AreEqual(1704928, status.BindWindowHandle);
-            Assert.IsTrue(status.AndroidStarted);
-            Assert.AreEqual(7456, status.ProcessId);
-            Assert.AreEqual(3500, status.VBoxProcessId);
-            Assert.IsTrue(status.IsRunning);
-            Assert.IsTrue(status.IsFullyBooted);
+            ClassicAssert.IsNotNull(status);
+            ClassicAssert.AreEqual(0, status.Index);
+            ClassicAssert.AreEqual("LDPlayer", status.Title);
+            ClassicAssert.AreEqual(2032678, status.TopWindowHandle);
+            ClassicAssert.AreEqual(1704928, status.BindWindowHandle);
+            ClassicAssert.IsTrue(status.AndroidStarted);
+            ClassicAssert.AreEqual(7456, status.ProcessId);
+            ClassicAssert.AreEqual(3500, status.VBoxProcessId);
+            ClassicAssert.IsTrue(status.IsRunning);
+            ClassicAssert.IsTrue(status.IsFullyBooted);
         }
 
         [Test]
@@ -39,12 +40,12 @@ namespace Bot.Core.Tests
             var status = InstanceDetailedStatus.FromList2Parts(parts);
 
             // Assert
-            Assert.IsNotNull(status);
-            Assert.AreEqual(1, status.Index);
-            Assert.IsTrue(status.IsRunning); // Process is running
-            Assert.IsFalse(status.AndroidStarted); // But Android not started
-            Assert.IsFalse(status.IsFullyBooted); // Therefore not fully booted
-            Assert.AreEqual("Emulator Running, Android Starting", status.StatusDescription);
+            ClassicAssert.IsNotNull(status);
+            ClassicAssert.AreEqual(1, status.Index);
+            ClassicAssert.IsTrue(status.IsRunning); // Process is running
+            ClassicAssert.IsFalse(status.AndroidStarted); // But Android not started
+            ClassicAssert.IsFalse(status.IsFullyBooted); // Therefore not fully booted
+            ClassicAssert.AreEqual("Emulator Running, Android Starting", status.StatusDescription);
         }
 
         [Test]
@@ -57,13 +58,13 @@ namespace Bot.Core.Tests
             var status = InstanceDetailedStatus.FromList2Parts(parts);
 
             // Assert
-            Assert.IsNotNull(status);
-            Assert.AreEqual(2, status.Index);
-            Assert.IsFalse(status.IsRunning);
-            Assert.IsFalse(status.AndroidStarted);
-            Assert.IsFalse(status.IsFullyBooted);
-            Assert.IsFalse(status.HasValidHandles);
-            Assert.AreEqual("Not Running", status.StatusDescription);
+            ClassicAssert.IsNotNull(status);
+            ClassicAssert.AreEqual(2, status.Index);
+            ClassicAssert.IsFalse(status.IsRunning);
+            ClassicAssert.IsFalse(status.AndroidStarted);
+            ClassicAssert.IsFalse(status.IsFullyBooted);
+            ClassicAssert.IsFalse(status.HasValidHandles);
+            ClassicAssert.AreEqual("Not Running", status.StatusDescription);
         }
 
         [Test]
@@ -76,7 +77,7 @@ namespace Bot.Core.Tests
             var status = InstanceDetailedStatus.FromList2Parts(parts);
 
             // Assert
-            Assert.IsNull(status);
+            ClassicAssert.IsNull(status);
         }
 
         [Test]
@@ -89,7 +90,7 @@ namespace Bot.Core.Tests
             var status = InstanceDetailedStatus.FromList2Parts(parts);
 
             // Assert
-            Assert.IsNull(status);
+            ClassicAssert.IsNull(status);
         }
 
         [Test]
@@ -103,7 +104,7 @@ namespace Bot.Core.Tests
             var readiness = status.ReadinessLevel;
 
             // Assert
-            Assert.AreEqual(InstanceReadiness.NotRunning, readiness);
+            ClassicAssert.AreEqual(InstanceReadiness.NotRunning, readiness);
         }
 
         [Test]
@@ -117,7 +118,7 @@ namespace Bot.Core.Tests
             var readiness = status.ReadinessLevel;
 
             // Assert
-            Assert.AreEqual(InstanceReadiness.Booting, readiness);
+            ClassicAssert.AreEqual(InstanceReadiness.Booting, readiness);
         }
 
         [Test]
@@ -131,7 +132,7 @@ namespace Bot.Core.Tests
             var readiness = status.ReadinessLevel;
 
             // Assert
-            Assert.AreEqual(InstanceReadiness.Starting, readiness);
+            ClassicAssert.AreEqual(InstanceReadiness.Starting, readiness);
         }
 
         [Test]
@@ -145,7 +146,7 @@ namespace Bot.Core.Tests
             var readiness = status.ReadinessLevel;
 
             // Assert
-            Assert.AreEqual(InstanceReadiness.Ready, readiness);
+            ClassicAssert.AreEqual(InstanceReadiness.Ready, readiness);
         }
 
         [Test]
@@ -162,7 +163,7 @@ namespace Bot.Core.Tests
             var needsRecovery = status.NeedsRecovery;
 
             // Assert
-            Assert.IsTrue(needsRecovery);
+            ClassicAssert.IsTrue(needsRecovery);
         }
 
         [Test]
@@ -179,7 +180,7 @@ namespace Bot.Core.Tests
             var needsRecovery = status.NeedsRecovery;
 
             // Assert
-            Assert.IsFalse(needsRecovery);
+            ClassicAssert.IsFalse(needsRecovery);
         }
 
         [Test]
@@ -193,12 +194,12 @@ namespace Bot.Core.Tests
             var stringValue = status.ToString();
 
             // Assert
-            Assert.IsNotNull(stringValue);
-            Assert.Contains("Instance 0", stringValue);
-            Assert.Contains("LDPlayer", stringValue);
-            Assert.Contains("Fully Ready", stringValue);
-            Assert.Contains("PID: 7456", stringValue);
-            Assert.Contains("VBox: 3500", stringValue);
+            ClassicAssert.IsNotNull(stringValue);
+            StringAssert.Contains("Instance 0", stringValue);
+            StringAssert.Contains("LDPlayer", stringValue);
+            StringAssert.Contains("Fully Ready", stringValue);
+            StringAssert.Contains("PID: 7456", stringValue);
+            StringAssert.Contains("VBox: 3500", stringValue);
         }
     }
 }

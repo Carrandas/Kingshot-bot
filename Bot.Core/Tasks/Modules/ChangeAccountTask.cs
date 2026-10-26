@@ -362,7 +362,7 @@ namespace Bot.Core.Tasks.Modules
         /// The OCR misreads the "]" of a 3-letter alliance tag as l, I, 1, | or J ("[KFClAsli") or drops it ("[KFCAsli").
         /// Both become "[KFC]Asli".
         /// </summary>
-        private static string FixAllianceTag(string name)
+        internal static string FixAllianceTag(string name)
         {
             if (name.Length > 5 && name[0] == '[' && name.IndexOf(']') < 0)
             {

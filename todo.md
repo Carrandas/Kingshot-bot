@@ -1,8 +1,8 @@
 # KingshotAuto – todo / known errors
 
-Last updated: 2026-10-23 (second-character run). Everything below is **uncommitted** unless noted.
+Last updated: 2026-10-26.
 
-Unattended test runs: start the app with `KingshotAuto.exe --launch` (presses Launch on every instance once).
+Unattended runs: `KingshotAuto.exe --cycle` (Run on schedule); `--launch` presses Launch on every instance once.
 
 ## Errors found (live runs)
 
@@ -117,8 +117,9 @@ Unattended test runs: start the app with `KingshotAuto.exe --launch` (presses La
 
 ## Quality (nothing in place yet)
 
-- [ ] **Unit tests.** There are none: `Bot.Core.Tests/` has files but no .csproj and is not in the solution. Start with the pure logic: `CharacterRoster` name matching, daily gates / `GetNextRunUtc`, task ordering, OCR text parsing (march count, Suggestion Box answers)
-- [ ] **Integration tests on screenshots.** Saved screenshots per screen (present / absent / popup variants) with the expected template scores and tap points, so a task's detection can be checked without the emulator. Catches threshold regressions like the BGRA swap (#19)
+- [x] **Unit tests** (2026-10-26): `Bot.Core.Tests` (NUnit 4), 72 tests: `CharacterRoster` name matching and Change Account's tag fix, `DailyGate` / `Schedule`, `TaskRunHistory`, task registration and run order (found AutoRally without a run order). The old `InstanceManager*` LDPlayer tests are `[Explicit]`
+  - [ ] Next: `GetNextRunUtc` of the timer tasks (Claim Mail, Conquest Collect, Alliance Technology, Journey 08:00/16:00), OCR text parsing (march count, Suggestion Box answer table)
+- [ ] **Integration tests on screenshots.** Saved screenshots per screen (present / absent / popup variants) with the expected results, so a task's detection can be checked without the emulator. Catches threshold regressions like the BGRA swap (#19). Started locally (Alliance Mobilization); not committed: the screenshots show account data
 - [ ] **Code quality monitoring.** No static analysis or CI at all: add a build + test workflow (GitHub Actions on the fork), .NET analyzers / `dotnet format`, and a quality dashboard (SonarQube / SonarCloud) for bugs, smells and coverage
 
 ## Not done yet
@@ -126,7 +127,6 @@ Unattended test runs: start the app with `KingshotAuto.exe --launch` (presses La
 - [ ] Red dots not handled: Events, Deals, Flamedragon, pets (paw), scales, bottom bar (Heroes, Backpack, Shop, Alliance)
 - [ ] Human-like random delays
 - [ ] Safety rule for every new claim: tap only template-matched free/claim elements, never price or gem-cost buttons
-- [ ] Commit the work (only when asked)
 
 ## Truegold Crucible (new task, 2026-10-23)
 - [x] Rows hidden once done -> panel closed, nothing tapped (verified live)

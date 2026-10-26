@@ -50,39 +50,47 @@ namespace Bot.Core.Tasks
             _instanceManager = new InstanceManager(ldConsolePath, dnConsolePath, logger);
 
             // Initialize available task modules with new unified base class
-            _availableTasks[TaskType.AccountDetection] = new AccountDetectionTask();
-            _availableTasks[TaskType.AutoHunt] = new AutoHuntTask();
-            _availableTasks[TaskType.Farming] = new FarmingTask();
-            _availableTasks[TaskType.TroopTraining] = new TroopTrainingTask();
-            _availableTasks[TaskType.ConquestCollect] = new ConquestCollectTask();
-            _availableTasks[TaskType.AutoAllianceHelp] = new AllianceHelpTask();
-            _availableTasks[TaskType.Recovery] = new RecoveryTask();
-            _availableTasks[TaskType.ClaimMail] = new ClaimMailTask();
-            _availableTasks[TaskType.ChangeAccount] = new ChangeAccountTask();
-            _availableTasks[TaskType.AutoHeal] = new AutoHealTask(logger);
-            _availableTasks[TaskType.AutoBuild] = new AutoBuildTask();
-            _availableTasks[TaskType.AutoClaimHero] = new AutoClaimHeroTask(
-                (_serviceProvider.GetService(typeof(UnifiedTemplateMatchingService)) as UnifiedTemplateMatchingService)!);
-            _availableTasks[TaskType.AutoShield] = new AutoShieldTask(ConfigurationManager.Instance, _serviceProvider);
-            _availableTasks[TaskType.CollectVip] = new CollectVipTask();
-            _availableTasks[TaskType.ClaimMissions] = new ClaimMissionsTask();
-            _availableTasks[TaskType.ResidentWelcome] = new ResidentWelcomeTask();
-            _availableTasks[TaskType.AllianceTechnology] = new AllianceTechnologyTask();
-            _availableTasks[TaskType.AutoTechnology] = new AutoTechnologyTask();
-            _availableTasks[TaskType.AutoRally] = new AutoRallyTask();
-            _availableTasks[TaskType.CollectRewards] = new CollectRewardsTask();
-            _availableTasks[TaskType.PetAdventure] = new PetAdventureTask();
-            _availableTasks[TaskType.CollectOnlineRewards] = new CollectOnlineRewardsTask();
-            _availableTasks[TaskType.Journey] = new JourneyTask();
-            _availableTasks[TaskType.TruegoldCrucible] = new TruegoldCrucibleTask();
-            _availableTasks[TaskType.AllianceTriumph] = new AllianceTriumphTask();
-            _availableTasks[TaskType.WaterEssence] = new WaterEssenceTask();
-            _availableTasks[TaskType.NomadicMerchant] = new NomadicMerchantTask();
-            _availableTasks[TaskType.AllianceChests] = new AllianceChestsTask();
-            _availableTasks[TaskType.SuggestionBox] = new SuggestionBoxTask();
-            _availableTasks[TaskType.AllianceMobilization] = new AllianceMobilizationTask();
+            foreach (var (type, task) in CreateTaskModules(logger, _serviceProvider)) _availableTasks[type] = task;
             
             _logger.LogInfo($"TaskManager initialized with {_availableTasks.Count} tasks plus startup task");
+        }
+
+        /// <summary>Every task module except Startup, by type. Static so the tests can check the registration without LDPlayer.</summary>
+        internal static Dictionary<TaskType, ITask> CreateTaskModules(LogService logger, IServiceProvider serviceProvider)
+        {
+            var tasks = new Dictionary<TaskType, ITask>();
+            tasks[TaskType.AccountDetection] = new AccountDetectionTask();
+            tasks[TaskType.AutoHunt] = new AutoHuntTask();
+            tasks[TaskType.Farming] = new FarmingTask();
+            tasks[TaskType.TroopTraining] = new TroopTrainingTask();
+            tasks[TaskType.ConquestCollect] = new ConquestCollectTask();
+            tasks[TaskType.AutoAllianceHelp] = new AllianceHelpTask();
+            tasks[TaskType.Recovery] = new RecoveryTask();
+            tasks[TaskType.ClaimMail] = new ClaimMailTask();
+            tasks[TaskType.ChangeAccount] = new ChangeAccountTask();
+            tasks[TaskType.AutoHeal] = new AutoHealTask(logger);
+            tasks[TaskType.AutoBuild] = new AutoBuildTask();
+            tasks[TaskType.AutoClaimHero] = new AutoClaimHeroTask(
+                (serviceProvider.GetService(typeof(UnifiedTemplateMatchingService)) as UnifiedTemplateMatchingService)!);
+            tasks[TaskType.AutoShield] = new AutoShieldTask(ConfigurationManager.Instance, serviceProvider);
+            tasks[TaskType.CollectVip] = new CollectVipTask();
+            tasks[TaskType.ClaimMissions] = new ClaimMissionsTask();
+            tasks[TaskType.ResidentWelcome] = new ResidentWelcomeTask();
+            tasks[TaskType.AllianceTechnology] = new AllianceTechnologyTask();
+            tasks[TaskType.AutoTechnology] = new AutoTechnologyTask();
+            tasks[TaskType.AutoRally] = new AutoRallyTask();
+            tasks[TaskType.CollectRewards] = new CollectRewardsTask();
+            tasks[TaskType.PetAdventure] = new PetAdventureTask();
+            tasks[TaskType.CollectOnlineRewards] = new CollectOnlineRewardsTask();
+            tasks[TaskType.Journey] = new JourneyTask();
+            tasks[TaskType.TruegoldCrucible] = new TruegoldCrucibleTask();
+            tasks[TaskType.AllianceTriumph] = new AllianceTriumphTask();
+            tasks[TaskType.WaterEssence] = new WaterEssenceTask();
+            tasks[TaskType.NomadicMerchant] = new NomadicMerchantTask();
+            tasks[TaskType.AllianceChests] = new AllianceChestsTask();
+            tasks[TaskType.SuggestionBox] = new SuggestionBoxTask();
+            tasks[TaskType.AllianceMobilization] = new AllianceMobilizationTask();
+            return tasks;
         }
 
         public async Task InitializeAsync(CancellationToken cancellationToken = default)
@@ -709,6 +717,7 @@ namespace Bot.Core.Tasks
             { TaskType.NomadicMerchant, 22 },
             { TaskType.AllianceChests, 23 },
             { TaskType.AllianceMobilization, 24 },
+            { TaskType.AutoRally, 25 },
             { TaskType.ChangeAccount, 999 }    // ChangeAccount should always run last
         };
 
