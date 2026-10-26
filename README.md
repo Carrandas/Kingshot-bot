@@ -41,6 +41,7 @@ KingshotAuto drives the game through a set of pluggable automation **tasks**. Ea
 - **Alliance Technology** — contribute to the recommended alliance technology
 - **Alliance Triumph** — claim last week's alliance reward and the daily Personal Activity Triumph chest
 - **Alliance Chests** — Claim All on the Loot Chest and Alliance Gift tabs, and open the key chest
+- **Alliance Mobilization** — refresh the open Alliance Mobilization missions the alliance doesn't want (anything but bear, lion, gems, gift, train troops and gather); needs R4 or higher, runs at most every 25 minutes
 
 **System**
 - **Account Detection / Change Account** — identify the account and run the task list on every enabled character of a game login

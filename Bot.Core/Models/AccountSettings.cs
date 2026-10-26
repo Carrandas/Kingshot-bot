@@ -37,7 +37,8 @@ namespace Bot.Core.Models
         WaterEssence,
         NomadicMerchant,
         AllianceChests,
-        SuggestionBox
+        SuggestionBox,
+        AllianceMobilization
     }
 
     public class AccountSettings : INotifyPropertyChanged

@@ -49,7 +49,8 @@ namespace Bot.GUI.Converters
             { TaskType.WaterEssence, "Water Essence" },
             { TaskType.NomadicMerchant, "Nomadic Merchant" },
             { TaskType.AllianceChests, "Alliance Chests" },
-            { TaskType.SuggestionBox, "Suggestion Box" }
+            { TaskType.SuggestionBox, "Suggestion Box" },
+            { TaskType.AllianceMobilization, "Alliance Mobilization" }
         };
 
         public object Convert(object value, Type targetType, object parameter, CultureInfo culture)

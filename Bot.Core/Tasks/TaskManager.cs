@@ -80,6 +80,7 @@ namespace Bot.Core.Tasks
             _availableTasks[TaskType.NomadicMerchant] = new NomadicMerchantTask();
             _availableTasks[TaskType.AllianceChests] = new AllianceChestsTask();
             _availableTasks[TaskType.SuggestionBox] = new SuggestionBoxTask();
+            _availableTasks[TaskType.AllianceMobilization] = new AllianceMobilizationTask();
             
             _logger.LogInfo($"TaskManager initialized with {_availableTasks.Count} tasks plus startup task");
         }
@@ -653,6 +654,7 @@ namespace Bot.Core.Tasks
                 { TaskType.WaterEssence, 21 },
                 { TaskType.NomadicMerchant, 22 },
                 { TaskType.AllianceChests, 23 },
+                { TaskType.AllianceMobilization, 24 },
                 { TaskType.ChangeAccount, 999 }    // ChangeAccount should always run last
             };
 

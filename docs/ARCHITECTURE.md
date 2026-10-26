@@ -20,7 +20,7 @@ ITask (Interface)
     ├── Daily rewards: CollectOnlineRewardsTask, CollectRewardsTask, NomadicMerchantTask, PetAdventureTask,
     │   JourneyTask, TruegoldCrucibleTask, WaterEssenceTask, ConquestCollectTask, CollectVipTask,
     │   ClaimMailTask, ClaimMissionsTask, AutoClaimHeroTask
-    └── Alliance: AllianceHelpTask, AllianceTechnologyTask, AllianceTriumphTask, AllianceChestsTask
+    └── Alliance: AllianceHelpTask, AllianceTechnologyTask, AllianceTriumphTask, AllianceChestsTask, AllianceMobilizationTask
 ```
 
 **Adding new tasks:** see [CONTRIBUTING.md](../CONTRIBUTING.md#how-to-add-a-new-automation-task). A task is registered in five places: the `TaskType` enum, `_availableTasks` and the priority dictionary in `TaskManager`, `RecoveryTask.GetUserFriendlyTaskName`, and the GUI's `TaskTypeToDisplayNameConverter`.
@@ -45,7 +45,7 @@ The character list is kept in `AccountSettings.Characters` (`CharacterRoster`). 
 The game resets at **00:00 UTC**. Tasks that can only be done once a day record `DateTime.UtcNow.Date` per account (keyed by `AccountDetectionTask.GetCachedAccountId`) and skip until the date changes:
 - Collect Store Rewards (saved to disk), Nomadic Merchant, Truegold Crucible, Alliance Triumph (in memory, reset when the app restarts)
 
-Other tasks repeat on their own timers: Conquest Collect every `WaitHours` (default 4), Alliance Technology every 10 hours, and Journey's free supplies at 08:00 and 16:00 UTC.
+Other tasks repeat on their own timers: Conquest Collect every `WaitHours` (default 4), Alliance Technology every 10 hours, Alliance Mobilization every 25 minutes (a refreshed mission comes back after 30), and Journey's free supplies at 08:00 and 16:00 UTC. Alliance Mobilization also skips a character below R4 until the app restarts.
 
 Saved state lives in `data/` next to the executable:
 - `collect_rewards_daily_runs.json` and `collect_rewards_bank_times.json`

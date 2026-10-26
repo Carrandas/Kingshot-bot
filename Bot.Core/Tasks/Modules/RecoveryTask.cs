@@ -65,6 +65,7 @@ namespace Bot.Core.Tasks.Modules
                 TaskType.NomadicMerchant => "Nomadic Merchant",
                 TaskType.AllianceChests => "Alliance Chests",
                 TaskType.SuggestionBox => "Suggestion Box",
+                TaskType.AllianceMobilization => "Alliance Mobilization",
                 _ => taskType.ToString()
             };
         }
