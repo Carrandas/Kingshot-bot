@@ -439,7 +439,9 @@ namespace Bot.Core.Utils
                     }
                 }
 
-                // Check for recovery back buttons (full screen search)
+                // Check for recovery back buttons. They sit in the top-left corner (0.66-1.00 there); a full screen
+                // search matched map tiles and popups at up to 0.83, and tapping those kept opening new popups
+                var backButtonArea = new Rectangle(0, 0, 120, 90);
                 var recoveryFolder = Path.Combine(baseDir, "templates", "images", "recovery");
                 var backButtonPaths = new[]
                 {
@@ -451,7 +453,7 @@ namespace Bot.Core.Utils
                 {
                     if (File.Exists(backButtonPath))
                     {
-                        var (found, matchRect, confidence) = _templateMatcher.MatchTemplate(screenshot, backButtonPath, _account.InstanceNumber, 0.7);
+                        var (found, matchRect, confidence) = _templateMatcher.MatchTemplate(screenshot, backButtonPath, _account.InstanceNumber, 0.7, null, false, backButtonArea);
                         if (found)
                         {
                             _logger.LogInfo($"[Locator] 🔙 Found recovery back button {Path.GetFileName(backButtonPath)} (confidence: {confidence:F3}), clicking...");

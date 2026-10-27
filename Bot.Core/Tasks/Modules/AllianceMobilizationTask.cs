@@ -33,7 +33,10 @@ namespace Bot.Core.Tasks.Modules
         private LocatorService? _locatorService;
 
         internal const string EventsButtonTemplate = "events-button.png";
-        private const string MobilizationTabTemplate = "mobilization-tab.png";     // trophy tab, second tab of Events
+        private const string MobilizationTabTemplate = "mobilization-tab.png";     // trophy tab, selected (white background)
+        // Events opens on a tab with a red dot (e.g. Armament Competition), so the trophy tab is often unselected (brown
+        // background): 0.99 there, <= 0.69 elsewhere. The selected template scores 0.47 on it
+        private const string MobilizationTabUnselectedTemplate = "mobilization-tab-unselected.png";
         private const string MobilizationTitleTemplate = "mobilization-title.png";
         private const string PointsCoinTemplate = "points-coin.png";               // "+points" coin under an open mission
         private const string RefreshMissionTemplate = "refresh-mission.png";       // orange button of the Open Mission popup
@@ -160,6 +163,11 @@ namespace Bot.Core.Tasks.Modules
             await Task.Delay(3000, cancellationToken);
 
             var tab = await MatchAsync(MobilizationTabTemplate, TabArea, Threshold, instance, logger);
+            if (!tab.found)
+            {
+                var unselected = await MatchAsync(MobilizationTabUnselectedTemplate, TabArea, Threshold, instance, logger);
+                if (unselected.found || unselected.confidence > tab.confidence) tab = unselected;
+            }
             if (!tab.found)
             {
                 logger.LogInfo($"[{account.AccountName}] Alliance Mobilization: no Mobilization tab, event not running ({tab.confidence:F2})");
