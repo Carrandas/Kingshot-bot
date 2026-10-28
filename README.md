@@ -47,7 +47,7 @@ KingshotAuto drives the game through a set of pluggable automation **tasks**. Ea
 - **Account Detection / Change Account** — identify the account and run the task list on every enabled character of a game login
 - **Startup / Recovery** — bring the game to a known state and recover from unexpected UI
 
-The game resets at **00:00 UTC**. Tasks that only need one run a day (Collect Store Rewards, Collect VIP, Nomadic Merchant, Truegold Crucible, Suggestion Box, Alliance Triumph) skip themselves for the rest of the UTC day once they are done, so repeated cycles don't waste time on them. Other tasks have their own timers (Alliance Mobilization 25 min, Claim Mail 3-6 h, Conquest Collect 4 h, Alliance Technology 10 h).
+The game resets at **00:00 UTC**. Tasks that only need one run a day (Collect Store Rewards, Collect VIP, Claim Mail, Nomadic Merchant, Truegold Crucible, Suggestion Box, Alliance Triumph) skip themselves for the rest of the UTC day once they are done, so repeated cycles don't waste time on them. Other tasks have their own timers (Alliance Mobilization 25 min, Claim Mail 3-6 h, Conquest Collect 4 h, Alliance Technology 10 h).
 
 ## The Bot tab
 

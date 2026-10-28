@@ -43,9 +43,9 @@ The character list is kept in `AccountSettings.Characters` (`CharacterRoster`). 
 
 ### Daily Gates, Timers and Saved State
 The game resets at **00:00 UTC**. Gates are keyed per game account (`AccountDetectionTask.GetCachedAccountId`, or `Schedule.AccountKey`), so each character has its own:
-- **`DailyGate`** (once a day, saved to `data/daily_gates.json`): Collect VIP, Nomadic Merchant, Truegold Crucible, Suggestion Box (only after it answered letters; "no letters" sets no gate). A task calls `DailyGate.DoneToday` first and `DailyGate.MarkDone` after its run.
+- **`DailyGate`** (once a day, saved to `data/daily_gates.json`): Collect VIP, Claim Mail, Nomadic Merchant, Truegold Crucible, Suggestion Box (only after it answered letters; "no letters" sets no gate). A task calls `DailyGate.DoneToday` first and `DailyGate.MarkDone` after its run.
 - Own daily state: Collect Store Rewards (saved to disk), Alliance Triumph (in memory, reset when the app restarts)
-- Own timers: Alliance Mobilization every 25 minutes (a refreshed mission comes back after 30; skips a character below R4 until the app restarts), Claim Mail 3-6 hours, Conquest Collect every `WaitHours` (default 4), Alliance Technology every 10 hours, Journey's free supplies at 08:00 and 16:00 UTC
+- Own timers: Alliance Mobilization every 25 minutes (a refreshed mission comes back after 30; skips a character below R4 until the app restarts), Conquest Collect every `WaitHours` (default 4), Alliance Technology every 10 hours, Journey's free supplies at 08:00 and 16:00 UTC
 
 A gate skip returns `TaskExecutionDetails.SkippedBecause(...)` (`Skipped = true`): a success that did no work.
 

@@ -11,8 +11,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Drawing;
 using Bot.Core.ImageDetection;
-using System.Collections.Concurrent;
-using System.Text.Json;
 using System.Linq;
 
 namespace Bot.Core.Tasks.Modules
@@ -35,55 +33,17 @@ namespace Bot.Core.Tasks.Modules
         private static readonly Rectangle MailIconSearchArea = new Rectangle(618, 1004, 78, 77);  // 618-696, 1004-1081
         private static readonly Rectangle ClaimButtonSearchArea = new Rectangle(387, 1196, 88, 78);  // 387-475, 1196-1274
 
-        // Collection interval settings (same as ConquestCollectTask)
-        private static readonly TimeSpan MinCollectionInterval = TimeSpan.FromHours(3);
-
-        public void ClearSchedule(string accountKey)
-        {
-            LoadCollectionTimes();
-            if (_lastCollectionTimes.TryRemove(accountKey, out _)) SaveCollectionTimes();
-        }
-
-        public DateTime? GetNextRunUtc(string accountKey, AccountSettings account)
-        {
-            // no Load here: it re-reads (and on a read error clears) the gate the running task uses; shows nothing until the task ran once since start
-            // the real interval is a random 3-6 h; show the earliest
-            return _lastCollectionTimes.TryGetValue(accountKey, out var last) && last + MinCollectionInterval > DateTime.UtcNow ? last + MinCollectionInterval : null;
-        }
-        private static readonly TimeSpan MaxCollectionInterval = TimeSpan.FromHours(6);
-        private static readonly Random _random = new Random();
-
-        // Static dictionary to track last collection times per account (instance + account name)
-        private static readonly ConcurrentDictionary<string, DateTime> _lastCollectionTimes = new();
-        private static readonly string TimeStorageFile = Path.Combine(
-            AppContext.BaseDirectory, "data", "mail_collection_times.json"
-        );
+        public DateTime? GetNextRunUtc(string accountKey, AccountSettings account) => DailyGate.NextRunUtc(TaskType, accountKey);
+        public void ClearSchedule(string accountKey) => DailyGate.Clear(TaskType, accountKey);
 
         protected override async Task<TaskExecutionDetails> ExecuteTaskLogicAsync(AccountSettings account, LogService logger, CancellationToken cancellationToken, bool isReRun = false, IUserNotificationService? userNotifications = null)
         {
             try
             {
-                // Get unique account ID for accurate timer tracking
-                // First try to get cached account ID, fallback if needed
-                string accountId = AccountDetectionTask.GetCachedAccountId(account.InstanceNumber);
-                if (string.IsNullOrEmpty(accountId))
-                {
-                    logger.LogWarning($"[{account.AccountName}] No cached account ID found, using fallback key");
-                    accountId = $"Account_{account.AccountName}_{account.InstanceNumber}";
-                }
-                else
-                {
-                    logger.LogInfo($"[{account.AccountName}] Using cached account ID: '{accountId}'");
-                }
-                string accountKey = accountId; // Use account ID directly as the key
-                
-                // Check if enough time has passed since last collection for this specific account
-                if (!ShouldCollect(accountKey))
-                {
-                    var nextCollection = GetNextCollectionTime(accountKey);
-                    logger.LogInfo($"[{account.AccountName}] Too soon to collect mail (Account ID: {accountId}). Next collection at: {nextCollection}");
-                    return new TaskExecutionDetails(true, nextCollection, "Skipped - Too soon to collect") { Skipped = true };
-                }
+                // Once a day: the game resets at 00:00 UTC
+                string accountKey = Schedule.AccountKey(AccountDetectionTask.GetCachedAccountId(account.InstanceNumber), account);
+                if (DailyGate.DoneToday(TaskType, accountKey))
+                    return TaskExecutionDetails.SkippedBecause("Already done today");
 
                 logger.LogInfo($"[{account.AccountName}] 📬 Starting mail claim task. IsReRun = {isReRun}");
 
@@ -119,8 +79,7 @@ namespace Bot.Core.Tasks.Modules
 
                 await Task.Delay(GameCoordinates.Delays.AfterClick, cancellationToken);
                 
-                // Update collection time for this specific account
-                UpdateCollectionTime(accountKey);
+                DailyGate.MarkDone(TaskType, accountKey);
                 
                 logger.LogInfo($"[{account.AccountName}] ✅ Mail claim task completed.");
                 return TaskExecutionDetails.Succeeded();
@@ -136,122 +95,6 @@ namespace Bot.Core.Tasks.Modules
             }
         }
 
-
-        private bool ShouldCollect(string accountKey)
-        {
-            LoadCollectionTimes();
-            if (!_lastCollectionTimes.TryGetValue(accountKey, out DateTime lastCollection))
-            {
-                return true; // First time collection
-            }
-
-            var nextCollection = GetNextCollectionTime(accountKey);
-            return DateTime.UtcNow >= nextCollection;
-        }
-
-        private DateTime GetNextCollectionTime(string accountKey)
-        {
-            if (!_lastCollectionTimes.TryGetValue(accountKey, out DateTime lastCollection))
-            {
-                return DateTime.UtcNow; // First time collection
-            }
-
-            // Calculate random interval between min and max
-            var intervalHours = _random.NextDouble() * 
-                (MaxCollectionInterval.TotalHours - MinCollectionInterval.TotalHours) + 
-                MinCollectionInterval.TotalHours;
-            
-            return lastCollection.AddHours(intervalHours);
-        }
-
-        private void UpdateCollectionTime(string accountKey)
-        {
-            _lastCollectionTimes[accountKey] = DateTime.UtcNow;
-            SaveCollectionTimes();
-        }
-
-        private void LoadCollectionTimes()
-        {
-            try
-            {
-                if (File.Exists(TimeStorageFile))
-                {
-                    var json = File.ReadAllText(TimeStorageFile);
-                    var options = new JsonSerializerOptions { WriteIndented = true };
-                    
-                    // Try to load new format first (string-based keys)
-                    try
-                    {
-                        var times = JsonSerializer.Deserialize<ConcurrentDictionary<string, DateTime>>(json, options);
-                        if (times != null)
-                        {
-                            // Validate and clean up old entries
-                            var now = DateTime.UtcNow;
-                            foreach (var kvp in times)
-                            {
-                                // Only keep entries from the last 24 hours
-                                if (now.Subtract(kvp.Value).TotalHours <= 24)
-                                {
-                                    _lastCollectionTimes[kvp.Key] = kvp.Value;
-                                }
-                            }
-                        }
-                    }
-                    catch
-                    {
-                        // Fall back to old format (int-based keys) for backwards compatibility
-                        var oldTimes = JsonSerializer.Deserialize<ConcurrentDictionary<int, DateTime>>(json, options);
-                        if (oldTimes != null)
-                        {
-                            var now = DateTime.UtcNow;
-                            foreach (var kvp in oldTimes)
-                            {
-                                // Only keep entries from the last 24 hours
-                                if (now.Subtract(kvp.Value).TotalHours <= 24)
-                                {
-                                    // Convert old instance-based key to account-based key format
-                                    // Note: We can't know the account name from old data, so this is just for migration
-                                    _lastCollectionTimes[$"{kvp.Key}_unknown"] = kvp.Value;
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                // Can't use logger here as it's not available in this context anymore
-                Console.WriteLine($"[ClaimMailTask] Error loading collection times: {ex.Message}");
-                _lastCollectionTimes.Clear();
-            }
-        }
-
-        private void SaveCollectionTimes()
-        {
-            try
-            {
-                var directory = Path.GetDirectoryName(TimeStorageFile);
-                if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
-                {
-                    Directory.CreateDirectory(directory);
-                }
-
-                // Validate times before saving
-                var now = DateTime.UtcNow;
-                var validTimes = _lastCollectionTimes
-                    .Where(kvp => now.Subtract(kvp.Value).TotalHours <= 24)
-                    .ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
-
-                var options = new JsonSerializerOptions { WriteIndented = true };
-                var json = JsonSerializer.Serialize(validTimes, options);
-                File.WriteAllText(TimeStorageFile, json);
-            }
-            catch (Exception ex)
-            {
-                // Can't use logger here as it's not available in this context anymore
-                Console.WriteLine($"[ClaimMailTask] Error saving collection times: {ex.Message}");
-            }
-        }
 
         private async Task<bool> OpenMailMenu(AccountSettings account, LogService logger, CancellationToken cancellationToken)
         {
@@ -403,4 +246,4 @@ namespace Bot.Core.Tasks.Modules
             return Task.CompletedTask;
         }
     }
-} 
+} 

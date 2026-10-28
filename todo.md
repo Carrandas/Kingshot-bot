@@ -118,7 +118,7 @@ Unattended runs: `KingshotAuto.exe --schedule` (Run on schedule) or `--once` (Ru
 ## Quality (nothing in place yet)
 
 - [x] **Unit tests** (2026-10-26): `Bot.Core.Tests` (NUnit 4), 72 tests: `CharacterRoster` name matching and Change Account's tag fix, `DailyGate` / `Schedule`, `TaskRunHistory`, task registration and run order (found AutoRally without a run order). The old `InstanceManager*` LDPlayer tests are `[Explicit]`
-  - [ ] Next: `GetNextRunUtc` of the timer tasks (Claim Mail, Conquest Collect, Alliance Technology, Journey 08:00/16:00), OCR text parsing (march count, Suggestion Box answer table)
+  - [ ] Next: `GetNextRunUtc` of the timer tasks (Conquest Collect, Alliance Technology, Journey 08:00/16:00), OCR text parsing (march count, Suggestion Box answer table)
 - [ ] **Integration tests on screenshots.** Saved screenshots per screen (present / absent / popup variants) with the expected results, so a task's detection can be checked without the emulator. Catches threshold regressions like the BGRA swap (#19). Started locally (Alliance Mobilization); not committed: the screenshots show account data
 - [ ] **Code quality monitoring.** `SonarAnalyzer.CSharp` runs in every build (2026-10-26, `Directory.Build.props`): 477 warnings at the start; fixed the real ones (tasks ignoring Stop in their view recovery, an unlimited task-list restart, a silently ignored answers file, undisposed token sources, dispose patterns). About 440 left, mostly dead code and noise
   - [ ] Next: switch off the noisy rules in `.editorconfig` (S2325, S6444, S2245, S101), remove the dead code (unused variables/fields/parameters)
