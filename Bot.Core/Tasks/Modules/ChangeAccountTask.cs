@@ -89,6 +89,13 @@ namespace Bot.Core.Tasks.Modules
                 }
 
                 CharacterRoster.Merge(account, rows.Select(r => (r.Name, r.Kingdom)));
+                // The game can reopen on another character than the one the last cycle ended on: the cached account ID
+                // then belongs to that other character, and daily gates get marked on the wrong account
+                var previous = CharacterRoster.GetActiveName(account.InstanceNumber);
+                if (previous == null || !CharacterRoster.SameName(previous, active.Name))
+                {
+                    AccountDetectionTask.ClearCacheForInstance(account.InstanceNumber);
+                }
                 CharacterRoster.SetActive(account.InstanceNumber, active.Name, active.Kingdom);
 
                 var activeKey = CharacterRoster.NormalizeKey(active.Name);
