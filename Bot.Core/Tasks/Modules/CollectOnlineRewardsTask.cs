@@ -43,7 +43,8 @@ namespace Bot.Core.Tasks.Modules
         private static readonly Rectangle GourmetHeaderArea = new Rectangle(160, 720, 400, 140);
         private static readonly Rectangle GourmetClaimArea = new Rectangle(180, 880, 360, 140);
         private static readonly Point DailyTabPoint = new Point(370, 268);
-        private static readonly Point OnlineChestTapPoint = new Point(360, 640);
+        // Empty dark background above the chest girl; the screen centre is the reward item, a tap there only toggles its tooltip
+        private static readonly Point OnlineChestTapPoint = new Point(360, 150);
         private static readonly Point OnlineChestPanTarget = new Point(360, 456); // bubble position after the row pans the camera
         private const int PanelRowTitleDx = 180;
         private const double PanelArrowThreshold = 0.88;
