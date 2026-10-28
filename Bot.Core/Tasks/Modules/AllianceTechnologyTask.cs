@@ -57,13 +57,10 @@ namespace Bot.Core.Tasks.Modules
         public DateTime? GetNextRunUtc(string accountKey, AccountSettings account)
         {
             // no Load here: it re-reads (and on a read error clears) the gate the running task uses; shows nothing until the task ran once since start
-            if (!_lastExecutionTimes.TryGetValue(accountKey, out var last)) return null;
-            // WaitHours with a random +-10%; show the earliest
-            var next = last.AddHours((account.AllianceTechnologySettings?.WaitHours ?? DefaultInterval.TotalHours) * 0.9);
+            if (!_lastExecutionTimes.ContainsKey(accountKey)) return null;
+            var next = GetNextExecutionTime(accountKey, account);
             return next > DateTime.UtcNow ? next : null;
         }
-        private static readonly Random _random = new Random();
-
         // Static dictionary to track last execution times per account
         private static readonly ConcurrentDictionary<string, DateTime> _lastExecutionTimes = new();
         private static readonly string TimeStorageFile = Path.Combine(
@@ -90,7 +87,7 @@ namespace Bot.Core.Tasks.Modules
                 if (!ShouldExecute(accountKey, account))
                 {
                     var nextExecution = GetNextExecutionTime(accountKey, account);
-                    logger.LogInfo($"[{account.AccountName}] Too soon to run Alliance Technology. Next execution at: {nextExecution}");
+                    logger.LogInfo($"[{account.AccountName}] Too soon to run Alliance Technology. Next execution at: {nextExecution.ToLocalTime()}");
                     return new TaskExecutionDetails(true, nextExecution, "Skipped - Too soon to execute") { Skipped = true };
                 }
 
@@ -232,8 +229,9 @@ namespace Bot.Core.Tasks.Modules
             // Use the configured wait hours from the account settings
             var waitHours = account.AllianceTechnologySettings?.WaitHours ?? (int)DefaultInterval.TotalHours;
 
-            // Add a small random variance (±10%) to prevent predictable timing
-            var variance = _random.NextDouble() * 0.2 - 0.1; // -10% to +10%
+            // A random variance (±10%) against predictable timing, fixed per run: seeded from the last run, so every
+            // check (and the dashboard) gets the same next time instead of a new roll that can make it run early
+            var variance = new Random((int)(lastExecution.Ticks % int.MaxValue)).NextDouble() * 0.2 - 0.1; // -10% to +10%
             var actualWaitHours = waitHours * (1 + variance);
 
             return lastExecution.AddHours(actualWaitHours);

@@ -19,6 +19,14 @@ namespace Bot.Core.Tasks.Modules
         
         private readonly UnifiedTemplateMatchingService _templateMatchingService;
 
+        // "Reward" chest at the right of the Hero Recruitment screen (fills up with recruits); a red badge when claimable
+        private static readonly Rectangle RecruitRewardBadgeArea = new Rectangle(665, 405, 40, 40);
+        private static readonly Point RecruitRewardChestPoint = new Point(655, 450);
+        private const int RecruitRewardMinRedPixels = 80; // ~230 with the badge, 0 without
+        // Its "Rewards" popup (banner at ~270,297) says "Tap anywhere to exit"; below the item row is empty overlay
+        private static readonly Rectangle RecruitRewardPopupArea = new Rectangle(200, 250, 320, 120);
+        private static readonly Point RecruitRewardDismissPoint = new Point(360, 1000);
+
         private async Task<bool> WaitForImageWithDebug(string imageName, int instanceNumber, LogService logger, CancellationToken cancellationToken, int timeoutMs)
         {
             if (_templateMatcher == null)
@@ -301,6 +309,8 @@ namespace Bot.Core.Tasks.Modules
                     }
                 }
 
+                await ClaimRecruitRewardAsync(account, logger, cancellationToken);
+
                 // Return to base/map view
                 var backButtonArea = new Rectangle(87, 74, 30, 30);
                 for (int i = 0; i < 2; i++)
@@ -344,6 +354,49 @@ namespace Bot.Core.Tasks.Modules
                 logger.LogError($"Error in Auto Claim Hero task: {ex.Message}");
                 return TaskExecutionDetails.Failed(ex.Message);
             }
+        }
+
+        private async Task ClaimRecruitRewardAsync(AccountSettings account, LogService logger, CancellationToken cancellationToken)
+        {
+            var shot = await TakeScreenshotAsync(account.InstanceNumber, logger);
+            if (shot == null) return;
+            int red = CountRedPixels(shot, RecruitRewardBadgeArea);
+            if (red < RecruitRewardMinRedPixels)
+            {
+                logger.LogInfo($"[{account.AccountName}] Recruitment reward: nothing to claim (badge red pixels {red})");
+                return;
+            }
+
+            logger.LogInfo($"[{account.AccountName}] Recruitment reward: claiming (badge red pixels {red})");
+            await ClickAsync(account.InstanceNumber, logger, RecruitRewardChestPoint);
+            await Task.Delay(2000, cancellationToken);
+
+            var popupShot = await TakeScreenshotAsync(account.InstanceNumber, logger);
+            if (popupShot == null) return;
+            var popup = _templateMatcher.MatchTemplate(popupShot, Path.Combine(ImageTemplateFolder, "rewards.png"), account.InstanceNumber,
+                threshold: 0.8, scales: null, searchArea: RecruitRewardPopupArea); // 0.97 on the popup, 0.13 on the recruit screen
+            if (!popup.found)
+            {
+                logger.LogWarning($"[{account.AccountName}] Recruitment reward: Rewards popup not found ({popup.confidence:F2})");
+                return;
+            }
+            await ClickAsync(account.InstanceNumber, logger, RecruitRewardDismissPoint);
+            await Task.Delay(1500, cancellationToken);
+        }
+
+        private static int CountRedPixels(byte[] shot, Rectangle area)
+        {
+            using var image = OpenCvSharp.Cv2.ImDecode(shot, OpenCvSharp.ImreadModes.Color);
+            var roi = new OpenCvSharp.Rect(area.X, area.Y, area.Width, area.Height).Intersect(new OpenCvSharp.Rect(0, 0, image.Width, image.Height));
+            using var region = new OpenCvSharp.Mat(image, roi);
+            using var hsv = new OpenCvSharp.Mat();
+            OpenCvSharp.Cv2.CvtColor(region, hsv, OpenCvSharp.ColorConversionCodes.BGR2HSV);
+            using var low = new OpenCvSharp.Mat();
+            using var high = new OpenCvSharp.Mat();
+            // red wraps around hue 0
+            OpenCvSharp.Cv2.InRange(hsv, new OpenCvSharp.Scalar(0, 150, 150), new OpenCvSharp.Scalar(10, 255, 255), low);
+            OpenCvSharp.Cv2.InRange(hsv, new OpenCvSharp.Scalar(170, 150, 150), new OpenCvSharp.Scalar(180, 255, 255), high);
+            return OpenCvSharp.Cv2.CountNonZero(low) + OpenCvSharp.Cv2.CountNonZero(high);
         }
     }
 } 
