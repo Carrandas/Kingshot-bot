@@ -38,7 +38,9 @@ namespace Bot.Core.Models
         NomadicMerchant,
         AllianceChests,
         SuggestionBox,
-        AllianceMobilization
+        AllianceMobilization,
+        PetSkill,
+        MysticTrial
     }
 
     public class AccountSettings : INotifyPropertyChanged

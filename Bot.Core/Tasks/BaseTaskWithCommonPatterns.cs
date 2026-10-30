@@ -287,6 +287,9 @@ namespace Bot.Core.Tasks
             }
         }
         
+        /// <summary>Set by TaskManager.RunSingleTaskAsync: the ▶ button runs a task even when its switch is off.</summary>
+        public static readonly AsyncLocal<bool> RunByHand = new AsyncLocal<bool>();
+
         public virtual async Task<bool> CanExecuteAsync(AccountSettings account, LogService logger, CancellationToken cancellationToken = default)
         {
             // System tasks should always be able to execute
@@ -296,8 +299,8 @@ namespace Bot.Core.Tasks
                 return await IsInstanceRunningAsync(account.InstanceNumber, logger, cancellationToken);
             }
             
-            // Other tasks require explicit enabling
-            if (!account.EnabledTasks.Contains(TaskType))
+            // Other tasks require explicit enabling, except in a run by hand (the dashboard's ▶)
+            if (!account.EnabledTasks.Contains(TaskType) && !RunByHand.Value)
             {
                 return false;
             }
@@ -415,6 +418,15 @@ namespace Bot.Core.Tasks
             return success;
         }
         
+        /// <summary>
+        /// Replaces the text of the focused input field (an in-game number box, after tapping it)
+        /// </summary>
+        protected async Task<bool> TypeIntoFocusedFieldAsync(int instanceNumber, LogService logger, string text, int clearCount = 6)
+        {
+            return await WithADBControllerAsync(instanceNumber, logger, async adb =>
+                adb is ADBControllerV2 v2 && await v2.ReplaceFocusedTextAsync(text, clearCount), false);
+        }
+
         /// <summary>
         /// Click at center of rectangle (explicit method for clarity)
         /// </summary>

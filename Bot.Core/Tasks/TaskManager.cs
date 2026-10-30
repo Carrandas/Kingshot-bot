@@ -90,6 +90,8 @@ namespace Bot.Core.Tasks
             tasks[TaskType.AllianceChests] = new AllianceChestsTask();
             tasks[TaskType.SuggestionBox] = new SuggestionBoxTask();
             tasks[TaskType.AllianceMobilization] = new AllianceMobilizationTask();
+            tasks[TaskType.PetSkill] = new PetSkillTask();
+            tasks[TaskType.MysticTrial] = new MysticTrialTask();
             return tasks;
         }
 
@@ -618,6 +620,7 @@ namespace Bot.Core.Tasks
                 using var taskCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
                 taskCts.CancelAfter(TimeSpan.FromMinutes(15));
                 TaskRunHistory.SetCurrent(account.InstanceNumber, taskType);
+                BaseTaskWithCommonPatterns.RunByHand.Value = true;  // flows into this run only
                 var result = await task.ExecuteAsync(account, _logger, taskCts.Token, false, _userNotifications);
                 RecordResult(account, taskType, result);
                 contextLogger.LogInfo($"▶ Single run of {taskType} done: {(result.Success ? "ok" : "failed")} {result.Message}");
@@ -697,6 +700,7 @@ namespace Bot.Core.Tasks
             { TaskType.AccountDetection, -1 }, // AccountDetection must run first (after Startup)
             { TaskType.AutoShield, 0 },        // AutoShield should run first to ensure protection
             { TaskType.CollectOnlineRewards, 1 }, // before AutoHunt: the online rewards include stamina for the intel missions
+            { TaskType.PetSkill, 1 },          // before AutoHunt: Comforting Embrace gives 50 stamina
             { TaskType.AutoHunt, 2 },          // AutoHunt should run after shield
             { TaskType.Farming, 3 },           // Farming should run after AutoHunt
             { TaskType.AutoAllianceHelp, 4 },
@@ -721,7 +725,8 @@ namespace Bot.Core.Tasks
             { TaskType.NomadicMerchant, 22 },
             { TaskType.AllianceChests, 23 },
             { TaskType.AllianceMobilization, 24 },
-            { TaskType.AutoRally, 25 },
+            { TaskType.MysticTrial, 25 },
+            { TaskType.AutoRally, 26 },
             { TaskType.ChangeAccount, 999 }    // ChangeAccount should always run last
         };
 

@@ -637,6 +637,10 @@
                                                           IsChecked="{Binding SelectedAccount.AutoHuntSettings.UseEqualize}"
                                                           Margin="0,0,0,10"
                                                           ToolTip="When enabled, the bot will click the equalize button before attacking bears. When disabled, the bot will skip equalize and proceed directly to deployment."/>
+                                                <CheckBox Content="Tap the Intel agent (monocle) for extra missions"
+                                                          IsChecked="{Binding SelectedAccount.AutoHuntSettings.TapIntelAgent}"
+                                                          Margin="0,0,0,10"
+                                                          ToolTip="When enabled, the bot taps the agent at the top left of the Intel Mission screen, which adds a new batch of missions."/>
                                             </StackPanel>
                                         </Border>
 

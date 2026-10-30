@@ -42,6 +42,8 @@ namespace Bot.GUI.Converters
             { TaskType.AutoRally, "Auto Rally (BETA)" },
             { TaskType.CollectRewards, "Collect Store Rewards" },
             { TaskType.PetAdventure, "Pet Adventure" },
+            { TaskType.PetSkill, "Pet Skill" },
+            { TaskType.MysticTrial, "Mystic Trial" },
             { TaskType.CollectOnlineRewards, "Collect Online Rewards" },
             { TaskType.Journey, "Journey" },
             { TaskType.TruegoldCrucible, "Truegold Crucible" },

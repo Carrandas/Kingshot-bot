@@ -12,7 +12,7 @@ A Windows desktop automation tool for the mobile strategy game **Kingshot**. It 
 KingshotAuto drives the game through a set of pluggable automation **tasks**. Each task uses screen captures from the emulator plus template matching / OCR to find and click the right UI elements. Current task modules include:
 
 **Combat and the world map**
-- **Intel Missions** (Auto Hunt) — attack beasts and run the Intel missions
+- **Intel Missions** (Auto Hunt) — attack beasts and run the Intel missions; taps the monocle agent for an extra batch of missions (setting, on by default)
 - **Auto Rally** — start and join rallies
 - **Farming** — send marches to gather resources on the world map
 - **Auto Shield** — keep your city shield active
@@ -30,6 +30,8 @@ KingshotAuto drives the game through a set of pluggable automation **tasks**. Ea
 - **Collect Store Rewards** — free chests in the store and the Weekly/Monthly Cards claims, once a day
 - **Nomadic Merchant** — buy every item priced in resources and use the free refresh; never buys with gems
 - **Pet Adventure** — claim finished chests, send pets out with Hunt All, share and claim Ally Treasure
+- **Pet Skill** — use the gathering pet skills when ready: Comforting Embrace (+50 stamina, before Auto Hunt), Scent Mastery (pet food), Gift of the King
+- **Mystic Trial** — claim the Raid rewards in every open building and use the 5 daily Challenge attempts with a 50/20/30 troop ratio (lost battles are retried, won ones go on to the next stage)
 - **Journey** — claim the free Journey Supplies (08:00 and 16:00 UTC) and spend them on an Idle Journey
 - **Truegold Crucible** — the daily Refines and the -50% Super Refine
 - **Water Essence** — collect the water essence at the Fountain of Life
@@ -47,7 +49,7 @@ KingshotAuto drives the game through a set of pluggable automation **tasks**. Ea
 - **Account Detection / Change Account** — identify the account and run the task list on every enabled character of a game login
 - **Startup / Recovery** — bring the game to a known state and recover from unexpected UI
 
-The game resets at **00:00 UTC**. Tasks that only need one run a day (Collect Store Rewards, Collect VIP, Claim Mail, Nomadic Merchant, Truegold Crucible, Suggestion Box, Alliance Triumph) skip themselves for the rest of the UTC day once they are done, so repeated cycles don't waste time on them. Other tasks have their own timers (Alliance Mobilization 25 min, Claim Mail 3-6 h, Conquest Collect 4 h, Alliance Technology 10 h).
+The game resets at **00:00 UTC**. Tasks that only need one run a day (Collect Store Rewards, Collect VIP, Claim Mail, Nomadic Merchant, Truegold Crucible, Suggestion Box, Mystic Trial, Alliance Triumph) skip themselves for the rest of the UTC day once they are done, so repeated cycles don't waste time on them. Other tasks have their own timers (Alliance Mobilization 25 min, Claim Mail 3-6 h, Conquest Collect 4 h, Alliance Technology 10 h).
 
 ## The Bot tab
 
@@ -61,7 +63,7 @@ The main screen is a task dashboard:
 
 **Settings > Tasks** chooses which tasks appear in the list. A task unticked there is hidden on the Bot tab and never runs.
 
-For unattended starts, `KingshotAuto.exe --schedule` presses **Run on schedule** at startup and `KingshotAuto.exe --once` presses **Run once**.
+For unattended starts, `KingshotAuto.exe --schedule` presses **Run on schedule** at startup and `KingshotAuto.exe --once` presses **Run once**. `KingshotAuto.exe --task MysticTrial --character llsa` presses **▶** for one task on one character.
 
 Additional capabilities:
 

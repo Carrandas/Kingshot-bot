@@ -17,7 +17,7 @@ ITask (Interface)
     ├── System: StartupTask, AccountDetectionTask, ChangeAccountTask, RecoveryTask
     ├── Map/combat: AutoHuntTask (+ AutoHunt/ coordinator), AutoRallyTask, FarmingTask, AutoShieldTask, AutoHealTask
     ├── Town: AutoBuildTask, TroopTrainingTask, AutoTechnologyTask, SuggestionBoxTask, ResidentWelcomeTask
-    ├── Daily rewards: CollectOnlineRewardsTask, CollectRewardsTask, NomadicMerchantTask, PetAdventureTask,
+    ├── Daily rewards: CollectOnlineRewardsTask, CollectRewardsTask, NomadicMerchantTask, PetAdventureTask, PetSkillTask, MysticTrialTask,
     │   JourneyTask, TruegoldCrucibleTask, WaterEssenceTask, ConquestCollectTask, CollectVipTask,
     │   ClaimMailTask, ClaimMissionsTask, AutoClaimHeroTask
     └── Alliance: AllianceHelpTask, AllianceTechnologyTask, AllianceTriumphTask, AllianceChestsTask, AllianceMobilizationTask

@@ -371,6 +371,30 @@ namespace Bot.GUI.ViewModels
                         (runOnce ? RunOnceCommand : LaunchBotCommand)?.Execute(null));
                 }
 
+                // "--task <TaskType> [--character <name>]" presses ▶ for one task on the first instance, e.g. --task MysticTrial --character llsa
+                string? ArgValue(string name)
+                {
+                    int i = Array.FindIndex(args, a => a.Equals(name, StringComparison.OrdinalIgnoreCase));
+                    return i >= 0 && i + 1 < args.Length ? args[i + 1] : null;
+                }
+                if (!_autoLaunchDone && ArgValue("--task") is string taskArg && _currentConfig.Accounts.FirstOrDefault() is AccountSettings taskAccount)
+                {
+                    _autoLaunchDone = true;
+                    if (!Enum.TryParse<TaskType>(taskArg, true, out var taskType))
+                    {
+                        _logger.LogWarning($"--task: unknown task '{taskArg}'");
+                    }
+                    else
+                    {
+                        var characterArg = ArgValue("--character");
+                        var character = characterArg == null ? null
+                            : taskAccount.Characters.FirstOrDefault(c => CharacterRoster.SameName(c.Name, characterArg))?.Name ?? characterArg;
+                        _logger.LogInfo($"Auto-running {taskType}{(character != null ? $" on {character}" : "")} (--task)");
+                        System.Windows.Application.Current?.Dispatcher.BeginInvoke(async () =>
+                            await RunSingleTaskAsync(taskAccount, taskType, character));
+                    }
+                }
+
                 // "--launch" on the command line presses Launch on every instance once, for unattended runs
                 if (!_autoLaunchDone && Environment.GetCommandLineArgs().Contains("--launch", StringComparer.OrdinalIgnoreCase))
                 {

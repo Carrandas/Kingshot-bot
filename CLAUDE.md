@@ -12,6 +12,7 @@ This file is committed: instructions for Claude Code working on this repo.
 | `dotnet build Bot.GUI/Bot.GUI.csproj -c Debug` | Debug build (output: `Bot.GUI/bin/x64/Debug/net10.0-windows/win-x64/KingshotAuto.exe`) |
 | `dotnet run --project Bot.GUI/Bot.GUI.csproj` | Run app |
 | `KingshotAuto.exe --schedule` / `--once` | Start and press Run on schedule / Run once (`--cycle` = `--schedule`; `--launch` = Launch on every instance) |
+| `KingshotAuto.exe --task MysticTrial --character llsa` | Start and press ▶ for one task on one character (name matched like the roster; runs even when the task's switch is off) |
 | `dotnet test Bot.Core.Tests` | Unit tests (code only, no emulator) |
 | `.\Build.ps1 -Version "x.x.x"` | Package a portable zip + NSIS installer into `dist/` |
 | `.\Build.ps1 -Version "x.x.x" -SkipInstaller` | Portable zip only |
@@ -68,10 +69,11 @@ data/                 # next to the exe, created at runtime: daily_gates.json, t
    - Tap with `ClickAsync` / `ClickCenterInRectAsync`.
    - Return `TaskExecutionDetails.Succeeded/Failed(...)`.
 4. Many daily tasks start from the side panel (the arrow at the left edge, then the Daily tab at (370,268)). With "Hide after mission completion" on, a row disappears once its mission is done. A missing row usually means "already done", not a failure.
-5. OCR of coloured text: mask the colour with HSV `InRange` into a white-on-black image first, then run `OCRService` with a whitelist and `PageSegMode.SingleLine` (`SingleBlock` for multi-line text, as in `SuggestionBoxTask.ReadText`).
-6. Once-a-day tasks: the game resets at 00:00 UTC. Use `DailyGate` (saved in `data/daily_gates.json`, keyed per game account via `Schedule.AccountKey(AccountDetectionTask.GetCachedAccountId(...), account)`): `if (DailyGate.DoneToday(TaskType, key)) return TaskExecutionDetails.SkippedBecause("Already done today");` first, `DailyGate.MarkDone(TaskType, key)` after the run (CollectVip, ClaimMail, NomadicMerchant, TruegoldCrucible, SuggestionBox). Older gates: AllianceTriumph (memory), CollectRewards (disk). A gate or timer skip must return `SkippedBecause` / `Skipped = true`, or the dashboard shows it as a real run.
+5. Number boxes (e.g. the Mystic Trial troop ratio): tap the box, then `TypeIntoFocusedFieldAsync` (clears it and types via adb), then the input bar's OK.
+6. OCR of coloured text: mask the colour with HSV `InRange` into a white-on-black image first, then run `OCRService` with a whitelist and `PageSegMode.SingleLine` (`SingleBlock` for multi-line text, as in `SuggestionBoxTask.ReadText`).
+7. Once-a-day tasks: the game resets at 00:00 UTC. Use `DailyGate` (saved in `data/daily_gates.json`, keyed per game account via `Schedule.AccountKey(AccountDetectionTask.GetCachedAccountId(...), account)`): `if (DailyGate.DoneToday(TaskType, key)) return TaskExecutionDetails.SkippedBecause("Already done today");` first, `DailyGate.MarkDone(TaskType, key)` after the run (CollectVip, ClaimMail, NomadicMerchant, TruegoldCrucible, SuggestionBox, MysticTrial). Older gates: AllianceTriumph (memory), CollectRewards (disk). A gate or timer skip must return `SkippedBecause` / `Skipped = true`, or the dashboard shows it as a real run.
    Any task with a gate or timer implements `IScheduledTask`: `GetNextRunUtc` (next run for the dashboard; deterministic, no file reads) and `ClearSchedule` (the ▶ button runs regardless).
-7. Suggestion Box: the letters come from a fixed list. The built-in answer table is `KnownAnswers` in `SuggestionBoxTask`; learned answers go to `data/suggestion_box_answers.json`. Result: +3% right, 0% neutral (some letters have no +3% answer), -2% wrong.
+8. Suggestion Box: the letters come from a fixed list. The built-in answer table is `KnownAnswers` in `SuggestionBoxTask`; learned answers go to `data/suggestion_box_answers.json`. Result: +3% right, 0% neutral (some letters have no +3% answer), -2% wrong.
 
 ## Key Patterns
 - **Config**: Singleton `ConfigurationManager`, JSON-serialized task settings per account.
@@ -90,7 +92,7 @@ data/                 # next to the exe, created at runtime: daily_gates.json, t
   - `[Locator] Could not detect any known view`, when it recovers via the back-arrow loop
 - Use screenshots for coordinates. LDPlayer's `getevent` touch coordinates don't map 1:1 to screen pixels.
 - Don't modify the user's `configs/config.json` or `configs/default_config.json` for tests; use a scratch copy. The GUI keeps its config loaded and may overwrite edits, so ask the user to change task toggles in the GUI.
-- To test one task: the ▶ button next to it on the Bot tab, with the character selected. It starts LDPlayer if needed, switches character and ignores the task's own timer/daily gate. The log shows `▶ Single run: ...` and `▶ Single run of X done: ok|failed ...`.
+- To test one task: the ▶ button next to it on the Bot tab, with the character selected, or restart the GUI with `--task <TaskType> --character <name>` (no GUI clicks needed). It starts LDPlayer if needed, switches character and ignores the task's own timer/daily gate and its on/off switch (`BaseTaskWithCommonPatterns.RunByHand`). The log shows `▶ Single run: ...` and `▶ Single run of X done: ok|failed ...`.
 - The Bot tab is a task dashboard (`TaskDashboardViewModel`): run history in `data/task_history.json`, next run from `IScheduledTask` and `CycleManagementService.NextCycleUtc`. Characters are linked to their game account ID (`accountId` in the config) after Account Detection, so per-character data needs Change Account ("Switch characters each cycle") to have run once.
 - Settings > Tasks picks which tasks show on the Bot tab (`hiddenTasks` in the config); hidden tasks never run. The task switches on the Bot tab are `enabledTasks`.
 - Debug screenshots for a task go under `logs/screenshots/<task>/` next to the exe; remove the saving before committing.

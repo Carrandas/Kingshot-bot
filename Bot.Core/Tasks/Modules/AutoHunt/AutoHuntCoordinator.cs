@@ -159,6 +159,7 @@ namespace Bot.Core.Tasks.Modules.AutoHunt
                                 return TaskExecutionDetails.Failed("Could not enter hunt mode");
                             }
                             await Task.Delay(2000, cancellationToken);
+                            await TapIntelAgentAsync(account, logger, cancellationToken);
                         }
 
                         // Detect targets - directly implemented in coordinator
@@ -1703,6 +1704,21 @@ namespace Bot.Core.Tasks.Modules.AutoHunt
                     logger.LogError($"[{account.AccountName}] Locator service failed: {ex.Message}");
                     return false;
                 }
+            }
+        }
+
+        /// <summary>
+        /// The agent with the monocle at the top left of the Intel screen adds a new batch of missions when tapped.
+        /// </summary>
+        private async Task TapIntelAgentAsync(AccountSettings account, LogService logger, CancellationToken cancellationToken)
+        {
+            if (!GetAutoHuntSettings(account).TapIntelAgent) return;
+
+            if (await FindAndClickImageAsync("intel-agent.png", account.InstanceNumber, logger,
+                threshold: 0.8, searchArea: AutoHuntConstants.IntelAgentArea))
+            {
+                logger.LogInfo($"[{account.AccountName}] Tapped the Intel agent for extra missions");
+                await Task.Delay(2500, cancellationToken);
             }
         }
 

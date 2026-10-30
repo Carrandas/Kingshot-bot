@@ -59,6 +59,8 @@ namespace Bot.Core.Tasks.Modules
                 TaskType.CollectOnlineRewards => "Collect Online Rewards",
                 TaskType.PetAdventure => "Pet Adventure",
                 TaskType.Journey => "Journey",
+                TaskType.PetSkill => "Pet Skill",
+                TaskType.MysticTrial => "Mystic Trial",
                 TaskType.TruegoldCrucible => "Truegold Crucible",
                 TaskType.AllianceTriumph => "Alliance Triumph",
                 TaskType.WaterEssence => "Water Essence",

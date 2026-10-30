@@ -361,6 +361,32 @@ namespace Bot.Core.LDPlayer
         }
 
         /// <summary>
+        /// Deletes up to clearCount characters in the focused text field and types text (digits/letters, no spaces).
+        /// One character at a time: the game drops a key that comes right after another ("50" became "5").
+        /// </summary>
+        public async Task<bool> ReplaceFocusedTextAsync(string text, int clearCount, CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                var deletes = new StringBuilder("input keyevent");
+                for (int i = 0; i < clearCount; i++) deletes.Append(" KEYCODE_DEL");
+                await ExecuteShellCommandAsync(deletes.ToString(), cancellationToken);
+                foreach (char c in text)
+                {
+                    await Task.Delay(400, cancellationToken);
+                    await ExecuteShellCommandAsync($"input text {c}", cancellationToken);
+                }
+                _logger.LogInfo($"[ADBv2] Typed '{text}' on instance {_instanceNumber}");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError($"[ADBv2] Typing failed for instance {_instanceNumber}: {ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
         /// Check if app is installed (similar to wosbot-master's isAppInstalled)
         /// </summary>
         public async Task<bool> IsAppInstalledAsync(string packageName, CancellationToken cancellationToken = default)

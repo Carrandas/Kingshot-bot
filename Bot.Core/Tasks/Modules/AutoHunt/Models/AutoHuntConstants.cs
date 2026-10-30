@@ -9,6 +9,7 @@ namespace Bot.Core.Tasks.Modules.AutoHunt.Models
     {
         // UI element coordinates and search areas
         public static readonly Rectangle HuntButtonArea = new(618, 808, 92, 278);
+        public static readonly Rectangle IntelAgentArea = new(0, 150, 140, 130);  // intel-agent.png (monocle, top left): 1.00 present, 0.18 after tapping
         public static readonly Rectangle OcrPredictionArea = new(0, 516, 716, 45);
         public static readonly Rectangle MaxMarchClickArea = new(637, 340, 1, 1);
         public static readonly Rectangle VictoryDefeatClickArea = new(129, 1091, 459, 120);

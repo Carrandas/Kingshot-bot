@@ -23,6 +23,9 @@ namespace Bot.Core.Models
         [JsonPropertyName("useEqualize")]
         public bool UseEqualize { get; set; } = true;  // Default enabled
 
+        [JsonPropertyName("tapIntelAgent")]
+        public bool TapIntelAgent { get; set; } = true;  // Tap the agent (monocle) on the Intel screen for extra missions
+
         [JsonPropertyName("lastMaxMarchTime")]
         public DateTime? LastMaxMarchTime { get; set; }
 

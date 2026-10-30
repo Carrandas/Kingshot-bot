@@ -1006,6 +1006,7 @@ namespace Bot.GUI.ViewModels
             foreach (var account in Accounts.Where(a => a != SelectedAccount))
             {
                 account.AutoHuntSettings.UseEqualize = sourceSettings.UseEqualize;
+                account.AutoHuntSettings.TapIntelAgent = sourceSettings.TapIntelAgent;
             }
 
             SaveConfig();
