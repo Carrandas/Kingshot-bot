@@ -7,6 +7,7 @@ using System.Collections.Generic;
 using System.Text;
 using Bot.Core.ImageDetection;
 using Bot.Core.Logging;
+using Bot.Core.Services;
 using AdvancedSharpAdbClient;
 using AdvancedSharpAdbClient.DeviceCommands;
 using AdvancedSharpAdbClient.Models;
@@ -227,6 +228,7 @@ namespace Bot.Core.LDPlayer
         /// </summary>
         public async Task<bool> TapRandomInRectAsync(int x1, int y1, int x2, int y2, CancellationToken cancellationToken = default)
         {
+            await PauseGate.WaitAsync(cancellationToken);
             var startTime = DateTime.UtcNow;
             
             try
@@ -267,6 +269,7 @@ namespace Bot.Core.LDPlayer
         /// </summary>
         public async Task<bool> TapRandomInRectMultipleAsync(int x1, int y1, int x2, int y2, int tapCount, int delayMs, CancellationToken cancellationToken = default)
         {
+            await PauseGate.WaitAsync(cancellationToken);
             var startTime = DateTime.UtcNow;
             
             try
@@ -316,6 +319,7 @@ namespace Bot.Core.LDPlayer
         /// </summary>
         public async Task<bool> SwipeAsync(int startX, int startY, int endX, int endY, int durationMs = 500, CancellationToken cancellationToken = default)
         {
+            await PauseGate.WaitAsync(cancellationToken);
             var startTime = DateTime.UtcNow;
             
             try
@@ -347,6 +351,7 @@ namespace Bot.Core.LDPlayer
         /// </summary>
         public async Task<bool> PressBackButtonAsync(CancellationToken cancellationToken = default)
         {
+            await PauseGate.WaitAsync(cancellationToken);
             try
             {
                 await ExecuteShellCommandAsync("input keyevent KEYCODE_BACK", cancellationToken);
@@ -366,6 +371,7 @@ namespace Bot.Core.LDPlayer
         /// </summary>
         public async Task<bool> ReplaceFocusedTextAsync(string text, int clearCount, CancellationToken cancellationToken = default)
         {
+            await PauseGate.WaitAsync(cancellationToken);
             try
             {
                 var deletes = new StringBuilder("input keyevent");

@@ -23,8 +23,6 @@ namespace Bot.Core.Services
         private CancellationTokenSource? _cycleGlobalCts;
         private int _currentCycle = 0;
         private bool _isRunning = false;
-        private bool _isPaused = false;
-        private ManualResetEventSlim _pauseEvent = new ManualResetEventSlim(true); // Set initially to allow execution
         private SemaphoreSlim _instanceSemaphore = new SemaphoreSlim(1); // Will be initialized with config.TotalRunningInstances
         
         // Throttling mechanisms to prevent overloading
@@ -44,7 +42,7 @@ namespace Bot.Core.Services
         public event Action<string>? OnStatusUpdate;
 
         public bool IsRunning => _isRunning;
-        public bool IsPaused => _isPaused;
+        public bool IsPaused => PauseGate.IsPaused;
         public int CurrentCycle => _currentCycle;
 
         /// <summary>When the wait between cycles ends; null while a cycle runs or the service is stopped</summary>
@@ -69,8 +67,6 @@ namespace Bot.Core.Services
             return await _taskManager.RunSingleTaskAsync(account, taskType, characterName, cancellationToken);
         }
 
-        // Performance: expose pause event for efficient event-based waiting instead of polling
-        public ManualResetEventSlim PauseEvent => _pauseEvent;
 
         public CycleManagementService(LogService logger, TaskManager taskManager)
         {
@@ -92,56 +88,42 @@ namespace Bot.Core.Services
 
         public async Task PauseAsync()
         {
-            if (!_isRunning)
-            {
-                _logger.LogWarning("Cannot pause - cycle management is not running");
-                return;
-            }
-
-            if (_isPaused)
+            if (PauseGate.IsPaused)
             {
                 _logger.LogInfo("Cycle management is already paused");
                 return;
             }
 
-            _logger.LogInfo("⏸️ Pausing cycle management - bot will pause after current tasks complete");
-            _isPaused = true;
-            _pauseEvent.Reset(); // Block any waiting operations
+            _logger.LogInfo("⏸️ Pausing - the bot stops at its next tap");
+            PauseGate.Pause();
             OnStatusUpdate?.Invoke("Paused");
         }
 
         public async Task ResumeAsync()
         {
-            if (!_isRunning)
-            {
-                _logger.LogWarning("Cannot resume - cycle management is not running");
-                return;
-            }
-
-            if (!_isPaused)
+            if (!PauseGate.IsPaused)
             {
                 _logger.LogInfo("Cycle management is not paused");
                 return;
             }
 
             _logger.LogInfo("▶️ Resuming cycle management - bot will continue operations");
-            _isPaused = false;
-            _pauseEvent.Set(); // Allow waiting operations to continue
+            PauseGate.Resume();
             OnStatusUpdate?.Invoke("Running");
         }
 
         private async Task WaitIfPausedAsync(CancellationToken cancellationToken)
         {
-            if (_isPaused)
+            if (PauseGate.IsPaused)
             {
                 _logger.LogInfo("⏸️ Bot is paused - waiting for resume command...");
                 
                 // Use a combination of WaitHandle.WaitAny and cancellation token
-                var waitHandles = new WaitHandle[] { _pauseEvent.WaitHandle, cancellationToken.WaitHandle };
+                var waitHandles = new WaitHandle[] { PauseGate.WaitHandle, cancellationToken.WaitHandle };
                 
                 await Task.Run(() => 
                 {
-                    while (_isPaused && !cancellationToken.IsCancellationRequested)
+                    while (PauseGate.IsPaused && !cancellationToken.IsCancellationRequested)
                     {
                         WaitHandle.WaitAny(waitHandles, 1000); // Check every second
                     }
@@ -546,11 +528,10 @@ namespace Bot.Core.Services
                 _isRunning = false;
                 
                 // Reset pause state when stopping
-                if (_isPaused)
+                if (PauseGate.IsPaused)
                 {
                     _logger.LogInfo("Resetting pause state during cycle stop");
-                    _isPaused = false;
-                    _pauseEvent.Set(); // Ensure any waiting threads are released
+                    PauseGate.Resume(); // Ensure any waiting threads are released
                 }
                 
                 // Stop persistent accounts
@@ -875,7 +856,6 @@ namespace Bot.Core.Services
             _cycleGlobalCts?.Dispose();
             _instanceSemaphore.Dispose();
             _instanceStartupSemaphore?.Dispose();
-            _pauseEvent.Dispose();
             _resourceMonitor?.Dispose();
 
             // Cleanup persistent account resources

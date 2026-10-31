@@ -23,9 +23,6 @@ namespace Bot.GUI.Views
 {
     public partial class MainWindow : Window
     {
-        // TODO: set this to the project's public GitHub repository before publishing.
-        private const string ProjectUrl = "https://github.com/KingshotAuto/Kingshot-bot";
-
         public MainViewModel ViewModel { get; } = null!;
 
         public string Version
@@ -267,11 +264,6 @@ namespace Bot.GUI.Views
             ShowTab("OtherSettings");
         }
 
-        private void HelpTab_Click(object sender, RoutedEventArgs e)
-        {
-            ShowTab("Help");
-        }
-
         private void LogsTab_Click(object sender, RoutedEventArgs e)
         {
             ShowTab("Logs");
@@ -293,55 +285,6 @@ namespace Bot.GUI.Views
             WPFApplication.Current.Shutdown();
         }
 
-        private void OpenSupportWebsite_Click(object sender, RoutedEventArgs e)
-        {
-            try
-            {
-                Process.Start(new ProcessStartInfo
-                {
-                    FileName = ProjectUrl + "/issues",
-                    UseShellExecute = true
-                });
-            }
-            catch (System.Exception ex)
-            {
-                WPFMessageBox.Show($"Unable to open website: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-            }
-        }
-
-        private void JoinDiscord_Click(object sender, RoutedEventArgs e)
-        {
-            // Discord invite link would go here - using support website for now
-            try
-            {
-                Process.Start(new ProcessStartInfo
-                {
-                    FileName = ProjectUrl + "/discussions",
-                    UseShellExecute = true
-                });
-            }
-            catch (System.Exception ex)
-            {
-                WPFMessageBox.Show($"Unable to open Discord: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-            }
-        }
-
-        private void OpenSetupVideo_Click(object sender, RoutedEventArgs e)
-        {
-            try
-            {
-                Process.Start(new ProcessStartInfo
-                {
-                    FileName = ProjectUrl + "#readme",
-                    UseShellExecute = true
-                });
-            }
-            catch (System.Exception ex)
-            {
-                WPFMessageBox.Show($"Unable to open video: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-            }
-        }
-
         private void ShowTab(string tabName)
         {
             // Hide all tabs
@@ -349,14 +292,12 @@ namespace Bot.GUI.Views
             LogsTabContent.Visibility = Visibility.Collapsed;
             SettingsTabContent.Visibility = Visibility.Collapsed;
             OtherSettingsTabContent.Visibility = Visibility.Collapsed;
-            HelpTabContent.Visibility = Visibility.Collapsed;
 
             // Reset all button styles to inactive
             BotTabButton.Style = (Style)FindResource("SidebarButtonStyle");
             LogsTabButton.Style = (Style)FindResource("SidebarButtonStyle");
             SettingsTabButton.Style = (Style)FindResource("SidebarButtonStyle");
             OtherSettingsTabButton.Style = (Style)FindResource("SidebarButtonStyle");
-            HelpTabButton.Style = (Style)FindResource("SidebarButtonStyle");
 
             // Show selected tab and activate button
             switch (tabName)
@@ -376,10 +317,6 @@ namespace Bot.GUI.Views
                 case "OtherSettings":
                     OtherSettingsTabContent.Visibility = Visibility.Visible;
                     OtherSettingsTabButton.Style = (Style)FindResource("ActiveSidebarButtonStyle");
-                    break;
-                case "Help":
-                    HelpTabContent.Visibility = Visibility.Visible;
-                    HelpTabButton.Style = (Style)FindResource("ActiveSidebarButtonStyle");
                     break;
             }
         }

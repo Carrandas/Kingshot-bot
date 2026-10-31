@@ -47,12 +47,10 @@ namespace Bot.GUI.ViewModels
                 _isBotPaused = value; 
                 OnPropertyChanged(); 
                 OnPropertyChanged(nameof(PauseResumeButtonText));
-                OnPropertyChanged(nameof(PauseResumeButtonIcon));
             }
         }
         
-        public string PauseResumeButtonText => _isBotPaused ? "Resume Bot" : "Pause Bot";
-        public string PauseResumeButtonIcon => _isBotPaused ? "▶️" : "⏸️";
+        public string PauseResumeButtonText => _isBotPaused ? "▶  Resume" : "⏸  Pause";
         
         // Check if bot is running from either cycle management or individual instances
         public bool IsBotRunning 
@@ -147,9 +145,6 @@ namespace Bot.GUI.ViewModels
                 _taskManager = new TaskManager(_logger, serviceProvider, _userNotifications);
                 _cycleService = new CycleManagementService(_logger, _taskManager);
                 
-                // Set up static reference for task pause checking  
-                BaseTaskWithCommonPatterns.SetCycleManagementService(_cycleService);
-                
                 _cycleService.OnCycleStarted += OnCycleStarted;
                 _cycleService.OnCycleCompleted += OnCycleCompleted;
                 _cycleService.OnWaitingBetweenCycles += OnWaitingBetweenCycles;
@@ -222,7 +217,7 @@ namespace Bot.GUI.ViewModels
                     {
                         await _cycleService.PauseAsync();
                         IsBotPaused = true;
-                        _userNotifications.ShowStatus("Bot paused - will complete current tasks then pause", NotificationType.Info);
+                        _userNotifications.ShowStatus("Bot paused - it stops at its next tap", NotificationType.Info);
                         UpdateInstanceStatusToPausedOrRunning(true);
                     }
                 } catch (Exception ex) {
@@ -679,6 +674,7 @@ namespace Bot.GUI.ViewModels
                 if (_cycleService.IsPaused)
                 {
                     _logger.LogInfo("Resetting pause state during stop", category: LogCategories.System);
+                    PauseGate.Resume(); // a single run (▶) has no cycle stop to release the waiting tap
                     IsBotPaused = false;
                 }
 

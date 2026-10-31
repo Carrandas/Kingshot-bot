@@ -75,7 +75,9 @@
                     <Button Content="①  Run once" Background="#FF0D7377" Style="{StaticResource ActionButton}"
                             Command="{Binding RunOnceCommand}"
                             ToolTip="Run the task list once on every enabled character, then stop"/>
-                    <Button Content="⏸  Pause / Resume" Background="#FFFF9800" Style="{StaticResource ActionButton}"
+                    <Button Content="{Binding DataContext.ViewModel.PauseResumeButtonText, RelativeSource={RelativeSource AncestorType=Window}}"
+                            Background="#FFFF9800" Style="{StaticResource ActionButton}"
+                            ToolTip="Pause holds the bot at its next tap; Resume carries on from there"
                             Command="{Binding DataContext.ViewModel.PauseResumeCommand, RelativeSource={RelativeSource AncestorType=Window}}"/>
                     <Button Content="⏹  Stop" Background="#FFD32F2F" Style="{StaticResource ActionButton}"
                             Command="{Binding DataContext.ViewModel.StopCommand, RelativeSource={RelativeSource AncestorType=Window}}"/>

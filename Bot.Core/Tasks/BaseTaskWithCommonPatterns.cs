@@ -28,27 +28,16 @@ namespace Bot.Core.Tasks
         protected UnifiedTemplateMatchingService? _templateMatcher;
         protected LogService? _instanceLogger;
         
-        // Static reference to cycle management service for pause checking
-        private static CycleManagementService? _cycleManagementService;
-        
-        public static void SetCycleManagementService(CycleManagementService cycleService)
-        {
-            _cycleManagementService = cycleService;
-        }
-        
         protected async Task WaitIfPausedAsync(CancellationToken cancellationToken)
         {
-            if (_cycleManagementService != null && _cycleManagementService.IsPaused)
+            if (PauseGate.IsPaused)
             {
                 _instanceLogger?.LogInfo("⏸️ Task paused - waiting for resume...");
 
-                // Performance: use event-based waiting instead of polling
-                // PauseEvent is Reset when paused, Set when resumed
-                var pauseEvent = _cycleManagementService.PauseEvent;
                 await Task.Run(() =>
                 {
                     // Wait for either resume (event set) or cancellation
-                    WaitHandle.WaitAny(new[] { pauseEvent.WaitHandle, cancellationToken.WaitHandle });
+                    WaitHandle.WaitAny(new[] { PauseGate.WaitHandle, cancellationToken.WaitHandle });
                 }, cancellationToken);
 
                 if (!cancellationToken.IsCancellationRequested)
