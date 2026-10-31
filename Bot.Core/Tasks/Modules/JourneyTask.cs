@@ -72,7 +72,7 @@ namespace Bot.Core.Tasks.Modules
         private const int MinIdleSupplies = 10;
         // White "N/30" counter under the portrait while idling: ~210 white pixels, ~43 without it
         private const int IdleCounterMinWhitePixels = 120;
-        private static readonly Rectangle IdleSuppliesTextArea = new Rectangle(455, 712, 110, 42); // number box of the Idle popup
+        private static readonly Rectangle IdleSuppliesTextArea = new Rectangle(362, 840, 110, 55); // big number on the Start button; the small number box above it read as "" or "1"
 
         protected override async Task<TaskExecutionDetails> ExecuteTaskLogicAsync(AccountSettings account, LogService logger, CancellationToken cancellationToken, bool isReRun = false, IUserNotificationService? userNotifications = null)
         {
@@ -298,8 +298,12 @@ namespace Bot.Core.Tasks.Modules
         {
             var shot = await TakeScreenshotAsync(instance, logger);
             if (shot == null) return -1;
+            return ReadIdleSupplies(shot, logger);
+        }
 
-            // White digits with a dark outline on a grey box: keep only the white pixels, else the
+        internal static int ReadIdleSupplies(byte[] shot, LogService logger)
+        {
+            // White digits with a dark outline on the teal button: keep only the white pixels, else the
             // OCR inversion + Otsu step makes the digits as dark as the box and nothing is read
             byte[] digits;
             using (var image = OpenCvSharp.Cv2.ImDecode(shot, OpenCvSharp.ImreadModes.Color))
@@ -321,7 +325,7 @@ namespace Bot.Core.Tasks.Modules
                 AdaptiveC = 5,
                 MedianBlurKernelSize = 1,
                 CharacterWhitelist = "0123456789",
-                PageSegMode = Tesseract.PageSegMode.SingleWord
+                PageSegMode = Tesseract.PageSegMode.SingleLine
             };
             using var ocr = new OCRService(logger, ocrConfig);
             string text = ocr.ExtractTextFromScreenArea(digits, new Rectangle(0, 0, IdleSuppliesTextArea.Width, IdleSuppliesTextArea.Height));
