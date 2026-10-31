@@ -699,6 +699,7 @@ namespace Bot.Core.Tasks
         {
             { TaskType.AccountDetection, -1 }, // AccountDetection must run first (after Startup)
             { TaskType.AutoShield, 0 },        // AutoShield should run first to ensure protection
+            { TaskType.Journey, 0 },           // early: the Idle Journey only runs while the game stays on this character
             { TaskType.CollectOnlineRewards, 1 }, // before AutoHunt: the online rewards include stamina for the intel missions
             { TaskType.PetSkill, 1 },          // before AutoHunt: Comforting Embrace gives 50 stamina
             { TaskType.AutoHunt, 2 },          // AutoHunt should run after shield
@@ -718,7 +719,6 @@ namespace Bot.Core.Tasks
             { TaskType.ResidentWelcome, 15 },
             { TaskType.CollectRewards, 16 },
             { TaskType.PetAdventure, 17 },
-            { TaskType.Journey, 18 },
             { TaskType.TruegoldCrucible, 19 },
             { TaskType.AllianceTriumph, 20 },
             { TaskType.WaterEssence, 21 },

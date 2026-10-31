@@ -62,7 +62,7 @@ data/                 # next to the exe, created at runtime: daily_gates.json, t
    - `GetUserFriendlyTaskName` in `RecoveryTask.cs`
    - `DisplayNames` in `Bot.GUI/Converters/TaskTypeToDisplayNameConverter.cs`
 
-   The GUI's task list is built from the enum. The priority sets the run order (lower first): CollectOnlineRewards before AutoHunt (stamina for the Intel missions), SuggestionBox before ResidentWelcome (its zoom-out shrinks the envelope), ChangeAccount at both ends.
+   The GUI's task list is built from the enum. The priority sets the run order (lower first): Journey early (the Idle Journey only runs while the game stays on the character), CollectOnlineRewards before AutoHunt (stamina for the Intel missions), SuggestionBox before ResidentWelcome (its zoom-out shrinks the envelope), ChangeAccount at both ends.
 3. Common pattern, as in `JourneyTask` and `WaterEssenceTask`:
    - Start with `LocatorService.EnsureViewAsync(ViewType.BaseView, ...)` and finish with it again.
    - Use a private `MatchAsync` helper: `UnifiedTemplateMatchingService`, scale 1.0, a tight `searchArea`.

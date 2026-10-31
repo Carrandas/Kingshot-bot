@@ -54,6 +54,8 @@ namespace Bot.Core.Tests
                     Has.All.GreaterThan(TaskManager.GetRunOrder(TaskType.AccountDetection)), "Account Detection first: tasks key their state on the account ID");
                 Assert.That(TaskManager.GetRunOrder(TaskType.CollectOnlineRewards), Is.LessThan(TaskManager.GetRunOrder(TaskType.AutoHunt)),
                     "online rewards give the stamina for the Intel missions");
+                Assert.That(UserTasks().Where(t => t is not (TaskType.AccountDetection or TaskType.AutoShield or TaskType.Journey)).Select(TaskManager.GetRunOrder),
+                    Has.All.GreaterThan(TaskManager.GetRunOrder(TaskType.Journey)), "Journey early: the Idle Journey only runs while the game stays on the character");
                 Assert.That(TaskManager.GetRunOrder(TaskType.SuggestionBox), Is.LessThan(TaskManager.GetRunOrder(TaskType.ResidentWelcome)),
                     "Resident Welcome's zoom-out shrinks the Suggestion Box envelope");
                 Assert.That(UserTasks().Where(t => t != TaskType.ChangeAccount).Select(TaskManager.GetRunOrder),
