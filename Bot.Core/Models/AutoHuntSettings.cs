@@ -69,13 +69,11 @@ namespace Bot.Core.Models
             if (UsedTargetAreasByInstance != null && !UsedTargetAreasByAccountId.ContainsKey(accountId))
             {
                 // Find instance data that might belong to this account (we can't perfectly map, so we'll migrate all)
-                foreach (var instanceData in UsedTargetAreasByInstance)
+                // Take the first non-empty instance data
+                foreach (var instanceData in UsedTargetAreasByInstance.Where(instanceData => instanceData.Value.Any()))
                 {
-                    if (instanceData.Value.Any())
-                    {
-                        UsedTargetAreasByAccountId[accountId] = instanceData.Value;
-                        break; // Take the first non-empty instance data
-                    }
+                    UsedTargetAreasByAccountId[accountId] = instanceData.Value;
+                    break;
                 }
             }
         }

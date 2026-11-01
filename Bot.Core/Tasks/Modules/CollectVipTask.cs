@@ -21,14 +21,11 @@ namespace Bot.Core.Tasks.Modules
         public override TaskType TaskType => TaskType.CollectVip;
         public override string Name => "Collect Vip";
 
-        private LocatorService? _locatorService;
         
         public DateTime? GetNextRunUtc(string accountKey, AccountSettings account) => DailyGate.NextRunUtc(TaskType, accountKey);
         public void ClearSchedule(string accountKey) => DailyGate.Clear(TaskType, accountKey);
         
         // Track if VIP rewards were collected
-        private bool _vipRewardsClicked = false;
-        private bool _vipRewards2Clicked = false;
         
         // Search areas for specific UI elements
         private static readonly Rectangle VipChestSearchArea = new Rectangle(580, 235, 97, 96);  // 580,235 to 677,331
@@ -48,11 +45,11 @@ namespace Bot.Core.Tasks.Modules
             try
             {
                 _instanceLogger = logger;
-                _locatorService = new LocatorService(logger, account, TaskType);
+                var locatorService = new LocatorService(logger, account, TaskType);
                 
                 // Reset VIP reward tracking flags
-                _vipRewardsClicked = false;
-                _vipRewards2Clicked = false;
+                var vipRewardsClicked = false;
+                var vipRewards2Clicked = false;
                 
                 // The VIP rewards reset at 00:00 UTC: one run a day per character
                 string accountKey = Schedule.AccountKey(AccountDetectionTask.GetCachedAccountId(account.InstanceNumber), account);
@@ -63,7 +60,7 @@ namespace Bot.Core.Tasks.Modules
 
                 // Step 1: Navigate to base mode
                 logger.LogInfo($"[{account.AccountName}] Navigating to base view...");
-                if (!await _locatorService.EnsureViewAsync(ViewType.BaseView, account.InstanceNumber, cancellationToken))
+                if (!await locatorService.EnsureViewAsync(ViewType.BaseView, account.InstanceNumber, cancellationToken))
                 {
                     logger.LogError($"[{account.AccountName}] Failed to navigate to base view");
                     return TaskExecutionDetails.Failed("Failed to navigate to base view");
@@ -160,7 +157,7 @@ namespace Bot.Core.Tasks.Modules
                         if (await FindAndClickImageAsync("vip-rewards.png", account.InstanceNumber, logger, threshold: 0.8, useEnhancedMatching: true))
                         {
                             logger.LogInfo($"[{account.AccountName}] ✅ VIP rewards found and clicked at attempt {attemptCount}");
-                            _vipRewardsClicked = true; // Track that we clicked vip-rewards
+                            vipRewardsClicked = true; // Track that we clicked vip-rewards
                             vipRewardsFound = true;
                             await Task.Delay(1000, cancellationToken); // Wait for rewards to be collected
                         }
@@ -205,7 +202,7 @@ namespace Bot.Core.Tasks.Modules
                         if (await FindAndClickImageAsync("vip-rewards2.png", account.InstanceNumber, logger, threshold: 0.8, useEnhancedMatching: true))
                         {
                             logger.LogInfo($"[{account.AccountName}] VIP rewards 2 clicked");
-                            _vipRewards2Clicked = true; // Track that we clicked vip-rewards2
+                            vipRewards2Clicked = true; // Track that we clicked vip-rewards2
                             vipRewards2Found = true;
                             await Task.Delay(1000, cancellationToken); // Wait for rewards to be collected
                         }
@@ -228,7 +225,7 @@ namespace Bot.Core.Tasks.Modules
                     logger.LogWarning($"[{account.AccountName}] VIP plus button not found");
                     // don't leave the VIP screen open for the next task
                     await FindAndClickButtonImageAsync("deploy-back.png", account.InstanceNumber, logger);
-                    await _locatorService.EnsureViewAsync(ViewType.BaseView, account.InstanceNumber, cancellationToken);
+                    await locatorService.EnsureViewAsync(ViewType.BaseView, account.InstanceNumber, cancellationToken);
                     return TaskExecutionDetails.Failed("VIP plus button not found");
                 }
 
@@ -297,7 +294,7 @@ namespace Bot.Core.Tasks.Modules
                 await Task.Delay(500, cancellationToken); // Wait for navigation
 
                 DailyGate.MarkDone(TaskType, accountKey);
-                logger.LogInfo($"[{account.AccountName}] VIP Rewards: {(_vipRewardsClicked ? "Collected" : "Not found")}, VIP Rewards 2: {(_vipRewards2Clicked ? "Collected" : "Not found")}; next run after the 00:00 UTC reset");
+                logger.LogInfo($"[{account.AccountName}] VIP Rewards: {(vipRewardsClicked ? "Collected" : "Not found")}, VIP Rewards 2: {(vipRewards2Clicked ? "Collected" : "Not found")}; next run after the 00:00 UTC reset");
 
                 logger.LogInfo($"[{account.AccountName}] VIP collection process completed successfully");
                 return TaskExecutionDetails.Succeeded();

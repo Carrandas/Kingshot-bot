@@ -234,12 +234,9 @@ namespace Bot.Core.Tasks.Modules
                                         @"\d+[\s/]\d+",    // Space or slash between digits
                                     };
                                     
-                                    foreach (var pattern in relaxedPatterns)
+                                    foreach (var pattern in relaxedPatterns.Where(pattern => Regex.IsMatch(ocrText, pattern, RegexOptions.None, Bot.Core.Utils.RegexTimeouts.Default)))
                                     {
-                                        if (Regex.IsMatch(ocrText, pattern, RegexOptions.None, Bot.Core.Utils.RegexTimeouts.Default))
-                                        {
-                                            logger.LogInfo($"🔍 Alternative pattern '{pattern}' matches: {ocrText}");
-                                        }
+                                        logger.LogInfo($"🔍 Alternative pattern '{pattern}' matches: {ocrText}");
                                     }
                                     
                                     if (hasSlash || (hasDigit && ocrText.Length >= 3))

@@ -243,17 +243,10 @@ namespace Bot.Core.ImageDetection
         public static GameTemplates[] GetTemplatesInCategory(string category)
         {
             var allTemplates = Enum.GetValues<GameTemplates>();
-            var result = new System.Collections.Generic.List<GameTemplates>();
 
-            foreach (var template in allTemplates)
-            {
-                if (string.Equals(template.GetCategory(), category, StringComparison.OrdinalIgnoreCase))
-                {
-                    result.Add(template);
-                }
-            }
-
-            return result.ToArray();
+            return allTemplates
+                .Where(template => string.Equals(template.GetCategory(), category, StringComparison.OrdinalIgnoreCase))
+                .ToArray();
         }
     }
 }

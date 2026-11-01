@@ -1,0 +1,5 @@
+root = true
+
+[*.cs]
+# Random is used for tap jitter and delays, not for security
+dotnet_diagnostic.S2245.severity = none

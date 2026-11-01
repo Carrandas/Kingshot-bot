@@ -30,7 +30,6 @@ namespace Bot.Core.Tasks.Modules
         public override TaskType TaskType => TaskType.SuggestionBox;
         public override string Name => "Suggestion Box";
 
-        private LocatorService? _locatorService;
 
         private const string EnvelopeTemplate = "envelope.png";         // envelope bubble above the town center
         private const string TitleTemplate = "title.png";               // "Suggestion Box" title
@@ -122,9 +121,9 @@ namespace Bot.Core.Tasks.Modules
                 if (DailyGate.DoneToday(TaskType, accountKey))
                     return TaskExecutionDetails.SkippedBecause("Already done today");
 
-                _locatorService = new LocatorService(logger, account, TaskType);
+                var locatorService = new LocatorService(logger, account, TaskType);
                 int instance = account.InstanceNumber;
-                await _locatorService.EnsureViewAsync(ViewType.BaseView, instance, cancellationToken);
+                await locatorService.EnsureViewAsync(ViewType.BaseView, instance, cancellationToken);
 
                 // The envelope only shows while letters wait; it wobbles, so look at a few frames
                 (bool found, Rectangle rect, double confidence) envelope = default;
@@ -141,7 +140,7 @@ namespace Bot.Core.Tasks.Modules
                 if (!(await MatchAsync(TitleTemplate, TitleArea, Threshold, instance, logger)).found)
                 {
                     logger.LogWarning($"[{account.AccountName}] Suggestion Box did not open");
-                    await _locatorService.EnsureViewAsync(ViewType.BaseView, instance, cancellationToken);
+                    await locatorService.EnsureViewAsync(ViewType.BaseView, instance, cancellationToken);
                     return TaskExecutionDetails.Failed("Suggestion Box did not open");
                 }
                 // The box reopens on the last tab used
@@ -216,7 +215,7 @@ namespace Bot.Core.Tasks.Modules
 
                 await ClickAsync(instance, logger, BackArrowPoint);
                 await Task.Delay(2000, cancellationToken);
-                await _locatorService.EnsureViewAsync(ViewType.BaseView, instance, cancellationToken);
+                await locatorService.EnsureViewAsync(ViewType.BaseView, instance, cancellationToken);
 
                 string summary = $"{answered} letter(s) answered, {right} right, {wrong} wrong";
                 logger.LogInfo($"[{account.AccountName}] Suggestion Box done: {summary}");

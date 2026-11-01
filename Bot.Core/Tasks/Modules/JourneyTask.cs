@@ -26,7 +26,6 @@ namespace Bot.Core.Tasks.Modules
         public override TaskType TaskType => TaskType.Journey;
         public override string Name => "Journey";
 
-        private LocatorService? _locatorService;
 
         private const string PanelOpenArrowTemplate = "panel-open-arrow.png";
         private const string PanelCloseArrowTemplate = "panel-close-arrow.png";
@@ -78,9 +77,9 @@ namespace Bot.Core.Tasks.Modules
         {
             try
             {
-                _locatorService = new LocatorService(logger, account, TaskType);
+                var locatorService = new LocatorService(logger, account, TaskType);
                 int instance = account.InstanceNumber;
-                await _locatorService.EnsureViewAsync(ViewType.BaseView, instance, cancellationToken);
+                await locatorService.EnsureViewAsync(ViewType.BaseView, instance, cancellationToken);
 
                 if (await IsIdleJourneyRunningAsync(instance, logger))
                 {
@@ -90,7 +89,7 @@ namespace Bot.Core.Tasks.Modules
 
                 if (!await OpenJourneyAsync(account, logger, instance, cancellationToken))
                 {
-                    await _locatorService.EnsureViewAsync(ViewType.BaseView, instance, cancellationToken);
+                    await locatorService.EnsureViewAsync(ViewType.BaseView, instance, cancellationToken);
                     return TaskExecutionDetails.Succeeded("Journey row hidden or screen did not open");
                 }
 
@@ -111,7 +110,7 @@ namespace Bot.Core.Tasks.Modules
                     await ClickAsync(instance, logger, HubBackPoint);
                     await Task.Delay(1500, cancellationToken);
                 }
-                await _locatorService.EnsureViewAsync(ViewType.BaseView, instance, cancellationToken);
+                await locatorService.EnsureViewAsync(ViewType.BaseView, instance, cancellationToken);
 
                 string result = $"supplies {(claimed ? "claimed" : "not available")}, idle journey {(idling ? "started" : "not started")}";
                 logger.LogInfo($"[{account.AccountName}] Journey done: {result}");

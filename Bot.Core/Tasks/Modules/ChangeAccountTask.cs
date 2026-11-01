@@ -327,23 +327,23 @@ namespace Bot.Core.Tasks.Modules
                 .ToList();
 
             var rows = new List<CharacterRow>();
-            foreach (var label in labels.OrderBy(l => l.Y))
+            foreach (var labelY in labels.OrderBy(l => l.Y).Select(l => l.Y))
             {
-                var bounds = new Rectangle(CharacterListArea.X + 13, label.Y + RowTopOffset, 573, RowHeight);
+                var bounds = new Rectangle(CharacterListArea.X + 13, labelY + RowTopOffset, 573, RowHeight);
                 if (bounds.Bottom > ListBottomY)
                 {
-                    logger.LogWarning($"[{account.AccountName}] Character row at y={label.Y} runs past the visible list: rows below it need a scroll and are not handled yet");
+                    logger.LogWarning($"[{account.AccountName}] Character row at y={labelY} runs past the visible list: rows below it need a scroll and are not handled yet");
                     continue;
                 }
 
-                var nameArea = new Rectangle(NameColumn.Left, label.Y + NameTopOffset, NameColumn.Width, NameHeight);
+                var nameArea = new Rectangle(NameColumn.Left, labelY + NameTopOffset, NameColumn.Width, NameHeight);
                 // Dark brown name on a beige (V ~220) or yellow (V 255) row: keep the dark pixels
                 var name = Regex.Replace(ReadMasked(image, nameOcr, nameArea,
                     new OpenCvSharp.Scalar(0, 0, 0), new OpenCvSharp.Scalar(180, 255, 175)), @"\s+", " ", RegexOptions.None, Bot.Core.Utils.RegexTimeouts.Default).Trim();
                 name = FixAllianceTag(name);
                 int? kingdom = kingdoms.Where(k => k.Y < bounds.Y).OrderByDescending(k => k.Y).Select(k => k.Number).FirstOrDefault();
                 bool isActive = tickCenter.HasValue && bounds.Contains(tickCenter.Value);
-                var tapArea = new Rectangle(TapColumn.Left, label.Y + NameTopOffset + 5, TapColumn.Width, 80);
+                var tapArea = new Rectangle(TapColumn.Left, labelY + NameTopOffset + 5, TapColumn.Width, 80);
 
                 rows.Add(new CharacterRow(name, kingdom, bounds, tapArea, isActive));
             }

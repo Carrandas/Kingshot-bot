@@ -21,7 +21,6 @@ namespace Bot.Core.Tasks.Modules
         public override TaskType TaskType => TaskType.AllianceChests;
         public override string Name => "Alliance Chests";
 
-        private LocatorService? _locatorService;
 
         private const string AllianceMenuTemplate = "alliance-menu.png";   // Alliance button of the bottom bar
         private const string ChestsTileTemplate = "alliance-chests.png";   // Chests tile of the Alliance screen
@@ -51,13 +50,13 @@ namespace Bot.Core.Tasks.Modules
         {
             try
             {
-                _locatorService = new LocatorService(logger, account, TaskType);
+                var locatorService = new LocatorService(logger, account, TaskType);
                 int instance = account.InstanceNumber;
-                await _locatorService.EnsureViewAsync(ViewType.BaseView, instance, cancellationToken);
+                await locatorService.EnsureViewAsync(ViewType.BaseView, instance, cancellationToken);
 
                 if (!await OpenChestsAsync(account, logger, instance, cancellationToken))
                 {
-                    await _locatorService.EnsureViewAsync(ViewType.BaseView, instance, cancellationToken);
+                    await locatorService.EnsureViewAsync(ViewType.BaseView, instance, cancellationToken);
                     return TaskExecutionDetails.Failed("Alliance chests screen did not open");
                 }
 
@@ -71,7 +70,7 @@ namespace Bot.Core.Tasks.Modules
                     await ClickAsync(instance, logger, BackArrowPoint);
                     await Task.Delay(1500, cancellationToken);
                 }
-                await _locatorService.EnsureViewAsync(ViewType.BaseView, instance, cancellationToken);
+                await locatorService.EnsureViewAsync(ViewType.BaseView, instance, cancellationToken);
 
                 string result = $"loot chests {(loot ? "claimed" : "none")}, alliance gifts {(gift ? "claimed" : "none")}, big chest {(opened > 0 ? "opened" : "not ready")}";
                 logger.LogInfo($"[{account.AccountName}] Alliance Chests done: {result}");

@@ -23,7 +23,6 @@ namespace Bot.Core.Tasks.Modules
         public override TaskType TaskType => TaskType.NomadicMerchant;
         public override string Name => "Nomadic Merchant";
 
-        private LocatorService? _locatorService;
 
         private const string GemPriceTemplate = "gem-price.png";        // gem icon in front of a price
         private const string FreeRefreshTemplate = "free-refresh.png";  // "Free Refresh" text on the green button
@@ -66,13 +65,13 @@ namespace Bot.Core.Tasks.Modules
                 if (DailyGate.DoneToday(TaskType, accountKey))
                     return TaskExecutionDetails.SkippedBecause("Already done today");
 
-                _locatorService = new LocatorService(logger, account, TaskType);
+                var locatorService = new LocatorService(logger, account, TaskType);
                 int instance = account.InstanceNumber;
-                await _locatorService.EnsureViewAsync(ViewType.BaseView, instance, cancellationToken);
+                await locatorService.EnsureViewAsync(ViewType.BaseView, instance, cancellationToken);
 
                 if (!await OpenMerchantAsync(account, logger, instance, cancellationToken))
                 {
-                    await _locatorService.EnsureViewAsync(ViewType.BaseView, instance, cancellationToken);
+                    await locatorService.EnsureViewAsync(ViewType.BaseView, instance, cancellationToken);
                     return TaskExecutionDetails.Failed("Nomadic Merchant did not open");
                 }
 
@@ -94,7 +93,7 @@ namespace Bot.Core.Tasks.Modules
 
                 await ClickAsync(instance, logger, BackArrowPoint);
                 await Task.Delay(2000, cancellationToken);
-                await _locatorService.EnsureViewAsync(ViewType.BaseView, instance, cancellationToken);
+                await locatorService.EnsureViewAsync(ViewType.BaseView, instance, cancellationToken);
 
                 DailyGate.MarkDone(TaskType, accountKey);
 

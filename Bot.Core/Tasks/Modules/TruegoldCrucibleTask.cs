@@ -24,9 +24,6 @@ namespace Bot.Core.Tasks.Modules
     {
         public override TaskType TaskType => TaskType.TruegoldCrucible;
         public override string Name => "Truegold Crucible";
-
-        private LocatorService? _locatorService;
-
         private const string PanelOpenArrowTemplate = "panel-open-arrow.png";
         private const string PanelCloseArrowTemplate = "panel-close-arrow.png";
         private const string CrucibleRowIconTemplate = "crucible-row-icon.png";   // Truegold Crucible row ("Refinements: 7/7")
@@ -59,7 +56,9 @@ namespace Bot.Core.Tasks.Modules
 
         public DateTime? GetNextRunUtc(string accountKey, AccountSettings account) => DailyGate.NextRunUtc(TaskType, accountKey);
 
+#pragma warning disable S1450 // OpenCrucibleAsync sets it, the run method reads it afterwards
         private bool _rowsHidden;
+#pragma warning restore S1450
 
         protected override async Task<TaskExecutionDetails> ExecuteTaskLogicAsync(AccountSettings account, LogService logger, CancellationToken cancellationToken, bool isReRun = false, IUserNotificationService? userNotifications = null)
         {
@@ -70,16 +69,16 @@ namespace Bot.Core.Tasks.Modules
                 if (DailyGate.DoneToday(TaskType, accountKey))
                     return TaskExecutionDetails.SkippedBecause("Already done today");
 
-                _locatorService = new LocatorService(logger, account, TaskType);
+                var locatorService = new LocatorService(logger, account, TaskType);
                 int instance = account.InstanceNumber;
-                await _locatorService.EnsureViewAsync(ViewType.BaseView, instance, cancellationToken);
+                await locatorService.EnsureViewAsync(ViewType.BaseView, instance, cancellationToken);
 
                 _rowsHidden = false;
                 if (!await OpenCrucibleAsync(account, logger, instance, cancellationToken))
                 {
                     // hidden rows mean today's refines and discount are used; a panel that failed to open is retried next cycle
                     if (_rowsHidden) DailyGate.MarkDone(TaskType, accountKey);
-                    await _locatorService.EnsureViewAsync(ViewType.BaseView, instance, cancellationToken);
+                    await locatorService.EnsureViewAsync(ViewType.BaseView, instance, cancellationToken);
                     return TaskExecutionDetails.Succeeded("Crucible rows hidden or screen did not open");
                 }
 
@@ -93,7 +92,7 @@ namespace Bot.Core.Tasks.Modules
                     await ClickCenterInRectAsync(instance, logger, back.rect);
                     await Task.Delay(1500, cancellationToken);
                 }
-                await _locatorService.EnsureViewAsync(ViewType.BaseView, instance, cancellationToken);
+                await locatorService.EnsureViewAsync(ViewType.BaseView, instance, cancellationToken);
 
                 string result = $"{refines} refine(s), discount super refine {(superRefined ? "used" : "not available")}";
                 logger.LogInfo($"[{account.AccountName}] Truegold Crucible done: {result}");

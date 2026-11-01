@@ -23,7 +23,6 @@ namespace Bot.Core.Tasks.Modules
         public override TaskType TaskType => TaskType.WaterEssence;
         public override string Name => "Water Essence";
 
-        private LocatorService? _locatorService;
 
         private const string PanelOpenArrowTemplate = "panel-open-arrow.png";
         private const string PanelCloseArrowTemplate = "panel-close-arrow.png";
@@ -51,14 +50,14 @@ namespace Bot.Core.Tasks.Modules
         {
             try
             {
-                _locatorService = new LocatorService(logger, account, TaskType);
+                var locatorService = new LocatorService(logger, account, TaskType);
                 int instance = account.InstanceNumber;
-                await _locatorService.EnsureViewAsync(ViewType.BaseView, instance, cancellationToken);
+                await locatorService.EnsureViewAsync(ViewType.BaseView, instance, cancellationToken);
 
                 var (opened, available) = await OpenFountainAsync(account, logger, instance, cancellationToken);
                 if (!opened)
                 {
-                    await _locatorService.EnsureViewAsync(ViewType.BaseView, instance, cancellationToken);
+                    await locatorService.EnsureViewAsync(ViewType.BaseView, instance, cancellationToken);
                     return TaskExecutionDetails.Succeeded(available >= 0 && available < MinAvailable
                         ? $"only {available} water essence available"
                         : "Fountain row hidden or island did not open");
@@ -72,7 +71,7 @@ namespace Bot.Core.Tasks.Modules
                     await ClickCenterInRectAsync(instance, logger, back.rect);
                     await Task.Delay(2000, cancellationToken);
                 }
-                await _locatorService.EnsureViewAsync(ViewType.BaseView, instance, cancellationToken);
+                await locatorService.EnsureViewAsync(ViewType.BaseView, instance, cancellationToken);
 
                 string result = $"{collected} water bubble(s) collected ({(available >= 0 ? available.ToString() : "?")} available)";
                 logger.LogInfo($"[{account.AccountName}] Water Essence done: {result}");

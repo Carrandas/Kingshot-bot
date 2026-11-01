@@ -243,16 +243,8 @@ namespace Bot.Core.LDPlayer
                     
                     // Check if there are other active devices
                     var lines = output.Split('\n');
-                    var activeDevices = 0;
-                    
-                    foreach (var line in lines)
-                    {
-                        if (line.Contains("\tdevice") && !line.Contains(device.DeviceSerial))
-                        {
-                            activeDevices++;
-                        }
-                    }
-                    
+                    var activeDevices = lines.Count(line => line.Contains("	device") && !line.Contains(device.DeviceSerial));
+
                     if (activeDevices > 0)
                     {
                         _logger.LogWarning($"[Recovery] Skipping ADB restart for {device.DeviceSerial} - {activeDevices} other devices are active");

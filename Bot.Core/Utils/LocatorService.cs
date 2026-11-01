@@ -424,18 +424,15 @@ namespace Bot.Core.Utils
                 };
 
                 // Check for each ad close image
-                foreach (var adClosePath in adClosePaths)
+                foreach (var adClosePath in adClosePaths.Where(File.Exists))
                 {
-                    if (File.Exists(adClosePath))
+                    var (found, matchRect, confidence) = _templateMatcher.MatchTemplate(screenshot, adClosePath, _account.InstanceNumber, 0.7, null, false, adCloseArea);
+                    if (found)
                     {
-                        var (found, matchRect, confidence) = _templateMatcher.MatchTemplate(screenshot, adClosePath, _account.InstanceNumber, 0.7, null, false, adCloseArea);
-                        if (found)
-                        {
-                            _logger.LogInfo($"[Locator] 🎯 Found ad close button {Path.GetFileName(adClosePath)} (confidence: {confidence:F3}), clicking...");
-                            var clickPoint = matchRect.GetCenter();
-                            await adbController.TapAsync(clickPoint.X, clickPoint.Y, CancellationToken.None);
-                            return true;
-                        }
+                        _logger.LogInfo($"[Locator] 🎯 Found ad close button {Path.GetFileName(adClosePath)} (confidence: {confidence:F3}), clicking...");
+                        var clickPoint = matchRect.GetCenter();
+                        await adbController.TapAsync(clickPoint.X, clickPoint.Y, CancellationToken.None);
+                        return true;
                     }
                 }
 
@@ -449,18 +446,15 @@ namespace Bot.Core.Utils
                     Path.Combine(recoveryFolder, "deploy-back.png")
                 };
 
-                foreach (var backButtonPath in backButtonPaths)
+                foreach (var backButtonPath in backButtonPaths.Where(File.Exists))
                 {
-                    if (File.Exists(backButtonPath))
+                    var (found, matchRect, confidence) = _templateMatcher.MatchTemplate(screenshot, backButtonPath, _account.InstanceNumber, 0.7, null, false, backButtonArea);
+                    if (found)
                     {
-                        var (found, matchRect, confidence) = _templateMatcher.MatchTemplate(screenshot, backButtonPath, _account.InstanceNumber, 0.7, null, false, backButtonArea);
-                        if (found)
-                        {
-                            _logger.LogInfo($"[Locator] 🔙 Found recovery back button {Path.GetFileName(backButtonPath)} (confidence: {confidence:F3}), clicking...");
-                            var clickPoint = matchRect.GetCenter();
-                            await adbController.TapAsync(clickPoint.X, clickPoint.Y, CancellationToken.None);
-                            return true;
-                        }
+                        _logger.LogInfo($"[Locator] 🔙 Found recovery back button {Path.GetFileName(backButtonPath)} (confidence: {confidence:F3}), clicking...");
+                        var clickPoint = matchRect.GetCenter();
+                        await adbController.TapAsync(clickPoint.X, clickPoint.Y, CancellationToken.None);
+                        return true;
                     }
                 }
 

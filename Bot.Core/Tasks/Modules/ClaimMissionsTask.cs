@@ -21,7 +21,6 @@ namespace Bot.Core.Tasks.Modules
         public override TaskType TaskType => TaskType.ClaimMissions;
         public override string Name => "Claim Missions (in beta)";
 
-        private LocatorService? _locatorService;
         
         // Tab image detection confidence threshold
         private const double TAB_CONFIDENCE_THRESHOLD = 0.85; // the unselected tabs score ~0.97, other tab labels ~0.66
@@ -47,12 +46,12 @@ namespace Bot.Core.Tasks.Modules
             try
             {
                 _instanceLogger = logger;
-                _locatorService = new LocatorService(logger, account, TaskType);
+                var locatorService = new LocatorService(logger, account, TaskType);
 
                 logger.LogInfo($"[{account.AccountName}] Starting claim missions process...");
 
                 // Step 0: the previous task may have left another screen open (e.g. VIP), the scroll is only on the base view
-                if (!await _locatorService.EnsureViewAsync(ViewType.BaseView, account.InstanceNumber, cancellationToken))
+                if (!await locatorService.EnsureViewAsync(ViewType.BaseView, account.InstanceNumber, cancellationToken))
                 {
                     logger.LogError($"[{account.AccountName}] Failed to navigate to base view");
                     return TaskExecutionDetails.Failed("Failed to navigate to base view");

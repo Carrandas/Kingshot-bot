@@ -30,7 +30,6 @@ namespace Bot.Core.Tasks.Modules
         public override TaskType TaskType => TaskType.AllianceMobilization;
         public override string Name => "Alliance Mobilization";
 
-        private LocatorService? _locatorService;
 
         internal const string EventsButtonTemplate = "events-button.png";
         private const string MobilizationTabTemplate = "mobilization-tab.png";     // trophy tab, selected (white background)
@@ -111,14 +110,14 @@ namespace Bot.Core.Tasks.Modules
                 if (_lastRunUtc.TryGetValue(accountKey, out var lastRun) && DateTime.UtcNow - lastRun < MinInterval)
                     return TaskExecutionDetails.SkippedBecause($"Ran {(int)(DateTime.UtcNow - lastRun).TotalMinutes} min ago");
 
-                _locatorService = new LocatorService(logger, account, TaskType);
+                var locatorService = new LocatorService(logger, account, TaskType);
                 int instance = account.InstanceNumber;
-                await _locatorService.EnsureViewAsync(ViewType.BaseView, instance, cancellationToken);
+                await locatorService.EnsureViewAsync(ViewType.BaseView, instance, cancellationToken);
 
                 var open = await OpenMobilizationAsync(account, logger, instance, cancellationToken);
                 if (open != null)
                 {
-                    await _locatorService.EnsureViewAsync(ViewType.BaseView, instance, cancellationToken);
+                    await locatorService.EnsureViewAsync(ViewType.BaseView, instance, cancellationToken);
                     return open;
                 }
 
@@ -128,7 +127,7 @@ namespace Bot.Core.Tasks.Modules
 
                 await ClickAsync(instance, logger, BackArrowPoint);
                 await Task.Delay(1500, cancellationToken);
-                await _locatorService.EnsureViewAsync(ViewType.BaseView, instance, cancellationToken);
+                await locatorService.EnsureViewAsync(ViewType.BaseView, instance, cancellationToken);
 
                 string result = noRightsHit
                     ? "no Refresh mission button (needs R4 or higher)"

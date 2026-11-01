@@ -16,7 +16,6 @@ namespace Bot.Core.Tasks.Modules
         public override TaskType TaskType => TaskType.ResidentWelcome;
         public override string Name => "Resident Welcome";
 
-        private LocatorService? _locatorService;
         
         // Tooltip for the UI
         public static string ToolTip => "Welcomes in new residents";
@@ -39,8 +38,8 @@ namespace Bot.Core.Tasks.Modules
                 logger.LogInfo($"[{account.AccountName}] Starting Resident Welcome task");
 
                 // Ensure we're in base view
-                _locatorService = new LocatorService(logger, account, TaskType.ResidentWelcome);
-                await _locatorService.EnsureViewAsync(ViewType.BaseView, account.InstanceNumber, cancellationToken);
+                var locatorService = new LocatorService(logger, account, TaskType.ResidentWelcome);
+                await locatorService.EnsureViewAsync(ViewType.BaseView, account.InstanceNumber, cancellationToken);
                 logger.LogInfo($"[{account.AccountName}] Ensured base view for resident welcome");
 
                 // Execute zoom out to ensure proper visibility of resident icons

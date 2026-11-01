@@ -94,11 +94,7 @@ namespace Bot.Core.ImageDetection
 
         private static Entry? Find(byte[] screenshot)
         {
-            foreach (var entry in _entries)
-            {
-                if (ReferenceEquals(entry.Key, screenshot)) return entry;
-            }
-            return null;
+            return _entries.FirstOrDefault(entry => ReferenceEquals(entry.Key, screenshot));
         }
 
         private static void Release(Entry entry)

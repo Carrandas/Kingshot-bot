@@ -194,15 +194,10 @@ namespace Bot.Core.ImageDetection
                 GameTemplates.STARTUP_KINGSHOT_APP
             };
 
-            var preloadTasks = new System.Collections.Generic.List<System.Threading.Tasks.Task>();
-            
-            foreach (var template in commonTemplates)
-            {
-                if (template.Exists())
-                {
-                    preloadTasks.Add(enhancedService.PreloadTemplateAsync(template));
-                }
-            }
+            var preloadTasks = commonTemplates
+                .Where(template => template.Exists())
+                .Select(template => (System.Threading.Tasks.Task)enhancedService.PreloadTemplateAsync(template))
+                .ToList();
 
             if (preloadTasks.Count > 0)
             {
@@ -225,13 +220,10 @@ namespace Bot.Core.ImageDetection
 
             logger.LogInfo($"Validating {totalCount} template files...");
 
-            foreach (var template in allTemplates)
+            foreach (var template in allTemplates.Where(template => !template.Exists()))
             {
-                if (!template.Exists())
-                {
-                    logger.LogWarning($"Missing template file: {template} at {template.GetTemplatePath()}");
-                    missingCount++;
-                }
+                logger.LogWarning($"Missing template file: {template} at {template.GetTemplatePath()}");
+                missingCount++;
             }
 
             if (missingCount == 0)

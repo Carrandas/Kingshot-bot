@@ -29,12 +29,10 @@ namespace Bot.Core.Tasks
         private readonly StartupTask _startupTask;
         private readonly List<AccountSettings> _accounts = new();
         private readonly InstanceManager _instanceManager;
-        private readonly IServiceProvider _serviceProvider;
 
         public TaskManager(LogService logger, IServiceProvider serviceProvider, IUserNotificationService? userNotifications = null)
         {
             _logger = logger;
-            _serviceProvider = serviceProvider;
             _userNotifications = userNotifications;
             
             // Purge all logs at the beginning of a new session
@@ -50,7 +48,7 @@ namespace Bot.Core.Tasks
             _instanceManager = new InstanceManager(ldConsolePath, dnConsolePath, logger);
 
             // Initialize available task modules with new unified base class
-            foreach (var (type, task) in CreateTaskModules(logger, _serviceProvider)) _availableTasks[type] = task;
+            foreach (var (type, task) in CreateTaskModules(logger, serviceProvider)) _availableTasks[type] = task;
             
             _logger.LogInfo($"TaskManager initialized with {_availableTasks.Count} tasks plus startup task");
         }

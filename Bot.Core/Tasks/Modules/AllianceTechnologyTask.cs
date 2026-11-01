@@ -27,7 +27,6 @@ namespace Bot.Core.Tasks.Modules
         public override string Name => "Alliance Technology";
 
         private readonly string _templateFolder;
-        private LocatorService? _locatorService;
 
         private const string AllianceMenuTemplate = "alliance-menu.png";   // Alliance button of the bottom bar
         private const string AllianceTechTemplate = "alliance-tech.png";   // Tech tile of the Alliance screen
@@ -91,15 +90,15 @@ namespace Bot.Core.Tasks.Modules
                     return new TaskExecutionDetails(true, nextExecution, "Skipped - Too soon to execute") { Skipped = true };
                 }
 
-                _locatorService = new LocatorService(logger, account, TaskType);
+                var locatorService = new LocatorService(logger, account, TaskType);
                 int instance = account.InstanceNumber;
-                await _locatorService.EnsureViewAsync(ViewType.BaseView, instance, cancellationToken);
+                await locatorService.EnsureViewAsync(ViewType.BaseView, instance, cancellationToken);
 
                 if (!await TapAsync(AllianceMenuTemplate, AllianceMenuArea, instance, logger, 2000, cancellationToken)
                     || !await TapAsync(AllianceTechTemplate, AllianceTechArea, instance, logger, 1500, cancellationToken))
                 {
                     logger.LogWarning($"[{account.AccountName}] Alliance Technology: Alliance or Tech button not found");
-                    await _locatorService.EnsureViewAsync(ViewType.BaseView, instance, cancellationToken);
+                    await locatorService.EnsureViewAsync(ViewType.BaseView, instance, cancellationToken);
                     return FailDetection("Opening Alliance > Tech", "alliance tech button");
                 }
 
@@ -108,7 +107,7 @@ namespace Bot.Core.Tasks.Modules
                 if (!thumb.found)
                 {
                     logger.LogInfo($"[{account.AccountName}] Alliance Technology: no recommended tech ({thumb.confidence:F2})");
-                    await _locatorService.EnsureViewAsync(ViewType.BaseView, instance, cancellationToken);
+                    await locatorService.EnsureViewAsync(ViewType.BaseView, instance, cancellationToken);
                     return new TaskExecutionDetails(true, message: "No recommended tech");
                 }
                 await ClickAsync(instance, logger, new Point(thumb.rect.X + thumb.rect.Width / 2 + ThumbToIconOffset.X, thumb.rect.Y + thumb.rect.Height / 2 + ThumbToIconOffset.Y));
@@ -135,7 +134,7 @@ namespace Bot.Core.Tasks.Modules
                     await ClickCenterInRectAsync(instance, logger, close.rect);
                     await Task.Delay(1000, cancellationToken);
                 }
-                await _locatorService.EnsureViewAsync(ViewType.BaseView, instance, cancellationToken);
+                await locatorService.EnsureViewAsync(ViewType.BaseView, instance, cancellationToken);
 
                 if (holds > 0) UpdateExecutionTime(accountKey);
                 logger.LogInfo($"[{account.AccountName}] Alliance Technology done: {(holds > 0 ? "contributed" : "no attempts left")}");

@@ -140,13 +140,10 @@ namespace Bot.Core.Tasks.Modules
                 { "map-view.png", mapViewPath }
             };
 
-            foreach (var image in requiredImages)
+            foreach (var image in requiredImages.Where(image => !File.Exists(image.Value)))
             {
-                if (!File.Exists(image.Value))
-                {
-                    logger.LogError($"[{account.AccountName}] Required image not found: {image.Key}");
-                    return false;
-                }
+                logger.LogError($"[{account.AccountName}] Required image not found: {image.Key}");
+                return false;
             }
 
             const int MAX_RECOVERY_ATTEMPTS = 4;

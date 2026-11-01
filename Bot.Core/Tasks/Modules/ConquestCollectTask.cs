@@ -69,7 +69,6 @@ namespace Bot.Core.Tasks.Modules
         }
         private static readonly Random _random = new Random();
 
-        private LocatorService? _locatorService;
 
         protected override async Task<TaskExecutionDetails> ExecuteTaskLogicAsync(
             AccountSettings account,
@@ -92,12 +91,12 @@ namespace Bot.Core.Tasks.Modules
                 }
 
                 int instance = account.InstanceNumber;
-                _locatorService = new LocatorService(logger, account, TaskType);
-                await _locatorService.EnsureViewAsync(ViewType.BaseView, instance, cancellationToken);
+                var locatorService = new LocatorService(logger, account, TaskType);
+                await locatorService.EnsureViewAsync(ViewType.BaseView, instance, cancellationToken);
 
                 if (!await OpenConquestAsync(account, logger, instance, cancellationToken))
                 {
-                    await _locatorService.EnsureViewAsync(ViewType.BaseView, instance, cancellationToken);
+                    await locatorService.EnsureViewAsync(ViewType.BaseView, instance, cancellationToken);
                     return FailDetection("Opening Conquest", "conquest screen");
                 }
 
@@ -108,7 +107,7 @@ namespace Bot.Core.Tasks.Modules
                     await ClickAsync(instance, logger, BackArrowPoint);
                     await Task.Delay(1500, cancellationToken);
                 }
-                await _locatorService.EnsureViewAsync(ViewType.BaseView, instance, cancellationToken);
+                await locatorService.EnsureViewAsync(ViewType.BaseView, instance, cancellationToken);
 
                 // A grey chest button means it was just claimed elsewhere: wait the full interval either way
                 UpdateCollectionTime(accountId);

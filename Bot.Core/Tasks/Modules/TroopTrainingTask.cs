@@ -185,10 +185,10 @@ namespace Bot.Core.Tasks.Modules
                             {
                                 anyTroopsProcessedSuccessfully = true;
                                 // Mark ALL valid ready troops as processed since we processed them all in one go
-                                foreach (var troop in validReadyTroops)
+                                foreach (var troopType in validReadyTroops.Select(troop => troop.TroopType))
                                 {
-                                    processedTroopsThisSession.Add(troop.TroopType);
-                                    logger.LogInfo($"[{account.AccountName}] ✅ {troop.TroopType} retrained successfully and marked as processed.");
+                                    processedTroopsThisSession.Add(troopType);
+                                    logger.LogInfo($"[{account.AccountName}] ✅ {troopType} retrained successfully and marked as processed.");
                                 }
                                 logger.LogInfo($"[{account.AccountName}] 📝 Session progress: {string.Join(", ", processedTroopsThisSession)} completed");
                             }
@@ -357,16 +357,13 @@ namespace Bot.Core.Tasks.Modules
                 
                 foreach (var word in words)
                 {
-                    foreach (var keyword in readyKeywords)
+                    foreach (var keyword in readyKeywords.Where(keyword => IsSimilar(word, keyword, 2)))
                     {
-                        if (IsSimilar(word, keyword, 2))
-                        {
-                            status.IsReady = true;
-                            status.RemainingTime = TimeSpan.Zero;
-                            status.FinishTimeUtc = DateTime.UtcNow;
-                            logger.LogInfo($"[{troopType}] Status: Ready (found word '{word}' similar to '{keyword}')");
-                            return status;
-                        }
+                        status.IsReady = true;
+                        status.RemainingTime = TimeSpan.Zero;
+                        status.FinishTimeUtc = DateTime.UtcNow;
+                        logger.LogInfo($"[{troopType}] Status: Ready (found word '{word}' similar to '{keyword}')");
+                        return status;
                     }
                 }
 
@@ -591,12 +588,12 @@ namespace Bot.Core.Tasks.Modules
                     {
                         logger.LogInfo($"[{account.AccountName}] 🔄 Now processing remaining {remainingTroops.Count} ready troops (excluding {primaryTroop.TroopType} which is already being trained)...");
                         
-                        foreach (var readyTroop in remainingTroops)
+                        foreach (var readyTroopType in remainingTroops.Select(readyTroop => readyTroop.TroopType))
                         {
-                            logger.LogInfo($"[{account.AccountName}] 🔍 Processing ready {readyTroop.TroopType}...");
+                            logger.LogInfo($"[{account.AccountName}] 🔍 Processing ready {readyTroopType}...");
                             
                             Rectangle clickArea;
-                            switch (readyTroop.TroopType.ToLower())
+                            switch (readyTroopType.ToLower())
                             {
                                 case "cavalry":
                                     clickArea = new Rectangle(365, 1235, 30, 30);
@@ -608,19 +605,19 @@ namespace Bot.Core.Tasks.Modules
                                     clickArea = new Rectangle(134, 1229, 30, 30);
                                     break;
                                 default:
-                                    logger.LogWarning($"[{account.AccountName}] ⚠️ Unknown troop type: {readyTroop.TroopType}, skipping");
+                                    logger.LogWarning($"[{account.AccountName}] ⚠️ Unknown troop type: {readyTroopType}, skipping");
                                     continue;
                             }
                             
                             if (await ClickRandomInRectAsyncWithRetry(account.InstanceNumber, logger, clickArea, cancellationToken, 1))
                             {
-                                logger.LogInfo($"[{account.AccountName}] ✅ Clicked ready {readyTroop.TroopType}, waiting 0.5 seconds...");
+                                logger.LogInfo($"[{account.AccountName}] ✅ Clicked ready {readyTroopType}, waiting 0.5 seconds...");
                                 await Task.Delay(500, cancellationToken);
                                 
                                 // For cavalry and archers, look for minus button before clicking train box
-                                if (readyTroop.TroopType.ToLower() == "cavalry" || readyTroop.TroopType.ToLower() == "archers")
+                                if (readyTroopType.ToLower() == "cavalry" || readyTroopType.ToLower() == "archers")
                                 {
-                                    logger.LogInfo($"[{account.AccountName}] 🔍 Looking for minus-button.png after {readyTroop.TroopType} click...");
+                                    logger.LogInfo($"[{account.AccountName}] 🔍 Looking for minus-button.png after {readyTroopType} click...");
                                     bool minusFound = await FindAndClickImageWithTimeoutAsync("minus-button.png", account.InstanceNumber, logger,
                                         threshold: 0.6,
                                         timeoutSeconds: 2,
@@ -630,14 +627,14 @@ namespace Bot.Core.Tasks.Modules
 
                                     if (minusFound)
                                     {
-                                        logger.LogInfo($"[{account.AccountName}] ✅ Found minus-button after {readyTroop.TroopType}, checking for level 1...");
+                                        logger.LogInfo($"[{account.AccountName}] ✅ Found minus-button after {readyTroopType}, checking for level 1...");
 
                                         // Check for train level 1 only setting for this troop type as well
                                         var troopSettings = GetTroopTrainingSettings(account);
-                                        logger.LogInfo($"[{account.AccountName}] 🔧 Train Level 1 Only setting for {readyTroop.TroopType}: {troopSettings.TrainLevel1Only}");
+                                        logger.LogInfo($"[{account.AccountName}] 🔧 Train Level 1 Only setting for {readyTroopType}: {troopSettings.TrainLevel1Only}");
                                         if (troopSettings.TrainLevel1Only)
                                         {
-                                            logger.LogInfo($"[{account.AccountName}] 🎯 Train Level 1 Only mode enabled for {readyTroop.TroopType}, checking for Rookie Infantry...");
+                                            logger.LogInfo($"[{account.AccountName}] 🎯 Train Level 1 Only mode enabled for {readyTroopType}, checking for Rookie Infantry...");
 
                                             // Step: Use OCR to check for "Rookie Infantry" in area 202,6 518,71
                                             var rookieCheckArea = new Rectangle(202, 6, 316, 65); // width = 518-202=316, height = 71-6=65
@@ -656,7 +653,7 @@ namespace Bot.Core.Tasks.Modules
                                                 using var ocrService = new OcrService(logger, textOcrConfig);
                                                 string detectedText = ocrService.ExtractTextFromScreenArea(screenshot, rookieCheckArea);
 
-                                                logger.LogInfo($"[{account.AccountName}] 📝 OCR detected text for {readyTroop.TroopType}: '{detectedText}'");
+                                                logger.LogInfo($"[{account.AccountName}] 📝 OCR detected text for {readyTroopType}: '{detectedText}'");
 
                                                 // Check if "Rookie Infantry" is detected (case insensitive, allowing for OCR errors)
                                                 bool isRookieInfantry = detectedText.ToLowerInvariant().Contains("rookie") &&
@@ -664,7 +661,7 @@ namespace Bot.Core.Tasks.Modules
 
                                                 if (!isRookieInfantry)
                                                 {
-                                                    logger.LogInfo($"[{account.AccountName}] 🔄 Rookie Infantry not detected for {readyTroop.TroopType}, performing swipe to navigate to level 1 troops...");
+                                                    logger.LogInfo($"[{account.AccountName}] 🔄 Rookie Infantry not detected for {readyTroopType}, performing swipe to navigate to level 1 troops...");
 
                                                     // Perform curved swipe from left to right in area 24,655 710,773
                                                     var swipeArea = new Rectangle(24, 655, 686, 118); // width = 710-24=686, height = 773-655=118
@@ -672,36 +669,36 @@ namespace Bot.Core.Tasks.Modules
 
                                                     if (swipeSuccess)
                                                     {
-                                                        logger.LogInfo($"[{account.AccountName}] ✅ Swipe completed successfully for {readyTroop.TroopType}");
+                                                        logger.LogInfo($"[{account.AccountName}] ✅ Swipe completed successfully for {readyTroopType}");
                                                         await Task.Delay(1000, cancellationToken); // Wait for UI to settle
 
                                                         // Click random location in area 77,678 119,732
                                                         var level1ClickArea = new Rectangle(77, 678, 42, 54); // width = 119-77=42, height = 732-678=54
-                                                        logger.LogInfo($"[{account.AccountName}] 🖱️ Clicking in level 1 selection area for {readyTroop.TroopType}...");
+                                                        logger.LogInfo($"[{account.AccountName}] 🖱️ Clicking in level 1 selection area for {readyTroopType}...");
 
                                                         if (await ClickRandomInRectAsyncWithRetry(account.InstanceNumber, logger, level1ClickArea, cancellationToken, 1))
                                                         {
-                                                            logger.LogInfo($"[{account.AccountName}] ✅ Successfully clicked level 1 selection area for {readyTroop.TroopType}");
+                                                            logger.LogInfo($"[{account.AccountName}] ✅ Successfully clicked level 1 selection area for {readyTroopType}");
                                                             await Task.Delay(500, cancellationToken);
                                                         }
                                                         else
                                                         {
-                                                            logger.LogWarning($"[{account.AccountName}] ⚠️ Failed to click level 1 selection area for {readyTroop.TroopType}, continuing anyway...");
+                                                            logger.LogWarning($"[{account.AccountName}] ⚠️ Failed to click level 1 selection area for {readyTroopType}, continuing anyway...");
                                                         }
                                                     }
                                                     else
                                                     {
-                                                        logger.LogWarning($"[{account.AccountName}] ⚠️ Swipe failed for {readyTroop.TroopType}, continuing with current selection...");
+                                                        logger.LogWarning($"[{account.AccountName}] ⚠️ Swipe failed for {readyTroopType}, continuing with current selection...");
                                                     }
                                                 }
                                                 else
                                                 {
-                                                    logger.LogInfo($"[{account.AccountName}] ✅ Rookie Infantry already selected for {readyTroop.TroopType}, proceeding with training");
+                                                    logger.LogInfo($"[{account.AccountName}] ✅ Rookie Infantry already selected for {readyTroopType}, proceeding with training");
                                                 }
                                             }
                                             else
                                             {
-                                                logger.LogWarning($"[{account.AccountName}] ⚠️ Failed to take screenshot for rookie check on {readyTroop.TroopType}, proceeding with training");
+                                                logger.LogWarning($"[{account.AccountName}] ⚠️ Failed to take screenshot for rookie check on {readyTroopType}, proceeding with training");
                                             }
                                         }
                                     }
@@ -711,17 +708,17 @@ namespace Bot.Core.Tasks.Modules
                                 var trainBoxAreaFinal = new Rectangle(409, 1078, 177, 58);
                                 if (await ClickRandomInRectAsyncWithRetry(account.InstanceNumber, logger, trainBoxAreaFinal, cancellationToken, 1))
                                 {
-                                    logger.LogInfo($"[{account.AccountName}] ✅ Successfully processed ready {readyTroop.TroopType}");
+                                    logger.LogInfo($"[{account.AccountName}] ✅ Successfully processed ready {readyTroopType}");
                                     await Task.Delay(500, cancellationToken);
                                 }
                                 else
                                 {
-                                    logger.LogWarning($"[{account.AccountName}] ⚠️ Failed to click train box for {readyTroop.TroopType}");
+                                    logger.LogWarning($"[{account.AccountName}] ⚠️ Failed to click train box for {readyTroopType}");
                                 }
                             }
                             else
                             {
-                                logger.LogWarning($"[{account.AccountName}] ⚠️ Failed to click {readyTroop.TroopType} icon");
+                                logger.LogWarning($"[{account.AccountName}] ⚠️ Failed to click {readyTroopType} icon");
                             }
                         }
                     }

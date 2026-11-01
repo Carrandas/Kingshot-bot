@@ -23,7 +23,6 @@ namespace Bot.Core.Tasks.Modules
         public override TaskType TaskType => TaskType.AllianceTriumph;
         public override string Name => "Alliance Triumph";
 
-        private LocatorService? _locatorService;
 
         private const string AllianceMenuTemplate = "alliance-menu.png";       // Alliance button of the bottom bar
         private const string TriumphButtonTemplate = "triumph-button.png";     // Triumph button at the bottom of the Alliance screen
@@ -65,13 +64,13 @@ namespace Bot.Core.Tasks.Modules
                 if (_lastClaimUtcDate.TryGetValue(accountKey, out var claimed) && claimed == DateTime.UtcNow.Date)
                     return TaskExecutionDetails.SkippedBecause("Already claimed today");
 
-                _locatorService = new LocatorService(logger, account, TaskType);
+                var locatorService = new LocatorService(logger, account, TaskType);
                 int instance = account.InstanceNumber;
-                await _locatorService.EnsureViewAsync(ViewType.BaseView, instance, cancellationToken);
+                await locatorService.EnsureViewAsync(ViewType.BaseView, instance, cancellationToken);
 
                 if (!await OpenTriumphAsync(account, logger, instance, cancellationToken))
                 {
-                    await _locatorService.EnsureViewAsync(ViewType.BaseView, instance, cancellationToken);
+                    await locatorService.EnsureViewAsync(ViewType.BaseView, instance, cancellationToken);
                     return TaskExecutionDetails.Failed("Activity Triumph screen did not open");
                 }
 
@@ -85,7 +84,7 @@ namespace Bot.Core.Tasks.Modules
                     await ClickAsync(instance, logger, BackArrowPoint);
                     await Task.Delay(1500, cancellationToken);
                 }
-                await _locatorService.EnsureViewAsync(ViewType.BaseView, instance, cancellationToken);
+                await locatorService.EnsureViewAsync(ViewType.BaseView, instance, cancellationToken);
 
                 string result = (weeklyClaimed ? "weekly reward claimed, " : "") + (claimedNow ? "personal chest claimed" : "personal chest not claimable");
                 logger.LogInfo($"[{account.AccountName}] Alliance Triumph done: {result}");

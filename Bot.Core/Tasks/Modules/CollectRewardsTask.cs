@@ -779,11 +779,11 @@ namespace Bot.Core.Tasks.Modules
                 }
 
                 // merge overlapping detections of the same ring
-                foreach (var c in candidates.OrderByDescending(c => c.area))
+                foreach (var rect in candidates.OrderByDescending(c => c.area).Select(c => c.rect))
                 {
-                    var center = new Point(c.rect.X + c.rect.Width / 2, c.rect.Y + c.rect.Height / 2);
+                    var center = new Point(rect.X + rect.Width / 2, rect.Y + rect.Height / 2);
                     bool dup = result.Any(r => Math.Abs(r.X + r.Width / 2 - center.X) < 45 && Math.Abs(r.Y + r.Height / 2 - center.Y) < 45);
-                    if (!dup) result.Add(c.rect);
+                    if (!dup) result.Add(rect);
                 }
                 result = result.OrderBy(r => r.Y).ToList();
             }
