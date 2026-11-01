@@ -197,8 +197,9 @@ namespace Bot.Core.Utils
         /// </summary>
         public string GetResourceReport()
         {
+            var highLoad = IsCpuUnderLoad || IsMemoryUnderLoad ? "HIGH LOAD" : "NORMAL";
             return $"CPU: {CurrentCpuUsage:F1}%, Memory: {CurrentMemoryUsage:F1}%, Available Memory: {AvailableMemoryMB}MB, " +
-                   $"Status: {(IsSystemOverloaded ? "OVERLOADED" : IsCpuUnderLoad || IsMemoryUnderLoad ? "HIGH LOAD" : "NORMAL")}";
+                   $"Status: {(IsSystemOverloaded ? "OVERLOADED" : highLoad)}";
         }
 
         public void Dispose()

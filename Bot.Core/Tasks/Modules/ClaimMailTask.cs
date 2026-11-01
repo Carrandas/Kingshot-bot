@@ -108,14 +108,12 @@ namespace Bot.Core.Tasks.Modules
             while ((DateTime.UtcNow - startTime).TotalMilliseconds < MAX_WAIT_TIME_MS && !cancellationToken.IsCancellationRequested)
             {
                 if (await WaitForImageAsync("mail.png", account.InstanceNumber, logger, cancellationToken,
-                    timeoutMs: POLL_INTERVAL_MS, threshold: 0.7, useEnhancedMatching: true, searchArea: MailIconSearchArea))
+                    timeoutMs: POLL_INTERVAL_MS, threshold: 0.7, useEnhancedMatching: true, searchArea: MailIconSearchArea) &&
+                    await FindAndClickImageAsync("mail.png", account.InstanceNumber, logger, threshold: 0.7, useEnhancedMatching: true, searchArea: MailIconSearchArea))
                 {
-                    if (await FindAndClickImageAsync("mail.png", account.InstanceNumber, logger, threshold: 0.7, useEnhancedMatching: true, searchArea: MailIconSearchArea))
-                    {
-                        logger.LogInfo($"[{account.AccountName}] ✅ Found and clicked mail icon after {(DateTime.UtcNow - startTime).TotalMilliseconds:F0}ms.");
-                        mailIconClicked = true;
-                        break;
-                    }
+                    logger.LogInfo($"[{account.AccountName}] ✅ Found and clicked mail icon after {(DateTime.UtcNow - startTime).TotalMilliseconds:F0}ms.");
+                    mailIconClicked = true;
+                    break;
                 }
                 await Task.Delay(POLL_INTERVAL_MS, cancellationToken);
             }
@@ -136,14 +134,12 @@ namespace Bot.Core.Tasks.Modules
                     while ((DateTime.UtcNow - retryStartTime).TotalMilliseconds < MAX_WAIT_TIME_MS && !cancellationToken.IsCancellationRequested)
                     {
                         if (await WaitForImageAsync("mail.png", account.InstanceNumber, logger, cancellationToken,
-                            timeoutMs: POLL_INTERVAL_MS, threshold: 0.7, useEnhancedMatching: true, searchArea: MailIconSearchArea))
+                            timeoutMs: POLL_INTERVAL_MS, threshold: 0.7, useEnhancedMatching: true, searchArea: MailIconSearchArea) &&
+                            await FindAndClickImageAsync("mail.png", account.InstanceNumber, logger, threshold: 0.7, useEnhancedMatching: true, searchArea: MailIconSearchArea))
                         {
-                            if (await FindAndClickImageAsync("mail.png", account.InstanceNumber, logger, threshold: 0.7, useEnhancedMatching: true, searchArea: MailIconSearchArea))
-                            {
-                                logger.LogInfo($"[{account.AccountName}] ✅ Found and clicked mail icon after locator recovery in {(DateTime.UtcNow - retryStartTime).TotalMilliseconds:F0}ms.");
-                                retryMailIconClicked = true;
-                                break;
-                            }
+                            logger.LogInfo($"[{account.AccountName}] ✅ Found and clicked mail icon after locator recovery in {(DateTime.UtcNow - retryStartTime).TotalMilliseconds:F0}ms.");
+                            retryMailIconClicked = true;
+                            break;
                         }
                         await Task.Delay(POLL_INTERVAL_MS, cancellationToken);
                     }
@@ -190,18 +186,16 @@ namespace Bot.Core.Tasks.Modules
                 while ((DateTime.UtcNow - startTime).TotalMilliseconds < MAX_WAIT_TIME_MS && !cancellationToken.IsCancellationRequested)
                 {
                     if (await WaitForImageAsync("claim.png", account.InstanceNumber, logger, cancellationToken,
-                        timeoutMs: POLL_INTERVAL_MS, threshold: 0.7, useEnhancedMatching: true, searchArea: ClaimButtonSearchArea))
+                        timeoutMs: POLL_INTERVAL_MS, threshold: 0.7, useEnhancedMatching: true, searchArea: ClaimButtonSearchArea) &&
+                        await FindAndClickImageAsync("claim.png", account.InstanceNumber, logger, threshold: 0.7, useEnhancedMatching: true, searchArea: ClaimButtonSearchArea))
                     {
-                        if (await FindAndClickImageAsync("claim.png", account.InstanceNumber, logger, threshold: 0.7, useEnhancedMatching: true, searchArea: ClaimButtonSearchArea))
-                        {
-                            logger.LogInfo($"[{account.AccountName}] ✅ Found and clicked claim button in {tabName} tab after {(DateTime.UtcNow - startTime).TotalMilliseconds:F0}ms.");
-                            claimFound = true;
+                        logger.LogInfo($"[{account.AccountName}] ✅ Found and clicked claim button in {tabName} tab after {(DateTime.UtcNow - startTime).TotalMilliseconds:F0}ms.");
+                        claimFound = true;
 
-                            // Close the Rewards popup (if any) so the next tab tap is not swallowed by it
-                            await Task.Delay(2500, cancellationToken);
-                            await ClickAsync(account.InstanceNumber, logger, RewardsDismissPoint);
-                            break;
-                        }
+                        // Close the Rewards popup (if any) so the next tab tap is not swallowed by it
+                        await Task.Delay(2500, cancellationToken);
+                        await ClickAsync(account.InstanceNumber, logger, RewardsDismissPoint);
+                        break;
                     }
                     await Task.Delay(POLL_INTERVAL_MS, cancellationToken);
                 }

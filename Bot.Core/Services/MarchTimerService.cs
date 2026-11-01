@@ -251,25 +251,21 @@ namespace Bot.Core.Services
 
             // Try to match HH:MM:SS format
             var match = TimePattern.Match(timerText);
-            if (match.Success)
+            if (match.Success &&
+                int.TryParse(match.Groups[1].Value, out var hours) &&
+                int.TryParse(match.Groups[2].Value, out var minutes) &&
+                int.TryParse(match.Groups[3].Value, out var seconds))
             {
-                if (int.TryParse(match.Groups[1].Value, out var hours) &&
-                    int.TryParse(match.Groups[2].Value, out var minutes) &&
-                    int.TryParse(match.Groups[3].Value, out var seconds))
-                {
-                    return new TimeSpan(hours, minutes, seconds);
-                }
+                return new TimeSpan(hours, minutes, seconds);
             }
 
             // Try to match MM:SS format
             var shortMatch = ShortTimePattern.Match(timerText);
-            if (shortMatch.Success)
+            if (shortMatch.Success &&
+                int.TryParse(shortMatch.Groups[1].Value, out var shortMinutes) &&
+                int.TryParse(shortMatch.Groups[2].Value, out var shortSeconds))
             {
-                if (int.TryParse(shortMatch.Groups[1].Value, out var minutes) &&
-                    int.TryParse(shortMatch.Groups[2].Value, out var seconds))
-                {
-                    return new TimeSpan(0, minutes, seconds);
-                }
+                return new TimeSpan(0, shortMinutes, shortSeconds);
             }
 
             return null;

@@ -335,19 +335,17 @@ namespace Bot.Core.Tasks.Modules
             try
             {
                 var timeMatch = Regex.Match(status.RawOcrText, @"(\d{1,2})\s?:\s?(\d{2})\s?:\s?(\d{2})", RegexOptions.None, Bot.Core.Utils.RegexTimeouts.Default);
-                if (timeMatch.Success)
+                if (timeMatch.Success &&
+                    int.TryParse(timeMatch.Groups[1].Value, out int h) &&
+                    int.TryParse(timeMatch.Groups[2].Value, out int m) &&
+                    int.TryParse(timeMatch.Groups[3].Value, out int s))
                 {
-                    if (int.TryParse(timeMatch.Groups[1].Value, out int h) &&
-                        int.TryParse(timeMatch.Groups[2].Value, out int m) &&
-                        int.TryParse(timeMatch.Groups[3].Value, out int s))
-                    {
-                        status.RemainingTime = new TimeSpan(h, m, s);
-                        status.FinishTimeUtc = DateTime.UtcNow.Add(status.RemainingTime);
-                        status.IsReady = (status.RemainingTime < TimeSpan.FromSeconds(2));
-                        if(status.IsReady) logger.LogInfo($"[{troopType}] Status: Timer is basically zero. Marking as Ready.");
-                        else logger.LogInfo($"[{troopType}] Status: Parsed time {status.RemainingTime:hh\\:mm\\:ss}.");
-                        return status;
-                    }
+                    status.RemainingTime = new TimeSpan(h, m, s);
+                    status.FinishTimeUtc = DateTime.UtcNow.Add(status.RemainingTime);
+                    status.IsReady = (status.RemainingTime < TimeSpan.FromSeconds(2));
+                    if(status.IsReady) logger.LogInfo($"[{troopType}] Status: Timer is basically zero. Marking as Ready.");
+                    else logger.LogInfo($"[{troopType}] Status: Parsed time {status.RemainingTime:hh\\:mm\\:ss}.");
+                    return status;
                 }
 
                 if (isTimerCheck) return status;

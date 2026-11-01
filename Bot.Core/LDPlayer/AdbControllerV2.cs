@@ -193,7 +193,7 @@ namespace Bot.Core.LDPlayer
             int read;
             while ((read = await socket.ReadAsync(chunk.AsMemory(), cancellationToken)) > 0)
             {
-                buffer.Write(chunk, 0, read);
+                await buffer.WriteAsync(chunk.AsMemory(0, read), cancellationToken);
             }
             return buffer.ToArray();
         }
@@ -436,13 +436,10 @@ namespace Bot.Core.LDPlayer
                             return true;
                         }
                     }
-                    else if (command.Contains("activity"))
+                    else if (command.Contains("activity") && result.Contains("mResumedActivity") && result.Contains($"{packageName}/"))
                     {
-                        if (result.Contains("mResumedActivity") && result.Contains($"{packageName}/"))
-                        {
-                            _logger.LogInfo($"[ADBv2] App {packageName} detected in foreground on instance {_instanceNumber}");
-                            return true;
-                        }
+                        _logger.LogInfo($"[ADBv2] App {packageName} detected in foreground on instance {_instanceNumber}");
+                        return true;
                     }
                 }
                 

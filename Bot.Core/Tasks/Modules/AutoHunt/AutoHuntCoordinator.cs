@@ -104,7 +104,7 @@ namespace Bot.Core.Tasks.Modules.AutoHunt
                 }
 
                 // Main hunt loop
-                int availableMarches = initialMarches;
+                int availableMarches;
                 bool noMarchesAvailable;
                 int blockedTargetWaits = 0;
                 int consecutiveFailures = 0;

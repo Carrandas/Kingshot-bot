@@ -173,9 +173,9 @@ namespace Bot.Core.Tasks.Modules
             var active = rows.FirstOrDefault(r => r.IsActive);
             if (active != null) CharacterRoster.SetActive(account.InstanceNumber, active.Name, active.Kingdom);
             await CloseCharactersScreenAsync(account, logger, cancellationToken);
-            return rows.Count == 0
-                ? TaskExecutionDetails.Failed("No characters found on the Characters screen")
-                : TaskExecutionDetails.Succeeded($"Found {rows.Count} character(s){(active != null ? $", {active.Name} active" : "")}");
+            if (rows.Count == 0) return TaskExecutionDetails.Failed("No characters found on the Characters screen");
+            var activeNote = active != null ? $", {active.Name} active" : "";
+            return TaskExecutionDetails.Succeeded($"Found {rows.Count} character(s){activeNote}");
         }
 
         /// <summary>

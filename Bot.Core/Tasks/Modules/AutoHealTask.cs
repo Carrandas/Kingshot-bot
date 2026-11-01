@@ -77,7 +77,6 @@ namespace Bot.Core.Tasks.Modules
                     // Give each template up to 5 seconds to appear
                     var startTime = DateTime.UtcNow;
                     bool found = false;
-                    Rectangle matchRect = Rectangle.Empty;
 
                     while ((DateTime.UtcNow - startTime).TotalSeconds < 5 && !found && !cancellationToken.IsCancellationRequested)
                     {
@@ -92,8 +91,7 @@ namespace Bot.Core.Tasks.Modules
                         if (isFound)
                         {
                             found = true;
-                            matchRect = rect;
-                            var clickPoint = matchRect.GetCenter();
+                            var clickPoint = rect.GetCenter();
                             logger.LogInfo($"[AutoHeal] Found {description} at ({clickPoint.X}, {clickPoint.Y}) with confidence {confidence:F3}");
                             await AdbMigrationHelper.TapAsync(adbController, clickPoint.X, clickPoint.Y, logger, cancellationToken);
                             await Task.Delay(500, cancellationToken); // Short delay after click
@@ -134,8 +132,7 @@ namespace Bot.Core.Tasks.Modules
                                 if (retryFound)
                                 {
                                     found = true;
-                                    matchRect = retryRect;
-                                    var clickPoint = matchRect.GetCenter();
+                                    var clickPoint = retryRect.GetCenter();
                                     logger.LogInfo($"[AutoHeal] Found {description} at ({clickPoint.X}, {clickPoint.Y}) with confidence {retryConfidence:F3} after locator recovery");
                                     await AdbMigrationHelper.TapAsync(adbController, clickPoint.X, clickPoint.Y, logger, cancellationToken);
                                     await Task.Delay(500, cancellationToken);

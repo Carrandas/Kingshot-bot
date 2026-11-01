@@ -518,7 +518,7 @@ namespace Bot.Core.Services
             try
             {
                 // Cancel ongoing operations
-                _cycleGlobalCts?.Cancel();
+                if (_cycleGlobalCts != null) await _cycleGlobalCts.CancelAsync();
                 
                 // Wait briefly for tasks to acknowledge cancellation
                 await Task.Delay(500, _cycleGlobalCts.Token);
@@ -784,7 +784,7 @@ namespace Bot.Core.Services
             {
                 try
                 {
-                    kvp.Value.Cancel();
+                    await kvp.Value.CancelAsync();
                 }
                 catch (Exception ex)
                 {

@@ -125,8 +125,6 @@ namespace Bot.Core.ImageDetection
             bool verboseLogging = false,
             Rectangle? searchArea = null)
         {
-            scales ??= StandardScales;
-
             if (!File.Exists(templatePath))
             {
                 _logger.LogError($"Template not found: {templatePath}");

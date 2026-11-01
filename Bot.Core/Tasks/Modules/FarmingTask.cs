@@ -684,7 +684,7 @@ namespace Bot.Core.Tasks.Modules
                     {
                         string folder = Path.Combine(AppContext.BaseDirectory, "logs", "screenshots", "farming");
                         Directory.CreateDirectory(folder);
-                        File.WriteAllBytes(Path.Combine(folder, $"hero-remove-missing-{DateTime.Now:yyyyMMdd-HHmmss}-slot{slot + 1}.png"), screenshot);
+                        await File.WriteAllBytesAsync(Path.Combine(folder, $"hero-remove-missing-{DateTime.Now:yyyyMMdd-HHmmss}-slot{slot + 1}.png"), screenshot, cancellationToken);
                     }
                     catch (Exception ex)
                     {
@@ -782,17 +782,14 @@ namespace Bot.Core.Tasks.Modules
                     await Task.Delay(POLL_INTERVAL_MS, cancellationToken);
                 }
                 
-                if (scrollAttempt < 2)
+                // Don't swipe on first attempt for stone/iron since we already did
+                if (scrollAttempt < 2 && !(isLaterResource && scrollAttempt == 0))
                 {
-                    // Don't swipe on first attempt for stone/iron since we already did
-                    if (!(isLaterResource && scrollAttempt == 0))
-                    {
-                        logger.LogInfo($"[{account.AccountName}] 📜 Resource not found after {MAX_WAIT_TIME_MS}ms. Scrolling resource list...");
-                        Point swipeStart = new Point(ResourceScrollArea.Right - 50, ResourceScrollArea.Y + ResourceScrollArea.Height / 2);
-                        Point swipeEnd = new Point(ResourceScrollArea.Left + 50, ResourceScrollArea.Y + ResourceScrollArea.Height / 2);
-                        await SwipeAsync(account.InstanceNumber, logger, swipeStart, swipeEnd, 300);
-                        await Task.Delay(POLL_INTERVAL_MS, cancellationToken);
-                    }
+                    logger.LogInfo($"[{account.AccountName}] 📜 Resource not found after {MAX_WAIT_TIME_MS}ms. Scrolling resource list...");
+                    Point swipeStart = new Point(ResourceScrollArea.Right - 50, ResourceScrollArea.Y + ResourceScrollArea.Height / 2);
+                    Point swipeEnd = new Point(ResourceScrollArea.Left + 50, ResourceScrollArea.Y + ResourceScrollArea.Height / 2);
+                    await SwipeAsync(account.InstanceNumber, logger, swipeStart, swipeEnd, 300);
+                    await Task.Delay(POLL_INTERVAL_MS, cancellationToken);
                 }
             }
             logger.LogError($"[{account.AccountName}] ❌ Failed to find '{resourceImageName}' after all scroll attempts.");
@@ -936,13 +933,10 @@ namespace Bot.Core.Tasks.Modules
 
                     logger.LogInfo($"Found '{imageName}' with confidence: {confidence:F3}");
 
-                    if (found)
+                    if (found && await ClickRandomInRectAsync(instanceNumber, logger, matchRect))
                     {
-                        if (await ClickRandomInRectAsync(instanceNumber, logger, matchRect))
-                        {
-                            logger.LogInfo($"Successfully clicked {imageName}");
-                            return true;
-                        }
+                        logger.LogInfo($"Successfully clicked {imageName}");
+                        return true;
                     }
                 }
                 catch (Exception ex)

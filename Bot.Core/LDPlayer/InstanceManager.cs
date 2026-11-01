@@ -273,7 +273,7 @@ namespace Bot.Core.LDPlayer
                 }
 
                 _logger.LogInfo($"Stopping LDPlayer instance {instanceNumber}");
-                var result = await RunLdConsoleCommandAsync($"quit --index {instanceNumber}", cancellationToken);
+                await RunLdConsoleCommandAsync($"quit --index {instanceNumber}", cancellationToken);
                 
                 // Wait briefly for the instance to stop
                 for (int i = 0; i < 5; i++)
@@ -294,7 +294,7 @@ namespace Bot.Core.LDPlayer
                 if (await IsInstanceRunningAsync(instanceNumber, cancellationToken))
                 {
                     _logger.LogWarning($"Instance {instanceNumber} didn't stop gracefully, attempting force quit...");
-                    result = await RunLdConsoleCommandAsync($"quit --index {instanceNumber} --force", cancellationToken);
+                    await RunLdConsoleCommandAsync($"quit --index {instanceNumber} --force", cancellationToken);
                     await Task.Delay(2000, cancellationToken); // Give it time to force quit
                 }
 
@@ -467,7 +467,6 @@ namespace Bot.Core.LDPlayer
             var maxWaitTime = TimeSpan.FromSeconds(timeoutSeconds);
             bool recoveryAttempted = false;
             bool serverRecoveryAttempted = false;
-            bool initialDelayDone = false;
             int rebootAttempts = 0;
             int adbRetryCount = 0;
             const int MAX_REBOOT_ATTEMPTS = 3;
@@ -509,7 +508,6 @@ namespace Bot.Core.LDPlayer
                     _logger.LogInfo($"[BootWait] Instance {instanceNumber} emulator running but Android not yet started (Status: {detailedStatus.StatusDescription}), waiting...");
 
                     // Poll every second: list2 is cheap (~40 ms) and Android often comes up well within the old fixed 5 s wait
-                    initialDelayDone = true;
                     await Task.Delay(1000, cancellationToken);
                     continue;
                 }
@@ -517,8 +515,6 @@ namespace Bot.Core.LDPlayer
                 // Instance is fully booted, now check ADB responsiveness
                 _logger.LogInfo($"[BootWait] Instance {instanceNumber} fully booted ({detailedStatus.StatusDescription}), checking ADB responsiveness...");
                 
-                // Skip the initial delay since we know Android is started
-                initialDelayDone = true;
 
                 var adbController = await AdbConnectionManager.GetConnectionAsync(instanceNumber, _logger, cancellationToken);
                 if (adbController == null || !await adbController.IsConnectedAndResponsive(cancellationToken))
@@ -584,7 +580,6 @@ namespace Bot.Core.LDPlayer
                         await StartInstanceAsync(instanceNumber, cancellationToken);
                         
                         // Reset flags for the new boot attempt
-                        initialDelayDone = false;
                         recoveryAttempted = false;
                         serverRecoveryAttempted = false;
                         adbRetryCount = 0;

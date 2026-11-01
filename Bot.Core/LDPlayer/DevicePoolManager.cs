@@ -160,14 +160,11 @@ namespace Bot.Core.LDPlayer
             }
             try
             {
-                if (_accountDeviceMapping.TryRemove(accountName, out var deviceSerial))
+                if (_accountDeviceMapping.TryRemove(accountName, out var deviceSerial) && _devicePool.TryGetValue(deviceSerial, out var device))
                 {
-                    if (_devicePool.TryGetValue(deviceSerial, out var device))
-                    {
-                        device.Status = DeviceStatus.Available;
-                        device.AssignedAccountName = null;
-                        _logger.LogInfo($"[DevicePool] Released device from account: {accountName} -> {deviceSerial}");
-                    }
+                    device.Status = DeviceStatus.Available;
+                    device.AssignedAccountName = null;
+                    _logger.LogInfo($"[DevicePool] Released device from account: {accountName} -> {deviceSerial}");
                 }
             }
             finally

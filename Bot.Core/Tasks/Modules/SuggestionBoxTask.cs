@@ -183,10 +183,18 @@ namespace Bot.Core.Tasks.Modules
                     string opinion = result == null ? "" : ReadText(result, OpinionArea, white: true, logger);
                     // "Public Opinion: +3%" for the right answer, "-2%" for the wrong one, "0%" for a neutral one
                     // (some letters have no +3% answer)
-                    int? score = opinion.Contains('-') ? -1 : opinion.Contains('+') ? 1 : opinion.Contains('%') ? 0 : null;
+                    int? score = null;
+                    if (opinion.Contains('-')) score = -1;
+                    else if (opinion.Contains('+')) score = 1;
+                    else if (opinion.Contains('%')) score = 0;
                     if (score > 0) right++;
                     if (score < 0) wrong++;
-                    logger.LogInfo($"[{account.AccountName}] Suggestion Box: result '{opinion}' ({(score == null ? "unread" : score > 0 ? "right" : score < 0 ? "wrong" : "neutral")})");
+                    string verdict;
+                    if (score == null) verdict = "unread";
+                    else if (score > 0) verdict = "right";
+                    else if (score < 0) verdict = "wrong";
+                    else verdict = "neutral";
+                    logger.LogInfo($"[{account.AccountName}] Suggestion Box: result '{opinion}' ({verdict})");
 
                     AnswerEntry? learned = null;
                     if (score != null && !known && Words(letter).Count > 0)

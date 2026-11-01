@@ -197,21 +197,18 @@ namespace Bot.Core.LDPlayer
                     foreach (var line in lines)
                     {
                         var parts = line.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
-                        if (parts.Length > 4)
+                        if (parts.Length > 4 && int.TryParse(parts[^1], out int pid))
                         {
-                            if (int.TryParse(parts[^1], out int pid))
+                            try
                             {
-                                try
+                                var conflictingProcess = Process.GetProcessById(pid);
+                                if (!conflictingProcess.ProcessName.Contains("LDPlayer", StringComparison.OrdinalIgnoreCase))
                                 {
-                                    var conflictingProcess = Process.GetProcessById(pid);
-                                    if (!conflictingProcess.ProcessName.Contains("LDPlayer", StringComparison.OrdinalIgnoreCase))
-                                    {
-                                        conflictingProcess.Kill();
-                                        _logger.LogInfo($"[ADBRecovery] Killed process {conflictingProcess.ProcessName} using port {port}", category: LogCategories.ADB);
-                                    }
+                                    conflictingProcess.Kill();
+                                    _logger.LogInfo($"[ADBRecovery] Killed process {conflictingProcess.ProcessName} using port {port}", category: LogCategories.ADB);
                                 }
-                                catch { /* the process already exited or can't be killed: the port check below decides */ }
                             }
+                            catch { /* the process already exited or can't be killed: the port check below decides */ }
                         }
                     }
                 }

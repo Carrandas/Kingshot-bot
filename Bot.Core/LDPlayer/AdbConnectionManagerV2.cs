@@ -110,12 +110,9 @@ namespace Bot.Core.LDPlayer
         /// </summary>
         public static async Task<AdbControllerV2?> GetConnectionAsync(int instanceNumber, LogService logger, CancellationToken cancellationToken = default)
         {
-            if (!_serverInitialized)
+            if (!_serverInitialized && !await InitializeAsync(logger))
             {
-                if (!await InitializeAsync(logger))
-                {
-                    return null;
-                }
+                return null;
             }
 
             var instanceLock = GetInstanceLock(instanceNumber);
@@ -474,8 +471,8 @@ namespace Bot.Core.LDPlayer
         {
             logger.LogInfo("[ADBv2] Shutting down connection manager...");
             
-            _healthCheckTimer?.Dispose();
-            _connectionCleanupTimer?.Dispose();
+            if (_healthCheckTimer != null) await _healthCheckTimer.DisposeAsync();
+            if (_connectionCleanupTimer != null) await _connectionCleanupTimer.DisposeAsync();
             
             // Clear all connections
             _deviceConnections.Clear();

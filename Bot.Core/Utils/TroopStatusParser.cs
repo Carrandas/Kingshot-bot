@@ -236,20 +236,18 @@ namespace Bot.Core.Utils
                         return new TimeSpan(hours, minutes, seconds);
                     }
                 }
-                else if (timeMatch.Groups.Count == 3) // MM:SS or HH:MM
+                else if (timeMatch.Groups.Count == 3 &&
+                    int.TryParse(timeMatch.Groups[1].Value, out int first) &&
+                    int.TryParse(timeMatch.Groups[2].Value, out int second)) // MM:SS or HH:MM
                 {
-                    if (int.TryParse(timeMatch.Groups[1].Value, out int first) &&
-                        int.TryParse(timeMatch.Groups[2].Value, out int second))
+                    // If first number > 59, assume HH:MM format, otherwise MM:SS
+                    if (first > 59)
                     {
-                        // If first number > 59, assume HH:MM format, otherwise MM:SS
-                        if (first > 59)
-                        {
-                            return new TimeSpan(first, second, 0); // Hours:Minutes
-                        }
-                        else
-                        {
-                            return new TimeSpan(0, first, second); // Minutes:Seconds
-                        }
+                        return new TimeSpan(first, second, 0); // Hours:Minutes
+                    }
+                    else
+                    {
+                        return new TimeSpan(0, first, second); // Minutes:Seconds
                     }
                 }
             }
