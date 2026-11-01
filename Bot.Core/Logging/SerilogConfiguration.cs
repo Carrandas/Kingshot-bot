@@ -21,7 +21,9 @@ namespace Bot.Core.Logging
         
         // Cache for instance names to avoid repeated dnconsole calls
         internal static readonly ConcurrentDictionary<int, string> _instanceNameCache = new();
+#pragma warning disable S2223 // read and written by the logging helpers in this file
         internal static DateTime _cacheLastUpdated = DateTime.MinValue;
+#pragma warning restore S2223
         internal static readonly TimeSpan CacheTimeout = TimeSpan.FromMinutes(30);
 
         // Destructuring policies to mask sensitive data
@@ -40,32 +42,32 @@ namespace Bot.Core.Logging
                 result = null;
                 return false;
             }
-        }
 
-        private static string MaskSensitiveData(string input)
-        {
-            // Hardware ID patterns (typical formats)
-            input = Regex.Replace(input, @"Hardware\s*ID:?\s*[A-F0-9\-]{8,}", "Hardware ID: [REDACTED]", RegexOptions.IgnoreCase, Bot.Core.Utils.RegexTimeouts.Default);
-            
-            // Device ID patterns
-            input = Regex.Replace(input, @"Device\s*ID:?\s*[A-F0-9\-]{8,}", "Device ID: [REDACTED]", RegexOptions.IgnoreCase, Bot.Core.Utils.RegexTimeouts.Default);
-            
-            // MAC Address patterns
-            input = Regex.Replace(input, @"([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})", "XX:XX:XX:XX:XX:XX", RegexOptions.None, Bot.Core.Utils.RegexTimeouts.Default);
-            
-            // IP Address patterns
-            input = Regex.Replace(input, @"\b(?:\d{1,3}\.){3}\d{1,3}\b", "XXX.XXX.XXX.XXX", RegexOptions.None, Bot.Core.Utils.RegexTimeouts.Default);
-            
-            // UUID/GUID patterns
-            input = Regex.Replace(input, @"[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}", "XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX", RegexOptions.None, Bot.Core.Utils.RegexTimeouts.Default);
-            
-            // Windows username in paths
-            input = Regex.Replace(input, @"C:\\Users\\[^\\]+\\", @"C:\Users\[REDACTED]\", RegexOptions.None, Bot.Core.Utils.RegexTimeouts.Default);
-            
-            // License keys or similar patterns
-            input = Regex.Replace(input, @"License\s*Key:?\s*[A-Z0-9\-]{10,}", "License Key: [REDACTED]", RegexOptions.IgnoreCase, Bot.Core.Utils.RegexTimeouts.Default);
-            
-            return input;
+            private static string MaskSensitiveData(string input)
+            {
+                // Hardware ID patterns (typical formats)
+                input = Regex.Replace(input, @"Hardware\s*ID:?\s*[A-F0-9\-]{8,}", "Hardware ID: [REDACTED]", RegexOptions.IgnoreCase, Bot.Core.Utils.RegexTimeouts.Default);
+                
+                // Device ID patterns
+                input = Regex.Replace(input, @"Device\s*ID:?\s*[A-F0-9\-]{8,}", "Device ID: [REDACTED]", RegexOptions.IgnoreCase, Bot.Core.Utils.RegexTimeouts.Default);
+                
+                // MAC Address patterns
+                input = Regex.Replace(input, @"([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})", "XX:XX:XX:XX:XX:XX", RegexOptions.None, Bot.Core.Utils.RegexTimeouts.Default);
+                
+                // IP Address patterns
+                input = Regex.Replace(input, @"\b(?:\d{1,3}\.){3}\d{1,3}\b", "XXX.XXX.XXX.XXX", RegexOptions.None, Bot.Core.Utils.RegexTimeouts.Default);
+                
+                // UUID/GUID patterns
+                input = Regex.Replace(input, @"[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}", "XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX", RegexOptions.None, Bot.Core.Utils.RegexTimeouts.Default);
+                
+                // Windows username in paths
+                input = Regex.Replace(input, @"C:\\Users\\[^\\]+\\", @"C:\Users\[REDACTED]\", RegexOptions.None, Bot.Core.Utils.RegexTimeouts.Default);
+                
+                // License keys or similar patterns
+                input = Regex.Replace(input, @"License\s*Key:?\s*[A-Z0-9\-]{10,}", "License Key: [REDACTED]", RegexOptions.IgnoreCase, Bot.Core.Utils.RegexTimeouts.Default);
+                
+                return input;
+            }
         }
 
         /// <summary>

@@ -97,15 +97,6 @@ namespace Bot.Core.ImageDetection
             return _entries.FirstOrDefault(entry => ReferenceEquals(entry.Key, screenshot));
         }
 
-        private static void Release(Entry entry)
-        {
-            lock (_lock)
-            {
-                entry.Leases--;
-                if (entry.Evicted && entry.Leases == 0) entry.Dispose();
-            }
-        }
-
         internal sealed class Entry : IDisposable
         {
             public readonly byte[] Key;
@@ -193,6 +184,15 @@ namespace Bot.Core.ImageDetection
             public Mat[] HsvChannels => _entry.HsvChannels;
 
             public void Dispose() => Release(_entry);
+
+            private static void Release(Entry entry)
+            {
+                lock (_lock)
+                {
+                    entry.Leases--;
+                    if (entry.Evicted && entry.Leases == 0) entry.Dispose();
+                }
+            }
         }
     }
 }

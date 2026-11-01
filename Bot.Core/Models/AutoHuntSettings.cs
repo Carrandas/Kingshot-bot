@@ -62,6 +62,7 @@ namespace Bot.Core.Models
 
             return UsedTargetAreasByAccountId[accountId].Select(b => b.Area).ToList();
         }
+        public List<Rectangle> GetUsedTargetAreas(int instanceNumber) => GetUsedTargetAreas($"Instance_{instanceNumber}");
 
         private void MigrateInstanceDataToAccountId(string accountId)
         {
@@ -100,6 +101,7 @@ namespace Bot.Core.Models
                 UsedTargetAreasByAccountId[accountId] = new List<BlockedArea>();
             }
         }
+        public void ClearUsedTargetAreas(int instanceNumber) => ClearUsedTargetAreas($"Instance_{instanceNumber}");
 
         public void AddUsedTargetArea(string accountId, Rectangle area)
         {
@@ -125,6 +127,7 @@ namespace Bot.Core.Models
                 UsedTargetAreasByAccountId[accountId].Add(new BlockedArea(area));
             }
         }
+        public void AddUsedTargetArea(int instanceNumber, Rectangle area) => AddUsedTargetArea($"Instance_{instanceNumber}", area);
 
         public void RemoveUsedTargetArea(string accountId, Rectangle area)
         {
@@ -140,12 +143,9 @@ namespace Bot.Core.Models
                     .ToList();
             }
         }
+        public void RemoveUsedTargetArea(int instanceNumber, Rectangle area) => RemoveUsedTargetArea($"Instance_{instanceNumber}", area);
 
         // Legacy methods for backward compatibility - delegate to account-based methods
-        public List<Rectangle> GetUsedTargetAreas(int instanceNumber) => GetUsedTargetAreas($"Instance_{instanceNumber}");
-        public void ClearUsedTargetAreas(int instanceNumber) => ClearUsedTargetAreas($"Instance_{instanceNumber}");
-        public void AddUsedTargetArea(int instanceNumber, Rectangle area) => AddUsedTargetArea($"Instance_{instanceNumber}", area);
-        public void RemoveUsedTargetArea(int instanceNumber, Rectangle area) => RemoveUsedTargetArea($"Instance_{instanceNumber}", area);
     }
 
     public class AutoHuntSessionState
