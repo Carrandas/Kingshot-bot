@@ -42,7 +42,7 @@ namespace Bot.Core.Services
         public event Action<string>? OnStatusUpdate;
 
         public bool IsRunning => _isRunning;
-        public bool IsPaused => PauseGate.IsPaused;
+        public static bool IsPaused => PauseGate.IsPaused;
         public int CurrentCycle => _currentCycle;
 
         /// <summary>When the wait between cycles ends; null while a cycle runs or the service is stopped</summary>
@@ -61,7 +61,7 @@ namespace Bot.Core.Services
             _logger.LogInfo($"🚀 Ensuring LDPlayer instance {account.InstanceNumber} is running for a single {taskType} run...");
             if (!await _instanceManager.StartInstanceAsync(account.InstanceNumber, cancellationToken))
                 return TaskExecutionDetails.Failed($"Could not start instance {account.InstanceNumber}");
-            if (await ADBConnectionManager.GetConnectionAsync(account.InstanceNumber, _logger, cancellationToken) == null)
+            if (await AdbConnectionManager.GetConnectionAsync(account.InstanceNumber, _logger, cancellationToken) == null)
                 return TaskExecutionDetails.Failed($"No ADB connection to instance {account.InstanceNumber}");
 
             return await _taskManager.RunSingleTaskAsync(account, taskType, characterName, cancellationToken);
@@ -170,9 +170,9 @@ namespace Bot.Core.Services
                 _instanceStartupSemaphore = new SemaphoreSlim(effectiveMaxConcurrent, effectiveMaxConcurrent);
                 
                 // Update ADB connection limits
-                ADBConnectionManager.UpdateConnectionLimits(config.TotalRunningInstances);
+                AdbConnectionManager.UpdateConnectionLimits(config.TotalRunningInstances);
                 
-                _logger.LogInfo($"📊 Configuration: {config.Accounts.Count} accounts ({persistentAccounts.Count} persistent, {cyclingAccounts.Count} cycling), {effectiveMaxConcurrent} max concurrent instances, startup delay: {config.InstanceStartupDelayMs}ms, wait: {minWait}-{maxWait}min (random: {waitMinutes}), Shutdown: {config.CycleManagement.ShutdownEmulatorsAfterCycle}, Resource throttling: {config.EnableResourceThrottling}, ADB limit: {ADBConnectionManager.GetMaxConcurrentConnections()}");
+                _logger.LogInfo($"📊 Configuration: {config.Accounts.Count} accounts ({persistentAccounts.Count} persistent, {cyclingAccounts.Count} cycling), {effectiveMaxConcurrent} max concurrent instances, startup delay: {config.InstanceStartupDelayMs}ms, wait: {minWait}-{maxWait}min (random: {waitMinutes}), Shutdown: {config.CycleManagement.ShutdownEmulatorsAfterCycle}, Resource throttling: {config.EnableResourceThrottling}, ADB limit: {AdbConnectionManager.GetMaxConcurrentConnections()}");
                 _logger.LogInfo($"🎫 Semaphore status: {_instanceSemaphore.CurrentCount}/{effectiveMaxConcurrent} instance slots, {_instanceStartupSemaphore.CurrentCount}/{effectiveMaxConcurrent} startup slots available");
                 
                 // Validate resource allocation - persistent and cycling accounts share the same instance pool
@@ -437,7 +437,7 @@ namespace Bot.Core.Services
 
                     // Ensure ADB connection is established before running tasks
                     _logger.LogInfo($"🔌 Ensuring ADB connection for instance {account.InstanceNumber}...");
-                    var adbController = await ADBConnectionManager.GetConnectionAsync(account.InstanceNumber, _logger, cycleToken);
+                    var adbController = await AdbConnectionManager.GetConnectionAsync(account.InstanceNumber, _logger, cycleToken);
                     if (adbController == null)
                     {
                         _logger.LogError($"❌ Failed to establish ADB connection for instance {account.InstanceNumber}");
@@ -688,7 +688,7 @@ namespace Bot.Core.Services
 
                 // Establish ADB connection
                 _logger.LogInfo($"🔌 Establishing ADB connection for persistent account {account.AccountName}...");
-                var adbController = await ADBConnectionManager.GetConnectionAsync(account.InstanceNumber, _logger, cancellationToken);
+                var adbController = await AdbConnectionManager.GetConnectionAsync(account.InstanceNumber, _logger, cancellationToken);
                 if (adbController == null)
                 {
                     _logger.LogError($"❌ Failed to establish ADB connection for persistent account {account.InstanceNumber}");

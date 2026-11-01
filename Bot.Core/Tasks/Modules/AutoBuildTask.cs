@@ -301,13 +301,13 @@ namespace Bot.Core.Tasks.Modules
 
         private async Task<bool> CheckIdleStatus(AccountSettings account, LogService logger)
         {
-            var ocrConfig = new OCRConfiguration 
+            var ocrConfig = new OcrConfiguration 
             { 
                 ScaleFactor = 2.0f,
                 CharacterWhitelist = "idleIDLE"
             };
             
-            using var ocrService = new OCRService(logger, ocrConfig);
+            using var ocrService = new OcrService(logger, ocrConfig);
             
             foreach (var region in idleCheckRegions)
             {

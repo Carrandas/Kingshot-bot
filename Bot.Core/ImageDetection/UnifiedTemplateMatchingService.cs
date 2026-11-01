@@ -32,7 +32,7 @@ namespace Bot.Core.ImageDetection
             _colorService = new ColorTemplateMatchingService(logger);
         }
 
-        private bool ShouldUseColorMatching(string templatePath)
+        private static bool ShouldUseColorMatching(string templatePath)
         {
             string fileName = Path.GetFileName(templatePath);
             return ColorMatchingTemplates.Contains(fileName);

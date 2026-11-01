@@ -137,7 +137,7 @@ namespace Bot.Core.Utils
             {
                 _logger.LogInfo($"[Locator] Looking for templates in: {_templateFolder}");
 
-                var adbController = await ADBConnectionManager.GetConnectionAsync(instanceNumber, _logger, cancellationToken);
+                var adbController = await AdbConnectionManager.GetConnectionAsync(instanceNumber, _logger, cancellationToken);
                 if (adbController == null)
                 {
                     return await HandleNoViewDetected("[Locator] ❌ Could not create ADB controller");
@@ -260,7 +260,7 @@ namespace Bot.Core.Utils
             if (await HandleMapNotFound( CancellationToken.None))
             {
                 // If recovery succeeded, try detecting view again
-                var adbController = await ADBConnectionManager.GetConnectionAsync(_account.InstanceNumber, _logger, CancellationToken.None);
+                var adbController = await AdbConnectionManager.GetConnectionAsync(_account.InstanceNumber, _logger, CancellationToken.None);
                 if (adbController != null)
                 {
                     var screenshot = await adbController.TakeScreenshotAsync(CancellationToken.None);
@@ -295,7 +295,7 @@ namespace Bot.Core.Utils
         {
             try
             {
-                var adbController = await ADBConnectionManager.GetConnectionAsync(instanceNumber, _logger, cancellationToken);
+                var adbController = await AdbConnectionManager.GetConnectionAsync(instanceNumber, _logger, cancellationToken);
                 if (adbController == null)
                 {
                     _logger.LogError("[Locator] ❌ Could not create ADB controller for navigation");
@@ -396,7 +396,7 @@ namespace Bot.Core.Utils
         {
             try
             {
-                var adbController = await ADBConnectionManager.GetConnectionAsync(_account.InstanceNumber, _logger, CancellationToken.None);
+                var adbController = await AdbConnectionManager.GetConnectionAsync(_account.InstanceNumber, _logger, CancellationToken.None);
                 if (adbController == null)
                 {
                     _logger.LogError("[Locator] Could not get ADB controller for ad detection");
@@ -482,7 +482,7 @@ namespace Bot.Core.Utils
         {
             try
             {
-                var adbController = await ADBConnectionManager.GetConnectionAsync(_account.InstanceNumber, _logger, CancellationToken.None);
+                var adbController = await AdbConnectionManager.GetConnectionAsync(_account.InstanceNumber, _logger, CancellationToken.None);
                 if (adbController == null)
                 {
                     return ViewType.Unknown;

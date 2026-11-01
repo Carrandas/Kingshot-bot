@@ -219,7 +219,7 @@ namespace Bot.Core.Tasks.Modules
             return DateTime.UtcNow >= nextExecution;
         }
 
-        private DateTime GetNextExecutionTime(string accountKey, AccountSettings account)
+        private static DateTime GetNextExecutionTime(string accountKey, AccountSettings account)
         {
             if (!_lastExecutionTimes.TryGetValue(accountKey, out DateTime lastExecution))
             {

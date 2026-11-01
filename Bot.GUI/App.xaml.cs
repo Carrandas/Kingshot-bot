@@ -50,7 +50,7 @@ public partial class App : WPFApplication
             InitializeLogger();
 
             // Start ADB health monitoring
-            ADBConnectionManager.StartHealthMonitoring(new LogService());
+            AdbConnectionManager.StartHealthMonitoring(new LogService());
 
             ShowMainWindow();
         }
@@ -143,7 +143,7 @@ public partial class App : WPFApplication
             }
 
             // Stop ADB health monitoring
-            ADBConnectionManager.StopHealthMonitoring();
+            AdbConnectionManager.StopHealthMonitoring();
 
             base.OnExit(e);
         }

@@ -279,8 +279,8 @@ namespace Bot.Core.Tasks.Modules
                 OpenCvSharp.Cv2.CvtColor(mask, bgr, OpenCvSharp.ColorConversionCodes.GRAY2BGR);
                 masked = bgr.ToBytes(".png");
             }
-            var ocrConfig = new OCRConfiguration { ScaleFactor = white ? 1.5f : 2, PageSegMode = Tesseract.PageSegMode.SingleBlock };
-            using var ocr = new OCRService(logger, ocrConfig);
+            var ocrConfig = new OcrConfiguration { ScaleFactor = white ? 1.5f : 2, PageSegMode = Tesseract.PageSegMode.SingleBlock };
+            using var ocr = new OcrService(logger, ocrConfig);
             string text = ocr.ExtractTextFromScreenArea(masked, new Rectangle(0, 0, area.Width, area.Height)) ?? "";
             return Regex.Replace(text, @"\s+", " ", RegexOptions.None, Bot.Core.Utils.RegexTimeouts.Default).Trim();
         }

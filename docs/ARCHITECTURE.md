@@ -71,7 +71,7 @@ Saved state lives in `data/` next to the executable:
 ```
 CycleManagementService (Orchestrator)
 ├── InstanceManager (LDPlayer lifecycle)
-├── ADBConnectionManager (Connection pooling)
+├── AdbConnectionManager (Connection pooling)
 ├── TaskManager (Task orchestration)
 └── SystemResourceMonitor (Resource throttling)
 ```
@@ -100,7 +100,7 @@ UnifiedTemplateMatchingService
 
 ### Device Management (Connection Pool)
 ```
-ADBConnectionManager (Static Service)
+AdbConnectionManager (Static Service)
 ├── Connection pooling per instance
 ├── Health monitoring & automatic recovery
 ├── Dynamic throttling limits
@@ -119,7 +119,7 @@ ADBConnectionManager (Static Service)
 1. Task-level retry (BaseTaskWithCommonPatterns)
 2. Recovery task execution (RecoveryTask for UI recovery)
 3. Instance reboot (InstanceManager)
-4. ADB server restart (ADBConnectionManager)
+4. ADB server restart (AdbConnectionManager)
 5. Circuit breaker activation (CycleManagementService)
 
 ## Code Patterns
@@ -174,7 +174,7 @@ Thresholds come from measured scores: score the template where it is present and
 Older tasks use `FindAndClickImageAsync("button.png", instance, logger, threshold: 0.6, searchArea: ..., isUIElement: true)`.
 
 ### OCR of Coloured Text
-The OCR preprocessing (grayscale, invert, Otsu) loses coloured or outlined text. Mask the text colour with HSV `InRange` into a white-on-black image first, then run `OCRService` on it with a whitelist and a page segmentation mode (`SingleLine`, `SingleWord` or `SingleBlock`). See `JourneyTask.ReadIdleSuppliesAsync` and `SuggestionBoxTask.ReadText`.
+The OCR preprocessing (grayscale, invert, Otsu) loses coloured or outlined text. Mask the text colour with HSV `InRange` into a white-on-black image first, then run `OcrService` on it with a whitelist and a page segmentation mode (`SingleLine`, `SingleWord` or `SingleBlock`). See `JourneyTask.ReadIdleSuppliesAsync` and `SuggestionBoxTask.ReadText`.
 
 ## Versioning
 

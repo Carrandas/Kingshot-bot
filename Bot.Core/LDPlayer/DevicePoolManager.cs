@@ -337,7 +337,7 @@ namespace Bot.Core.LDPlayer
                 device.WindowHandle = detailedStatus.BindWindowHandle;
                 
                 // Only if instance is fully booted, check ADB responsiveness
-                var controller = await ADBConnectionManager.GetConnectionAsync(device.InstanceNumber, _logger);
+                var controller = await AdbConnectionManager.GetConnectionAsync(device.InstanceNumber, _logger);
                 if (controller != null)
                 {
                     var startTime = DateTime.UtcNow;
@@ -478,7 +478,7 @@ namespace Bot.Core.LDPlayer
                     var device = await RegisterDeviceAsync(instanceNumber, deviceSerial);
                     
                     // Attempt to establish ADB connection
-                    var controller = await ADBConnectionManager.GetConnectionAsync(instanceNumber, _logger);
+                    var controller = await AdbConnectionManager.GetConnectionAsync(instanceNumber, _logger);
                     if (controller != null)
                     {
                         // Perform a simple connectivity test

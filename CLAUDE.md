@@ -42,9 +42,9 @@ Bot.Core/             # Core automation logic
   Tasks/              # Task system (TaskManager, BaseTask, Modules/)
   Services/           # Business services (CycleManagement, etc.)
   ImageDetection/     # Template matching (Unified/Color/Grayscale services, DecodedScreenshotCache)
-  LDPlayer/           # Emulator control (ADBControllerV2)
+  LDPlayer/           # Emulator control (AdbControllerV2)
   Config/             # Configuration management
-  Utils/              # OCRService, LocatorService (view detection/recovery), helpers
+  Utils/              # OcrService, LocatorService (view detection/recovery), helpers
 configs/              # default_config.example.json. The GUI keeps the live accounts/tasks in configs/default_config.json
                       #   next to the exe (Bot.GUI/bin/.../configs/); configs/config.json is optional and usually absent
 templates/images/     # Template images for CV, one folder per task (copied to output as Content)
@@ -75,7 +75,7 @@ data/                 # next to the exe, created at runtime: daily_gates.json, t
    - Return `TaskExecutionDetails.Succeeded/Failed(...)`.
 4. Many daily tasks start from the side panel (the arrow at the left edge, then the Daily tab at (370,268)). With "Hide after mission completion" on, a row disappears once its mission is done. A missing row usually means "already done", not a failure.
 5. Number boxes (e.g. the Mystic Trial troop ratio): tap the box, then `TypeIntoFocusedFieldAsync` (clears it and types via adb), then the input bar's OK.
-6. OCR of coloured text: mask the colour with HSV `InRange` into a white-on-black image first, then run `OCRService` with a whitelist and `PageSegMode.SingleLine` (`SingleBlock` for multi-line text, as in `SuggestionBoxTask.ReadText`).
+6. OCR of coloured text: mask the colour with HSV `InRange` into a white-on-black image first, then run `OcrService` with a whitelist and `PageSegMode.SingleLine` (`SingleBlock` for multi-line text, as in `SuggestionBoxTask.ReadText`).
 7. Once-a-day tasks: the game resets at 00:00 UTC. Use `DailyGate` (saved in `data/daily_gates.json`, keyed per game account via `Schedule.AccountKey(AccountDetectionTask.GetCachedAccountId(...), account)`): `if (DailyGate.DoneToday(TaskType, key)) return TaskExecutionDetails.SkippedBecause("Already done today");` first, `DailyGate.MarkDone(TaskType, key)` after the run (CollectVip, ClaimMail, NomadicMerchant, TruegoldCrucible, SuggestionBox, MysticTrial). Older gates: AllianceTriumph (memory), CollectRewards (disk). A gate or timer skip must return `SkippedBecause` / `Skipped = true`, or the dashboard shows it as a real run.
    Any task with a gate or timer implements `IScheduledTask`: `GetNextRunUtc` (next run for the dashboard; deterministic, no file reads) and `ClearSchedule` (the ▶ button runs regardless).
 8. Suggestion Box: the letters come from a fixed list. The built-in answer table is `KnownAnswers` in `SuggestionBoxTask`; learned answers go to `data/suggestion_box_answers.json`. Result: +3% right, 0% neutral (some letters have no +3% answer), -2% wrong.

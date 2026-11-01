@@ -774,7 +774,7 @@ namespace Bot.Core.ImageDetection
         /// <summary>
         /// Finds all matches with intelligent non-maximum suppression (inspired by wosbot-master)
         /// </summary>
-        private List<(double confidence, Point location)> FindAllMatchesWithSuppression(
+        private static List<(double confidence, Point location)> FindAllMatchesWithSuppression(
             Mat matchResult, double threshold, int templateWidth, int templateHeight, int maxResults)
         {
             var matches = new List<(double confidence, Point location)>();

@@ -21,7 +21,7 @@ namespace Bot.Core.LDPlayer
     /// Enhanced ADB controller with persistent connections and performance optimizations.
     /// Inspired by wosbot-master's ddmlib approach with C# AdvancedSharpAdbClient.
     /// </summary>
-    public sealed class ADBControllerV2 : IDisposable
+    public sealed class AdbControllerV2 : IDisposable
     {
         private readonly DeviceData _device;
         private readonly AdbClient _adbClient;
@@ -52,7 +52,7 @@ namespace Bot.Core.LDPlayer
         // Performance metrics
         private static readonly ConcurrentDictionary<string, (long TotalTime, int Count)> _performanceMetrics = new();
 
-        public ADBControllerV2(DeviceData device, AdbClient adbClient, LogService logger, int instanceNumber)
+        public AdbControllerV2(DeviceData device, AdbClient adbClient, LogService logger, int instanceNumber)
         {
             _device = device;
             _adbClient = adbClient ?? throw new ArgumentNullException(nameof(adbClient));
@@ -538,7 +538,7 @@ namespace Bot.Core.LDPlayer
             }
             catch
             {
-                ADBConnectionManagerV2.MarkConnectionUnhealthy(_instanceNumber, _logger);
+                AdbConnectionManagerV2.MarkConnectionUnhealthy(_instanceNumber, _logger);
                 return false;
             }
         }
@@ -581,7 +581,7 @@ namespace Bot.Core.LDPlayer
             // A cancelled action says nothing about the connection
             if (ex is not OperationCanceledException)
             {
-                ADBConnectionManagerV2.MarkConnectionUnhealthy(_instanceNumber, _logger);
+                AdbConnectionManagerV2.MarkConnectionUnhealthy(_instanceNumber, _logger);
             }
         }
 

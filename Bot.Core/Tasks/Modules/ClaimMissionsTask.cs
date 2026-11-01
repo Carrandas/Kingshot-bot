@@ -566,8 +566,8 @@ namespace Bot.Core.Tasks.Modules
                 // Test reduced OCR configurations for better performance
                 var configs = new[]
                 {
-                    new OCRConfiguration { CharacterWhitelist = "0123456789", ScaleFactor = 2.0f, PageSegMode = PageSegMode.SingleChar },
-                    new OCRConfiguration { CharacterWhitelist = "0123456789", ScaleFactor = 3.0f, PageSegMode = PageSegMode.SingleChar },
+                    new OcrConfiguration { CharacterWhitelist = "0123456789", ScaleFactor = 2.0f, PageSegMode = PageSegMode.SingleChar },
+                    new OcrConfiguration { CharacterWhitelist = "0123456789", ScaleFactor = 3.0f, PageSegMode = PageSegMode.SingleChar },
                 };
 
                 bool anyNumbersDetected = false;
@@ -579,7 +579,7 @@ namespace Bot.Core.Tasks.Modules
                     
                     try
                     {
-                        using var ocrService = new OCRService(logger, config);
+                        using var ocrService = new OcrService(logger, config);
                         var text = ocrService.ExtractTextFromScreenArea(screenshot, area);
                         
                         // Check if any digits were found
@@ -737,7 +737,7 @@ namespace Bot.Core.Tasks.Modules
         /// <summary>
         /// Saves a debug image of the cropped area for analysis
         /// </summary>
-        private async Task SaveDebugImageAsync(byte[] screenshot, Rectangle area, string filePath, LogService logger)
+        private static async Task SaveDebugImageAsync(byte[] screenshot, Rectangle area, string filePath, LogService logger)
         {
             try
             {
@@ -756,7 +756,7 @@ namespace Bot.Core.Tasks.Modules
         /// <summary>
         /// Saves a debug image showing the preprocessed version used by OCR
         /// </summary>
-        private async Task SaveDebugPreprocessedImageAsync(byte[] screenshot, Rectangle area, OCRConfiguration config, string filePath, LogService logger)
+        private static async Task SaveDebugPreprocessedImageAsync(byte[] screenshot, Rectangle area, OcrConfiguration config, string filePath, LogService logger)
         {
             try
             {
@@ -776,7 +776,7 @@ namespace Bot.Core.Tasks.Modules
         /// <summary>
         /// Crops a bitmap to the specified area
         /// </summary>
-        private Bitmap CropBitmap(Bitmap source, Rectangle cropArea)
+        private static Bitmap CropBitmap(Bitmap source, Rectangle cropArea)
         {
             try
             {
@@ -796,9 +796,9 @@ namespace Bot.Core.Tasks.Modules
         }
 
         /// <summary>
-        /// Applies the same preprocessing as OCRService for debug visualization
+        /// Applies the same preprocessing as OcrService for debug visualization
         /// </summary>
-        private Bitmap PreprocessImageForDebug(Bitmap bmp, OCRConfiguration config)
+        private static Bitmap PreprocessImageForDebug(Bitmap bmp, OcrConfiguration config)
         {
             try
             {
@@ -843,7 +843,7 @@ namespace Bot.Core.Tasks.Modules
         /// <summary>
         /// Performs detailed analysis of the notification area when OCR fails
         /// </summary>
-        private async Task LogDetailedAreaAnalysis(byte[] screenshot, Rectangle area, string tabName, LogService logger)
+        private static async Task LogDetailedAreaAnalysis(byte[] screenshot, Rectangle area, string tabName, LogService logger)
         {
             try
             {
@@ -879,7 +879,7 @@ namespace Bot.Core.Tasks.Modules
         /// <summary>
         /// Analyzes the dominant colors in the image
         /// </summary>
-        private List<Color> AnalyzeDominantColors(Bitmap bitmap)
+        private static List<Color> AnalyzeDominantColors(Bitmap bitmap)
         {
             var colorCounts = new Dictionary<Color, int>();
             
@@ -901,7 +901,7 @@ namespace Bot.Core.Tasks.Modules
         /// <summary>
         /// Calculates the contrast of the image
         /// </summary>
-        private double CalculateContrast(Bitmap bitmap)
+        private static double CalculateContrast(Bitmap bitmap)
         {
             double sumSquares = 0;
             double sum = 0;
@@ -927,7 +927,7 @@ namespace Bot.Core.Tasks.Modules
         /// <summary>
         /// Analyzes the intensity distribution of the image
         /// </summary>
-        private (int min, int max, double avg) AnalyzeIntensity(Bitmap bitmap)
+        private static (int min, int max, double avg) AnalyzeIntensity(Bitmap bitmap)
         {
             int min = 255, max = 0;
             double sum = 0;
@@ -952,7 +952,7 @@ namespace Bot.Core.Tasks.Modules
         /// <summary>
         /// Detects if the image contains text-like shapes using edge detection
         /// </summary>
-        private bool DetectTextLikeShapes(Bitmap bitmap)
+        private static bool DetectTextLikeShapes(Bitmap bitmap)
         {
             try
             {

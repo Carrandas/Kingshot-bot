@@ -110,7 +110,7 @@ namespace Bot.Core.Tasks.Modules
                 logger.LogInfo($"[{account.AccountName}] ✅ No active march timers detected, proceeding with farming");
                 userNotifications?.ShowStatus($"All marches returned - starting farming for {account.AccountName}", NotificationType.Info);
 
-                // OCRService is now instantiated inside the specific methods that use it,
+                // OcrService is now instantiated inside the specific methods that use it,
                 // allowing for custom configurations for different OCR tasks.
 
                 userNotifications?.ShowStatus("Starting farming task...", NotificationType.Info);
@@ -311,14 +311,14 @@ namespace Bot.Core.Tasks.Modules
             var tightMarchCapacityRect = new Rectangle(197, 205, 48, 20); 
 
             // 2. Create a hyper-focused OCR configuration just for this task.
-            var marchOcrConfig = new OCRConfiguration {
+            var marchOcrConfig = new OcrConfiguration {
                 ScaleFactor = 4,
                 AdaptiveC = 5,
                 MedianBlurKernelSize = 1,
                 // We ONLY expect numbers and a slash, so we tell Tesseract to ignore everything else.
                 CharacterWhitelist = "0123456789/" 
             };
-            using var marchOcr = new OCRService(logger, marchOcrConfig);
+            using var marchOcr = new OcrService(logger, marchOcrConfig);
 
             var screenshot = await TakeScreenshotAsync(account.InstanceNumber, logger);
             if (screenshot == null) return 1; // Assume at least 1 march available if screenshot fails
@@ -814,14 +814,14 @@ namespace Bot.Core.Tasks.Modules
 
             // 2. Create an OCR config that ONLY looks for single digits.
             // Create a specialized OCR config for level detection
-            var levelOcrConfig = new OCRConfiguration { 
+            var levelOcrConfig = new OcrConfiguration { 
                 ScaleFactor = 4,
                 AdaptiveC = 5,  // Reduced from 10 to match AutoHuntTask
                 MedianBlurKernelSize = 1,
                 CharacterWhitelist = "12345678",  // Only expecting level numbers 1-8
                 PageSegMode = Tesseract.PageSegMode.SingleChar  // We're only looking for one character
             };
-            using var levelOcr = new OCRService(logger, levelOcrConfig);
+            using var levelOcr = new OcrService(logger, levelOcrConfig);
             
             var screenshot = await TakeScreenshotAsync(account.InstanceNumber, logger);
             if (screenshot == null) return false;
@@ -884,7 +884,7 @@ namespace Bot.Core.Tasks.Modules
             return Task.CompletedTask;
         }
 
-        private AutoHuntSettings GetAutoHuntSettings(AccountSettings account)
+        private static AutoHuntSettings GetAutoHuntSettings(AccountSettings account)
         {
             if (!account.TaskSettings.TryGetValue("AutoHunt", out var settingsJson))
             {
@@ -1038,14 +1038,14 @@ namespace Bot.Core.Tasks.Modules
                 }
 
                 // Create OCR config for timer detection
-                var timerOcrConfig = new OCRConfiguration
+                var timerOcrConfig = new OcrConfiguration
                 {
                     CharacterWhitelist = "0123456789:",
                     ScaleFactor = 3,
                     PageSegMode = Tesseract.PageSegMode.SingleLine
                 };
 
-                using var ocrService = new OCRService(logger, timerOcrConfig);
+                using var ocrService = new OcrService(logger, timerOcrConfig);
                 string detectedText = ocrService.ExtractTextFromScreenArea(screenshot, timerArea);
 
                 logger.LogInfo($"[{account.AccountName}] 📝 OCR detected timer text: '{detectedText}'");
@@ -1096,7 +1096,7 @@ namespace Bot.Core.Tasks.Modules
                     await Task.Delay(1000, cancellationToken);
 
                     // Check for timer again after activation
-                    using var ocrService2 = new OCRService(logger, timerOcrConfig);
+                    using var ocrService2 = new OcrService(logger, timerOcrConfig);
                     var screenshot2 = await TakeScreenshotAsync(account.InstanceNumber, logger);
                     if (screenshot2 != null)
                     {

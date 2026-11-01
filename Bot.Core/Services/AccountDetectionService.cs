@@ -98,7 +98,7 @@ namespace Bot.Core.Services
                 
                 // Step 2: Click account info button (54, 49)
                 _logger.LogInfo($"[{account.AccountName}] Clicking account info button at ({AccountInfoButton.X}, {AccountInfoButton.Y})...");
-                var adbController = await ADBConnectionManager.GetConnectionAsync(account.InstanceNumber, _logger, cancellationToken);
+                var adbController = await AdbConnectionManager.GetConnectionAsync(account.InstanceNumber, _logger, cancellationToken);
                 if (adbController == null)
                 {
                     _logger.LogError($"[{account.AccountName}] Failed to get ADB connection for account detection");
@@ -177,7 +177,7 @@ namespace Bot.Core.Services
             try
             {
                 // Take screenshot
-                var adbController = await ADBConnectionManager.GetConnectionAsync(instanceNumber, _logger, cancellationToken);
+                var adbController = await AdbConnectionManager.GetConnectionAsync(instanceNumber, _logger, cancellationToken);
                 if (adbController == null) return string.Empty;
                 
                 var screenshot = await adbController.TakeScreenshotAsync(cancellationToken);
@@ -188,7 +188,7 @@ namespace Bot.Core.Services
                 }
                 
                 // Configure OCR for account ID reading
-                var ocrConfig = new OCRConfiguration
+                var ocrConfig = new OcrConfiguration
                 {
                     ScaleFactor = 3,
                     AdaptiveC = 7,
@@ -200,7 +200,7 @@ namespace Bot.Core.Services
                 using var ocrTimeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
                 ocrTimeoutCts.CancelAfter(TimeSpan.FromSeconds(10)); // 10 second timeout for OCR
                 
-                using var ocr = new OCRService(_logger, ocrConfig);
+                using var ocr = new OcrService(_logger, ocrConfig);
                 string rawText;
                 
                 try

@@ -130,13 +130,13 @@ namespace Bot.Core.Tasks.Modules.AutoHunt.Services
             return false;
         }
 
-        private async Task<string> GetAccountIdAsync(AccountSettings account)
+        private static async Task<string> GetAccountIdAsync(AccountSettings account)
         {
             // Use account name as ID since AccountDetectionTask is not available
             return $"{account.InstanceNumber}_{account.AccountName}";
         }
 
-        private AutoHuntSettings GetAutoHuntSettings(AccountSettings account)
+        private static AutoHuntSettings GetAutoHuntSettings(AccountSettings account)
         {
             
             if (!account.TaskSettings.TryGetValue("AutoHunt", out var settingsJson) || string.IsNullOrEmpty(settingsJson))
@@ -154,14 +154,14 @@ namespace Bot.Core.Tasks.Modules.AutoHunt.Services
             }
         }
 
-        private void SaveAutoHuntSettings(AccountSettings account, AutoHuntSettings settings)
+        private static void SaveAutoHuntSettings(AccountSettings account, AutoHuntSettings settings)
         {
             var settingsJson = System.Text.Json.JsonSerializer.Serialize(settings);
             account.TaskSettings["AutoHunt"] = settingsJson;
             // Configuration is auto-saved via ConfigurationManager.Instance
         }
 
-        private void LogBlockedAreas(AccountSettings account, LogService logger, string accountId, List<Rectangle> blockedAreas)
+        private static void LogBlockedAreas(AccountSettings account, LogService logger, string accountId, List<Rectangle> blockedAreas)
         {
             if (blockedAreas.Any())
             {
@@ -241,7 +241,7 @@ namespace Bot.Core.Tasks.Modules.AutoHunt.Services
             return foundAnyTick;
         }
 
-        private async Task ProcessTickFound(AccountSettings account, LogService logger, Rectangle matchRect, 
+        private static async Task ProcessTickFound(AccountSettings account, LogService logger, Rectangle matchRect, 
             double confidence, string accountId, AutoHuntSettings settings, CancellationToken cancellationToken)
         {
             logger.LogInfo($"[{account.AccountName}] Found tick at {matchRect} with confidence {confidence:F3}");
@@ -263,7 +263,7 @@ namespace Bot.Core.Tasks.Modules.AutoHunt.Services
             }
         }
 
-        private void RemoveOverlappingUsedAreas(AccountSettings account, LogService logger, Rectangle matchRect, 
+        private static void RemoveOverlappingUsedAreas(AccountSettings account, LogService logger, Rectangle matchRect, 
             string accountId, AutoHuntSettings settings)
         {
             var tickArea = new Rectangle(
@@ -408,7 +408,7 @@ namespace Bot.Core.Tasks.Modules.AutoHunt.Services
             return targets;
         }
 
-        private bool IsAreaAlreadyUsed(Rectangle targetArea, List<Rectangle> usedAreas)
+        private static bool IsAreaAlreadyUsed(Rectangle targetArea, List<Rectangle> usedAreas)
         {
             return usedAreas.Any(used => 
                 !(targetArea.Left > used.Right || 
@@ -417,7 +417,7 @@ namespace Bot.Core.Tasks.Modules.AutoHunt.Services
                   targetArea.Bottom < used.Top));
         }
 
-        private void LogBlockedTarget(AccountSettings account, LogService logger, string imageName, 
+        private static void LogBlockedTarget(AccountSettings account, LogService logger, string imageName, 
             Rectangle matchRect, Rectangle targetArea, List<Rectangle> usedAreas, string accountId)
         {
             logger.LogInfo($"[{account.AccountName}] BLOCKED: Skipping {imageName} at {matchRect} (blocked area: {targetArea}) - overlaps with previously clicked area for account {accountId}");
@@ -500,7 +500,7 @@ namespace Bot.Core.Tasks.Modules.AutoHunt.Services
             }
         }
 
-        private bool IsTargetBlockedBySessionState(HuntTarget target, AutoHuntSessionState sessionState)
+        private static bool IsTargetBlockedBySessionState(HuntTarget target, AutoHuntSessionState sessionState)
         {
             return (target.Type == "king" && !sessionState.CanAttackKing) ||
                    (target.Type == "bear" && !sessionState.CanAttackBear) ||
@@ -509,20 +509,20 @@ namespace Bot.Core.Tasks.Modules.AutoHunt.Services
 
         // Helper methods that would need to be injected or moved to base class
         #pragma warning disable S1172 // placeholders: the coordinator does the real screenshot and tap work
-        private async Task<byte[]?> TakeScreenshotAsync(int instanceNumber, LogService logger)
+        private static async Task<byte[]?> TakeScreenshotAsync(int instanceNumber, LogService logger)
         {
             // This would need to be injected from BaseTaskWithCommonPatterns
             // For now, return null - this will be handled by the coordinator
             return null;
         }
 
-        private async Task<bool> ClickRandomInRectAsync(int instanceNumber, LogService logger, Rectangle rect)
+        private static async Task<bool> ClickRandomInRectAsync(int instanceNumber, LogService logger, Rectangle rect)
         {
             // This would need to be injected from BaseTaskWithCommonPatterns
             return false;
         }
 
-        private async Task<bool> ClickAsync(int instanceNumber, LogService logger, Point point)
+        private static async Task<bool> ClickAsync(int instanceNumber, LogService logger, Point point)
         {
             // This would need to be injected from BaseTaskWithCommonPatterns
             return false;

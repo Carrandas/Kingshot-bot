@@ -12,7 +12,7 @@ namespace Bot.Core.LDPlayer
     /// Provides methods to interact with an LDPlayer emulator instance via ADB.
     /// Handles command execution, device input, screenshot capture, and connection checks.
     /// </summary>
-    public class ADBController : IDisposable
+    public class AdbController : IDisposable
     {
         private readonly string _adbPath;
         private readonly string _deviceSerial;
@@ -23,9 +23,9 @@ namespace Bot.Core.LDPlayer
         private readonly SemaphoreSlim _commandSemaphore = new(1, 1);
 
         /// <summary>
-        /// Constructs an ADBController for a specific emulator device.
+        /// Constructs an AdbController for a specific emulator device.
         /// </summary>
-        public ADBController(string adbPath, string deviceSerial, LogService logger)
+        public AdbController(string adbPath, string deviceSerial, LogService logger)
         {
             _adbPath = adbPath;
             _deviceSerial = deviceSerial;
@@ -40,7 +40,7 @@ namespace Bot.Core.LDPlayer
             }
 
             _logger = new LogService(instanceNumber);
-            _logger.LogInfo($"ADBController created: {_adbPath} -> {_deviceSerial}");
+            _logger.LogInfo($"AdbController created: {_adbPath} -> {_deviceSerial}");
         }
 
         /// <summary>
@@ -341,7 +341,7 @@ namespace Bot.Core.LDPlayer
             }
         }
 
-        ~ADBController()
+        ~AdbController()
         {
             Dispose(false);
         }

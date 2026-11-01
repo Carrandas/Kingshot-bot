@@ -329,7 +329,7 @@ namespace Bot.Core.Tasks
                         // Show task-specific status for AutoShield
                         if (taskType == TaskType.AutoShield)
                         {
-                            var shieldTimeRemaining = ShieldTimeManager.Instance.GetRemainingTime(account.InstanceNumber);
+                            var shieldTimeRemaining = ShieldTimeManager.GetRemainingTime(account.InstanceNumber);
                             if (shieldTimeRemaining.HasValue && shieldTimeRemaining.Value.TotalSeconds > 0)
                             {
                                 var shieldText = shieldTimeRemaining.Value.TotalHours >= 1 

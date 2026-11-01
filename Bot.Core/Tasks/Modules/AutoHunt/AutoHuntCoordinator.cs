@@ -748,7 +748,7 @@ namespace Bot.Core.Tasks.Modules.AutoHunt
 
                     try
                     {
-                        var ocrService = new OCRService(logger);
+                        var ocrService = new OcrService(logger);
                         var text = ocrService.ExtractTextFromScreenArea(battleScreenshot, battleResultArea);
                         if (!string.IsNullOrEmpty(text))
                         {
@@ -1007,7 +1007,7 @@ namespace Bot.Core.Tasks.Modules.AutoHunt
             }
         }
 
-        private void RemoveOverlappingUsedAreas(
+        private static void RemoveOverlappingUsedAreas(
             AccountSettings account, 
             LogService logger, 
             Rectangle matchRect, 
@@ -1188,7 +1188,7 @@ namespace Bot.Core.Tasks.Modules.AutoHunt
             return targets;
         }
 
-        private bool IsAreaAlreadyUsed(Rectangle targetArea, List<Rectangle> usedAreas)
+        private static bool IsAreaAlreadyUsed(Rectangle targetArea, List<Rectangle> usedAreas)
         {
             return usedAreas.Any(used => 
                 !(targetArea.Left > used.Right || 
@@ -1197,7 +1197,7 @@ namespace Bot.Core.Tasks.Modules.AutoHunt
                   targetArea.Bottom < used.Top));
         }
 
-        private void LogBlockedTarget(
+        private static void LogBlockedTarget(
             AccountSettings account, 
             LogService logger, 
             string imageName, 
@@ -1280,7 +1280,7 @@ namespace Bot.Core.Tasks.Modules.AutoHunt
             }
         }
 
-        private void LogBlockedAreas(AccountSettings account, LogService logger, string accountId, List<Rectangle> blockedAreas)
+        private static void LogBlockedAreas(AccountSettings account, LogService logger, string accountId, List<Rectangle> blockedAreas)
         {
             if (blockedAreas.Any())
             {
@@ -1308,7 +1308,7 @@ namespace Bot.Core.Tasks.Modules.AutoHunt
             // Use OCR to read march count from UI
             try
             {
-                var ocrService = new OCRService(logger);
+                var ocrService = new OcrService(logger);
                 var text = ocrService.ExtractTextFromScreenArea(screenshot, AutoHuntConstants.MarchCountArea);
                 
                 logger.LogInfo($"[{account.AccountName}] OCR extracted text: '{text}' from area {AutoHuntConstants.MarchCountArea}");
@@ -1473,7 +1473,7 @@ namespace Bot.Core.Tasks.Modules.AutoHunt
 
         #region Stamina Management
 
-        private async Task<StaminaCheckResult> CheckForStaminaLowDirectly(
+        private static async Task<StaminaCheckResult> CheckForStaminaLowDirectly(
             byte[]? screenshot,
             AccountSettings account,
             LogService logger)
@@ -1482,7 +1482,7 @@ namespace Bot.Core.Tasks.Modules.AutoHunt
 
             try
             {
-                var ocrService = new OCRService(logger);
+                var ocrService = new OcrService(logger);
 
                 // Create full screen rectangle instead of using limited area
                 // Standard emulator resolution is 720x1280, but we'll use a large rectangle to cover the full screen
@@ -1623,7 +1623,7 @@ namespace Bot.Core.Tasks.Modules.AutoHunt
             // Check for "Marching" text in the marching text area
             try
             {
-                var ocrService = new OCRService(logger);
+                var ocrService = new OcrService(logger);
                 var text = ocrService.ExtractTextFromScreenArea(screenshot, AutoHuntConstants.MarchingTextArea);
                 
                 if (!string.IsNullOrEmpty(text) && text.ToLower().Contains("marching"))
@@ -1741,13 +1741,13 @@ namespace Bot.Core.Tasks.Modules.AutoHunt
             return TargetProcessResult.Successful("Confirmation handled");
         }
 
-        private async Task<string> GetAccountIdAsync(AccountSettings account)
+        private static async Task<string> GetAccountIdAsync(AccountSettings account)
         {
             // Use account name as ID since AccountDetectionTask is not available
             return $"{account.InstanceNumber}_{account.AccountName}";
         }
 
-        private AutoHuntSettings GetAutoHuntSettings(AccountSettings account)
+        private static AutoHuntSettings GetAutoHuntSettings(AccountSettings account)
         {
             
             if (!account.TaskSettings.TryGetValue("AutoHunt", out var settingsJson) || string.IsNullOrEmpty(settingsJson))
@@ -1765,7 +1765,7 @@ namespace Bot.Core.Tasks.Modules.AutoHunt
             }
         }
 
-        private void SaveAutoHuntSettings(AccountSettings account, AutoHuntSettings settings)
+        private static void SaveAutoHuntSettings(AccountSettings account, AutoHuntSettings settings)
         {
             var settingsJson = JsonSerializer.Serialize(settings);
             account.TaskSettings["AutoHunt"] = settingsJson;
@@ -1780,7 +1780,7 @@ namespace Bot.Core.Tasks.Modules.AutoHunt
             {
                 try
                 {
-                    var ocrService = new OCRService(logger);
+                    var ocrService = new OcrService(logger);
                     var text = ocrService.ExtractTextFromScreenArea(screenshot, AutoHuntConstants.OcrPredictionArea);
                     return text ?? string.Empty;
                 }

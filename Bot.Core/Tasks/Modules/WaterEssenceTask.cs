@@ -180,7 +180,7 @@ namespace Bot.Core.Tasks.Modules
                 text = bgr.ToBytes(".png");
                 area = new Rectangle(0, 0, roi.Width, roi.Height);
             }
-            var ocrConfig = new OCRConfiguration
+            var ocrConfig = new OcrConfiguration
             {
                 ScaleFactor = 2,
                 AdaptiveC = 5,
@@ -188,7 +188,7 @@ namespace Bot.Core.Tasks.Modules
                 CharacterWhitelist = "Availbe:0123456789,./",
                 PageSegMode = Tesseract.PageSegMode.SingleLine
             };
-            using var ocr = new OCRService(logger, ocrConfig);
+            using var ocr = new OcrService(logger, ocrConfig);
             string read = ocr.ExtractTextFromScreenArea(text, area);
             var match = Regex.Match(read ?? "", @"(\d[\d,.]*)\s*/", RegexOptions.None, Bot.Core.Utils.RegexTimeouts.Default);
             logger.LogInfo($"Water Essence: available OCR '{read?.Trim()}'");

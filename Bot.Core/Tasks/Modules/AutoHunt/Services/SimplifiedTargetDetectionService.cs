@@ -64,7 +64,7 @@ namespace Bot.Core.Tasks.Modules.AutoHunt.Services
             return false;
         }
 
-        private bool IsTargetBlockedBySessionState(HuntTarget target, AutoHuntSessionState sessionState)
+        private static bool IsTargetBlockedBySessionState(HuntTarget target, AutoHuntSessionState sessionState)
         {
             return (target.Type == "king" && !sessionState.CanAttackKing) ||
                    (target.Type == "bear" && !sessionState.CanAttackBear) ||

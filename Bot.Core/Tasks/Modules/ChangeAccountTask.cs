@@ -270,7 +270,7 @@ namespace Bot.Core.Tasks.Modules
             return await ClickCenterInRectAsync(account.InstanceNumber, logger, match.position);
         }
 
-        private async Task CloseCharactersScreenAsync(AccountSettings account, LogService logger, CancellationToken cancellationToken)
+        private static async Task CloseCharactersScreenAsync(AccountSettings account, LogService logger, CancellationToken cancellationToken)
         {
             await new LocatorService(logger, account).EnsureViewAsync(ViewType.BaseView, account.InstanceNumber, cancellationToken);
         }
@@ -314,8 +314,8 @@ namespace Bot.Core.Tasks.Modules
                 tickCenter = new Point(tick.matchRect.X + tick.matchRect.Width / 2, tick.matchRect.Y + tick.matchRect.Height / 2);
             }
 
-            using var nameOcr = new OCRService(logger, new OCRConfiguration { ScaleFactor = 2.0f, PageSegMode = PageSegMode.SingleLine });
-            using var digitOcr = new OCRService(logger, new OCRConfiguration { ScaleFactor = 2.0f, PageSegMode = PageSegMode.SingleLine, CharacterWhitelist = "0123456789" });
+            using var nameOcr = new OcrService(logger, new OcrConfiguration { ScaleFactor = 2.0f, PageSegMode = PageSegMode.SingleLine });
+            using var digitOcr = new OcrService(logger, new OcrConfiguration { ScaleFactor = 2.0f, PageSegMode = PageSegMode.SingleLine, CharacterWhitelist = "0123456789" });
 
             using var image = OpenCvSharp.Cv2.ImDecode(screenshot, OpenCvSharp.ImreadModes.Color);
 
@@ -351,7 +351,7 @@ namespace Bot.Core.Tasks.Modules
         }
 
         /// <summary>OCR of the pixels inside an HSV range, as white text on black (the OCR preprocessing loses coloured text on coloured rows).</summary>
-        private static string ReadMasked(OpenCvSharp.Mat image, OCRService ocr, Rectangle area, OpenCvSharp.Scalar lower, OpenCvSharp.Scalar upper)
+        private static string ReadMasked(OpenCvSharp.Mat image, OcrService ocr, Rectangle area, OpenCvSharp.Scalar lower, OpenCvSharp.Scalar upper)
         {
             var roi = new OpenCvSharp.Rect(area.X, area.Y, area.Width, area.Height).Intersect(new OpenCvSharp.Rect(0, 0, image.Width, image.Height));
             if (roi.Width <= 0 || roi.Height <= 0) return string.Empty;

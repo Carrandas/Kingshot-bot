@@ -14,12 +14,12 @@ namespace Bot.Core.LDPlayer
 {
     /// <summary>
     /// Manages ADB server lifecycle, connections to emulator instances, and recovery operations.
-    /// Provides thread-safe access to ADBController objects for each LDPlayer instance.
+    /// Provides thread-safe access to AdbController objects for each LDPlayer instance.
     /// </summary>
-    public static class ADBConnectionManager
+    public static class AdbConnectionManager
     {
-        // Holds active ADBController connections, keyed by instance number
-        private static readonly ConcurrentDictionary<int, ADBController> _connections = new();
+        // Holds active AdbController connections, keyed by instance number
+        private static readonly ConcurrentDictionary<int, AdbController> _connections = new();
         // Lock for connection management - CHANGED TO PER-INSTANCE LOCKS
         private static readonly ConcurrentDictionary<int, SemaphoreSlim> _instanceLocks = new();
         // Tracks if the ADB server is started
@@ -205,10 +205,10 @@ namespace Bot.Core.LDPlayer
 
 
         /// <summary>
-        /// Gets or creates an ADBController for the specified instance number.
+        /// Gets or creates an AdbController for the specified instance number.
         /// Ensures the ADB server is running and manages connection reuse.
         /// </summary>
-        public static async Task<ADBController?> GetConnectionAsync(int instanceNumber, LogService logger, CancellationToken cancellationToken = default)
+        public static async Task<AdbController?> GetConnectionAsync(int instanceNumber, LogService logger, CancellationToken cancellationToken = default)
         {
             try
             {
@@ -294,7 +294,7 @@ namespace Bot.Core.LDPlayer
                         logger.LogWarning($"[ADB] Attempting comprehensive recovery for instance {instanceNumber}...");
                         try
                         {
-                            var recoveryService = new ADBRecoveryService(logger);
+                            var recoveryService = new AdbRecoveryService(logger);
                             await recoveryService.AttemptFullRecoveryAsync(instanceNumber, cancellationToken);
                             
                             // Try one more time after recovery
@@ -317,7 +317,7 @@ namespace Bot.Core.LDPlayer
                     }
 
                     // Create controller
-                    var controller = new ADBController(adbPath, deviceSerial, logger);
+                    var controller = new AdbController(adbPath, deviceSerial, logger);
                     _connections[instanceNumber] = controller;
                     
                     
@@ -345,7 +345,7 @@ namespace Bot.Core.LDPlayer
         }
 
         /// <summary>
-        /// Closes and disposes the ADBController for a specific instance.
+        /// Closes and disposes the AdbController for a specific instance.
         /// </summary>
         public static void CloseConnection(int instanceNumber, LogService logger)
         {
@@ -363,7 +363,7 @@ namespace Bot.Core.LDPlayer
         }
 
         /// <summary>
-        /// Closes and disposes all ADBController connections and resets the server started flag.
+        /// Closes and disposes all AdbController connections and resets the server started flag.
         /// </summary>
         public static async Task CloseAllConnections(LogService logger)
         {

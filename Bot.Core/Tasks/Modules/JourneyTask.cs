@@ -319,7 +319,7 @@ namespace Bot.Core.Tasks.Modules
                 OpenCvSharp.Cv2.CvtColor(mask, bgr, OpenCvSharp.ColorConversionCodes.GRAY2BGR);
                 digits = bgr.ToBytes(".png");
             }
-            var ocrConfig = new OCRConfiguration
+            var ocrConfig = new OcrConfiguration
             {
                 ScaleFactor = 2,
                 AdaptiveC = 5,
@@ -327,7 +327,7 @@ namespace Bot.Core.Tasks.Modules
                 CharacterWhitelist = "0123456789",
                 PageSegMode = Tesseract.PageSegMode.SingleLine
             };
-            using var ocr = new OCRService(logger, ocrConfig);
+            using var ocr = new OcrService(logger, ocrConfig);
             string text = ocr.ExtractTextFromScreenArea(digits, new Rectangle(0, 0, IdleSuppliesTextArea.Width, IdleSuppliesTextArea.Height));
             var match = Regex.Match(text ?? "", @"\d+", RegexOptions.None, Bot.Core.Utils.RegexTimeouts.Default);
             logger.LogInfo($"Journey: idle supplies OCR '{text?.Trim()}'");

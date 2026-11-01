@@ -53,7 +53,7 @@ namespace Bot.Core.Services
             NotifyTimeUpdated(instanceNumber);
         }
 
-        public TimeSpan? GetRemainingTime(int instanceNumber)
+        public static TimeSpan? GetRemainingTime(int instanceNumber)
         {
             if (_shieldTimers.TryGetValue(instanceNumber, out var shieldInfo))
             {

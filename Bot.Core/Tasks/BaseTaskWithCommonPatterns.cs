@@ -383,7 +383,7 @@ namespace Bot.Core.Tasks
         {
             return await WithADBControllerAsync(instanceNumber, logger, async adb =>
             {
-                await ADBMigrationHelper.TapAsync(adb, point.X, point.Y, logger);
+                await AdbMigrationHelper.TapAsync(adb, point.X, point.Y, logger);
                 logger.LogInfo($"Clicked at ({point.X}, {point.Y})");
                 return true;
             }, false);
@@ -410,7 +410,7 @@ namespace Bot.Core.Tasks
         protected async Task<bool> TypeIntoFocusedFieldAsync(int instanceNumber, LogService logger, string text, int clearCount = 6)
         {
             return await WithADBControllerAsync(instanceNumber, logger, async adb =>
-                adb is ADBControllerV2 v2 && await v2.ReplaceFocusedTextAsync(text, clearCount), false);
+                adb is AdbControllerV2 v2 && await v2.ReplaceFocusedTextAsync(text, clearCount), false);
         }
 
         /// <summary>
@@ -476,7 +476,7 @@ namespace Bot.Core.Tasks
                         }
 
                         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5)); // Reduced from 10s to 5s
-                        var screenshot = await ADBMigrationHelper.TakeScreenshotAsync(adbController, logger, cts.Token);
+                        var screenshot = await AdbMigrationHelper.TakeScreenshotAsync(adbController, logger, cts.Token);
 
                         if (screenshot != null && screenshot.Length > 0)
                         {
@@ -563,7 +563,7 @@ namespace Bot.Core.Tasks
         {
             return await WithADBControllerAsync(instanceNumber, logger, async adb =>
             {
-                await ADBMigrationHelper.SwipeAsync(adb, from.X, from.Y, to.X, to.Y, durationMs, logger);
+                await AdbMigrationHelper.SwipeAsync(adb, from.X, from.Y, to.X, to.Y, durationMs, logger);
                 logger.LogInfo($"Swiped from ({from.X}, {from.Y}) to ({to.X}, {to.Y})");
                 return true;
             }, false);
@@ -1022,7 +1022,7 @@ namespace Bot.Core.Tasks
                 // Skip health check if recently verified
                 bool skipHealthCheck = (DateTime.UtcNow - _lastHealthCheck).TotalSeconds < HEALTH_CHECK_CACHE_SECONDS;
                 
-                if (skipHealthCheck || (_cachedController is ADBControllerV2 v2Controller && await v2Controller.IsConnectedAndResponsiveAsync(cancellationToken)))
+                if (skipHealthCheck || (_cachedController is AdbControllerV2 v2Controller && await v2Controller.IsConnectedAndResponsiveAsync(cancellationToken)))
                 {
                     if (!skipHealthCheck)
                     {
@@ -1037,7 +1037,7 @@ namespace Bot.Core.Tasks
             }
             
             // Get new controller from connection manager (V2 system)
-            _cachedController = await ADBMigrationHelper.GetConnectionAsync(instanceNumber, logger, cancellationToken);
+            _cachedController = await AdbMigrationHelper.GetConnectionAsync(instanceNumber, logger, cancellationToken);
             _cachedInstanceNumber = instanceNumber;
             _lastHealthCheck = DateTime.UtcNow;
             
@@ -1078,37 +1078,37 @@ namespace Bot.Core.Tasks
         /// <summary>
         /// Create a connection failure (ADB, emulator issues)
         /// </summary>
-        protected TaskExecutionDetails FailConnection(string step, string detail, bool recoveryNeeded = false)
+        protected static TaskExecutionDetails FailConnection(string step, string detail, bool recoveryNeeded = false)
             => TaskExecutionDetails.FailedWith(FailureCategory.Connection, step, detail, recoveryNeeded: recoveryNeeded);
 
         /// <summary>
         /// Create a detection failure (template matching, OCR)
         /// </summary>
-        protected TaskExecutionDetails FailDetection(string step, string what, bool recoveryNeeded = false)
+        protected static TaskExecutionDetails FailDetection(string step, string what, bool recoveryNeeded = false)
             => TaskExecutionDetails.FailedWith(FailureCategory.Detection, step, $"Could not find {what}", recoveryNeeded: recoveryNeeded);
 
         /// <summary>
         /// Create a navigation failure (can't reach expected view)
         /// </summary>
-        protected TaskExecutionDetails FailNavigation(string step, string detail, bool recoveryNeeded = true)
+        protected static TaskExecutionDetails FailNavigation(string step, string detail, bool recoveryNeeded = true)
             => TaskExecutionDetails.FailedWith(FailureCategory.Navigation, step, detail, recoveryNeeded: recoveryNeeded);
 
         /// <summary>
         /// Create a timeout failure
         /// </summary>
-        protected TaskExecutionDetails FailTimeout(string step, string operation, bool recoveryNeeded = false)
+        protected static TaskExecutionDetails FailTimeout(string step, string operation, bool recoveryNeeded = false)
             => TaskExecutionDetails.FailedWith(FailureCategory.Timeout, step, $"{operation} timed out", recoveryNeeded: recoveryNeeded);
 
         /// <summary>
         /// Create a configuration failure
         /// </summary>
-        protected TaskExecutionDetails FailConfiguration(string step, string detail)
+        protected static TaskExecutionDetails FailConfiguration(string step, string detail)
             => TaskExecutionDetails.FailedWith(FailureCategory.Configuration, step, detail, recoveryNeeded: false);
 
         /// <summary>
         /// Create a game state failure (unexpected dialog, wrong screen)
         /// </summary>
-        protected TaskExecutionDetails FailGameState(string step, string detail, bool recoveryNeeded = true)
+        protected static TaskExecutionDetails FailGameState(string step, string detail, bool recoveryNeeded = true)
             => TaskExecutionDetails.FailedWith(FailureCategory.GameState, step, detail, recoveryNeeded: recoveryNeeded);
 
         /// <summary>

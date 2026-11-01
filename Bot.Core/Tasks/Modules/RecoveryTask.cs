@@ -37,7 +37,7 @@ namespace Bot.Core.Tasks.Modules
             _lastFailedTaskType = taskType;
         }
 
-        private string GetUserFriendlyTaskName(TaskType taskType)
+        private static string GetUserFriendlyTaskName(TaskType taskType)
         {
             return taskType switch
             {
@@ -157,10 +157,10 @@ namespace Bot.Core.Tasks.Modules
                 try
                 {
                     // Take a screenshot
-                    var adbController = await ADBMigrationHelper.GetConnectionAsync(account.InstanceNumber, logger, cancellationToken);
+                    var adbController = await AdbMigrationHelper.GetConnectionAsync(account.InstanceNumber, logger, cancellationToken);
                     if (adbController == null) return false;
 
-                    var screenshot = await ADBMigrationHelper.TakeScreenshotAsync(adbController, logger, cancellationToken);
+                    var screenshot = await AdbMigrationHelper.TakeScreenshotAsync(adbController, logger, cancellationToken);
                     if (screenshot == null || screenshot.Length == 0)
                     {
                         logger.LogError($"[{account.AccountName}] Failed to capture screenshot");
@@ -178,19 +178,19 @@ namespace Bot.Core.Tasks.Modules
                     if (foundAdClose)
                     {
                         logger.LogInfo($"[{account.AccountName}] Found ad-close.png (confidence: {adCloseConf:F3}), clicking...");
-                        await ADBMigrationHelper.TapAsync(adbController, adCloseRect.GetCenter().X, adCloseRect.GetCenter().Y, logger, cancellationToken);
+                        await AdbMigrationHelper.TapAsync(adbController, adCloseRect.GetCenter().X, adCloseRect.GetCenter().Y, logger, cancellationToken);
                         clickedSomething = true;
                     }
                     if (foundAdClose2)
                     {
                         logger.LogInfo($"[{account.AccountName}] Found ad-close2.png (confidence: {adClose2Conf:F3}), clicking...");
-                        await ADBMigrationHelper.TapAsync(adbController, adClose2Rect.GetCenter().X, adClose2Rect.GetCenter().Y, logger, cancellationToken);
+                        await AdbMigrationHelper.TapAsync(adbController, adClose2Rect.GetCenter().X, adClose2Rect.GetCenter().Y, logger, cancellationToken);
                         clickedSomething = true;
                     }
                     if (foundBackArrow)
                     {
                         logger.LogInfo($"[{account.AccountName}] Found back-arrow.png (confidence: {backArrowConf:F3}), clicking...");
-                        await ADBMigrationHelper.TapAsync(adbController, backArrowRect.GetCenter().X, backArrowRect.GetCenter().Y, logger, cancellationToken);
+                        await AdbMigrationHelper.TapAsync(adbController, backArrowRect.GetCenter().X, backArrowRect.GetCenter().Y, logger, cancellationToken);
                         clickedSomething = true;
                     }
 
@@ -200,7 +200,7 @@ namespace Bot.Core.Tasks.Modules
                     }
 
                     // Check for map views
-                    screenshot = await ADBMigrationHelper.TakeScreenshotAsync(adbController, logger, cancellationToken);
+                    screenshot = await AdbMigrationHelper.TakeScreenshotAsync(adbController, logger, cancellationToken);
                     if (screenshot == null || screenshot.Length == 0) continue;
 
                     var (foundBase, _, _) = _templateMatcher.MatchTemplate(screenshot, baseViewPath, account.InstanceNumber, 0.6f);

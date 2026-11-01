@@ -20,7 +20,7 @@ namespace Bot.Core.Services
     {
         private readonly LogService _logger;
         private readonly UnifiedTemplateMatchingService _templateMatcher;
-        private readonly OCRService _ocrService;
+        private readonly OcrService _ocrService;
         
         // Cache for timer results to avoid excessive OCR operations
         private static readonly ConcurrentDictionary<int, (DateTime lastCheck, TimeSpan? remainingTime)> _timerCache = new();
@@ -38,7 +38,7 @@ namespace Bot.Core.Services
         {
             _logger = logger;
             _templateMatcher = new UnifiedTemplateMatchingService(logger);
-            _ocrService = new OCRService(logger);
+            _ocrService = new OcrService(logger);
         }
 
         /// <summary>
@@ -166,15 +166,15 @@ namespace Bot.Core.Services
             return maxReturnTime;
         }
 
-        private async Task<byte[]?> TakeScreenshotAsync(int instanceNumber, LogService logger, CancellationToken cancellationToken)
+        private static async Task<byte[]?> TakeScreenshotAsync(int instanceNumber, LogService logger, CancellationToken cancellationToken)
         {
             try
             {
                 // Use the existing BaseTaskWithCommonPatterns screenshot method
-                var connection = await ADBMigrationHelper.GetConnectionAsync(instanceNumber, logger, cancellationToken);
+                var connection = await AdbMigrationHelper.GetConnectionAsync(instanceNumber, logger, cancellationToken);
                 if (connection != null)
                 {
-                    return await ADBMigrationHelper.TakeScreenshotAsync(connection, logger, cancellationToken);
+                    return await AdbMigrationHelper.TakeScreenshotAsync(connection, logger, cancellationToken);
                 }
             }
             catch (Exception ex)
@@ -244,7 +244,7 @@ namespace Bot.Core.Services
             }
         }
 
-        private TimeSpan? ParseTimerText(string timerText)
+        private static TimeSpan? ParseTimerText(string timerText)
         {
             if (string.IsNullOrWhiteSpace(timerText))
                 return null;
@@ -278,7 +278,7 @@ namespace Bot.Core.Services
         /// <summary>
         /// Clears the timer cache for a specific instance
         /// </summary>
-        public void ClearTimerCache(int instanceNumber)
+        public static void ClearTimerCache(int instanceNumber)
         {
             _timerCache.TryRemove(instanceNumber, out _);
         }
@@ -286,7 +286,7 @@ namespace Bot.Core.Services
         /// <summary>
         /// Clears all timer caches
         /// </summary>
-        public void ClearAllTimerCaches()
+        public static void ClearAllTimerCaches()
         {
             _timerCache.Clear();
         }

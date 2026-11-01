@@ -214,14 +214,14 @@ namespace Bot.Core.Tasks.Modules
         {
             try
             {
-                var timerOcrConfig = new OCRConfiguration
+                var timerOcrConfig = new OcrConfiguration
                 {
                     ScaleFactor = 4,
                     CharacterWhitelist = "0123456789:",
                     MedianBlurKernelSize = 1
                 };
 
-                using var timerOcr = new OCRService(logger, timerOcrConfig);
+                using var timerOcr = new OcrService(logger, timerOcrConfig);
                 var screenshot = await TakeScreenshotAsync(account.InstanceNumber, logger);
                 if (screenshot == null) return null;
 
@@ -284,14 +284,14 @@ namespace Bot.Core.Tasks.Modules
         {
             try
             {
-                var countOcrConfig = new OCRConfiguration
+                var countOcrConfig = new OcrConfiguration
                 {
                     ScaleFactor = 4,
                     CharacterWhitelist = "0123456789/",
                     MedianBlurKernelSize = 1
                 };
 
-                using var countOcr = new OCRService(logger, countOcrConfig);
+                using var countOcr = new OcrService(logger, countOcrConfig);
                 var screenshot = await TakeScreenshotAsync(account.InstanceNumber, logger);
                 if (screenshot == null) return false;
 
@@ -484,7 +484,7 @@ namespace Bot.Core.Tasks.Modules
             SaveAutoShieldSettings(account, settings);
         }
 
-        private AutoShieldSettings GetAutoShieldSettings(AccountSettings account)
+        private static AutoShieldSettings GetAutoShieldSettings(AccountSettings account)
         {
             // First try the new taskSettings format
             if (account.TaskSettings.TryGetValue("AutoShield", out var settingsJson))
@@ -533,7 +533,7 @@ namespace Bot.Core.Tasks.Modules
             return new AutoShieldSettings();
         }
 
-        private void SaveAutoShieldSettings(AccountSettings account, AutoShieldSettings settings)
+        private static void SaveAutoShieldSettings(AccountSettings account, AutoShieldSettings settings)
         {
             var json = System.Text.Json.JsonSerializer.Serialize(settings);
             account.TaskSettings["AutoShield"] = json;

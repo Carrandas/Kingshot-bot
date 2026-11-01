@@ -30,7 +30,7 @@ namespace Bot.GUI.ViewModels
 
         private readonly LogService _logger;
         private readonly UnifiedTemplateMatchingService _templateMatcher;
-        private readonly ADBController _adbController;
+        private readonly AdbController _adbController;
         private BitmapImage? _currentScreenshot;
         private System.Windows.Point? _firstPoint;
         private System.Windows.Point? _secondPoint;
@@ -154,7 +154,7 @@ namespace Bot.GUI.ViewModels
             }
         }
 
-        public DevToolsViewModel(LogService logger, ADBController adbController)
+        public DevToolsViewModel(LogService logger, AdbController adbController)
         {
             _logger = logger;
             _adbController = adbController;

@@ -6,21 +6,21 @@ This document outlines the complete rewrite of KingshotAuto's ADB connection sys
 
 ### **Core Components**
 
-#### **1. ADBConnectionManagerV2** - Enhanced Connection Management
+#### **1. AdbConnectionManagerV2** - Enhanced Connection Management
 - **Persistent Connections**: Uses AdvancedSharpAdbClient for direct device communication
 - **Smart Retry Logic**: Conservative approach with intelligent failure detection
 - **Emulator Slot Management**: Priority-based queuing system prevents resource conflicts
 - **Health Monitoring**: Automatic detection and recovery of unhealthy connections
 - **Connection Caching**: Efficient reuse of device connections with cleanup
 
-#### **2. ADBControllerV2** - Performance-Optimized Controller
+#### **2. AdbControllerV2** - Performance-Optimized Controller
 - **Buffer Reuse**: ThreadLocal screenshot buffers reduce memory allocation
 - **Command Batching**: Multiple commands executed together for better performance
 - **Enhanced Methods**: Random tapping, multi-tap, swipe, and app management
 - **Performance Metrics**: Built-in tracking of operation times and success rates
 - **Health Checking**: Connection responsiveness monitoring
 
-#### **3. ADBMigrationHelper** - Gradual Migration Support
+#### **3. AdbMigrationHelper** - Gradual Migration Support
 - **Feature Flag System**: Enable/disable V2 system for safe rollout
 - **Backward Compatibility**: Seamless fallback to V1 system if needed
 - **Migration Methods**: Helper methods for transitioning existing code
@@ -90,7 +90,7 @@ public static async Task Main()
     var logger = new LogService("Main");
     
     // Enable V2 system
-    await ADBMigrationHelper.EnableV2SystemAsync(logger, maxConcurrentEmulators: 3);
+    await AdbMigrationHelper.EnableV2SystemAsync(logger, maxConcurrentEmulators: 3);
     
     // Your application logic...
 }
@@ -101,15 +101,15 @@ public static async Task Main()
 #### **Screenshot with Performance Optimization**
 ```csharp
 // Get connection (automatically uses V1 or V2 based on feature flag)
-var connection = await ADBMigrationHelper.GetConnectionAsync(instanceNumber, logger);
+var connection = await AdbMigrationHelper.GetConnectionAsync(instanceNumber, logger);
 
 // Take screenshot with buffer reuse
-var screenshotBytes = await ADBMigrationHelper.TakeScreenshotAsync(connection, logger);
+var screenshotBytes = await AdbMigrationHelper.TakeScreenshotAsync(connection, logger);
 ```
 
 #### **Enhanced Tapping (V2 Features)**
 ```csharp
-if (connection is ADBControllerV2 v2Controller)
+if (connection is AdbControllerV2 v2Controller)
 {
     // Random tap in area (inspired by wosbot-master)
     await v2Controller.TapRandomInRectAsync(100, 100, 200, 200);
@@ -124,7 +124,7 @@ if (connection is ADBControllerV2 v2Controller)
 
 #### **Command Batching for Performance**
 ```csharp
-if (connection is ADBControllerV2 v2Controller)
+if (connection is AdbControllerV2 v2Controller)
 {
     // Batch multiple commands
     v2Controller.BatchCommand("input tap 100 100");
@@ -141,18 +141,18 @@ if (connection is ADBControllerV2 v2Controller)
 #### **Emulator Slot Management** (Prevents Resource Conflicts)
 ```csharp
 // Acquire slot before processing instance
-if (await ADBMigrationHelper.AcquireEmulatorSlotAsync(instanceNumber, logger))
+if (await AdbMigrationHelper.AcquireEmulatorSlotAsync(instanceNumber, logger))
 {
     try 
     {
         // Process instance...
-        var connection = await ADBMigrationHelper.GetConnectionAsync(instanceNumber, logger);
+        var connection = await AdbMigrationHelper.GetConnectionAsync(instanceNumber, logger);
         // Do work...
     }
     finally
     {
         // Always release slot
-        ADBMigrationHelper.ReleaseEmulatorSlot(instanceNumber, logger);
+        AdbMigrationHelper.ReleaseEmulatorSlot(instanceNumber, logger);
     }
 }
 ```
@@ -160,7 +160,7 @@ if (await ADBMigrationHelper.AcquireEmulatorSlotAsync(instanceNumber, logger))
 #### **Performance Monitoring**
 ```csharp
 // Get detailed performance statistics
-var stats = ADBMigrationHelper.GetPerformanceStats();
+var stats = AdbMigrationHelper.GetPerformanceStats();
 if (stats != null)
 {
     foreach (var kvp in stats)
@@ -173,7 +173,7 @@ if (stats != null)
 #### **Health Monitoring & Fallback**
 ```csharp
 // Check if V2 system is healthy
-if (ADBMigrationHelper.IsUsingV2System)
+if (AdbMigrationHelper.IsUsingV2System)
 {
     logger.LogInfo("Using enhanced V2 ADB system");
 }
@@ -185,7 +185,7 @@ else
 // Force fallback if needed
 if (criticalError)
 {
-    await ADBMigrationHelper.ForceSwitchToV1Async(logger);
+    await AdbMigrationHelper.ForceSwitchToV1Async(logger);
 }
 ```
 
@@ -199,7 +199,7 @@ if (criticalError)
 5. **Full migration** once V2 proves stable
 
 ### **Option B: Direct Migration**
-1. **Replace all ADBConnectionManager calls** with ADBMigrationHelper calls
+1. **Replace all AdbConnectionManager calls** with AdbMigrationHelper calls
 2. **Update BaseTaskWithCommonPatterns** to use migration helper
 3. **Enable V2 system** globally
 4. **Monitor and adjust** as needed
@@ -233,8 +233,8 @@ dotnet add package AdvancedSharpAdbClient --version 2.5.0
 - Check logs for detailed error messages
 
 #### **3. Performance Worse Than Expected**
-- Verify V2 system is actually enabled: `ADBMigrationHelper.IsUsingV2System`
-- Check performance stats: `ADBMigrationHelper.GetPerformanceStats()`
+- Verify V2 system is actually enabled: `AdbMigrationHelper.IsUsingV2System`
+- Check performance stats: `AdbMigrationHelper.GetPerformanceStats()`
 - Monitor health checks in logs
 
 #### **4. Connection Instability**
@@ -247,14 +247,14 @@ dotnet add package AdvancedSharpAdbClient --version 2.5.0
 ### **1. Resource Management**
 ```csharp
 // Always use using statements or proper disposal
-var connection = await ADBMigrationHelper.GetConnectionAsync(instanceNumber, logger);
+var connection = await AdbMigrationHelper.GetConnectionAsync(instanceNumber, logger);
 try 
 {
     // Use connection...
 }
 finally 
 {
-    ADBMigrationHelper.CloseConnection(connection, instanceNumber, logger);
+    AdbMigrationHelper.CloseConnection(connection, instanceNumber, logger);
 }
 ```
 
@@ -263,14 +263,14 @@ finally
 // Graceful degradation
 try 
 {
-    var connection = await ADBMigrationHelper.GetConnectionAsync(instanceNumber, logger);
+    var connection = await AdbMigrationHelper.GetConnectionAsync(instanceNumber, logger);
     // Use V2 features if available...
 }
-catch (Exception ex) when (ADBMigrationHelper.IsUsingV2System)
+catch (Exception ex) when (AdbMigrationHelper.IsUsingV2System)
 {
     // Fallback to V1 if V2 fails
     logger.LogError($"V2 system failed, falling back: {ex.Message}");
-    await ADBMigrationHelper.ForceSwitchToV1Async(logger);
+    await AdbMigrationHelper.ForceSwitchToV1Async(logger);
     // Retry with V1...
 }
 ```
@@ -278,7 +278,7 @@ catch (Exception ex) when (ADBMigrationHelper.IsUsingV2System)
 ### **3. Performance Optimization**
 ```csharp
 // Use command batching for multiple operations
-if (connection is ADBControllerV2 v2)
+if (connection is AdbControllerV2 v2)
 {
     v2.BatchCommand("input tap 100 100");
     v2.BatchCommand("input keyevent KEYCODE_BACK");  
@@ -289,7 +289,7 @@ if (connection is ADBControllerV2 v2)
 ### **4. Monitoring**
 ```csharp
 // Regular performance monitoring
-var stats = ADBMigrationHelper.GetPerformanceStats();
+var stats = AdbMigrationHelper.GetPerformanceStats();
 if (stats?["TakeScreenshot"].AvgMs > 1000)
 {
     logger.LogWarning("Screenshot performance degrading, consider investigation");

@@ -52,7 +52,7 @@ namespace Bot.Core.Tasks.Modules
                     return FailNavigation("Step 2: Navigating to map view", "Could not reach map view");
                 }
 
-                var adbController = await ADBMigrationHelper.GetConnectionAsync(account.InstanceNumber, logger, cancellationToken);
+                var adbController = await AdbMigrationHelper.GetConnectionAsync(account.InstanceNumber, logger, cancellationToken);
                 if (adbController == null)
                 {
                     return FailConnection("Step 3: Connecting to emulator", "Failed to establish ADB connection");
@@ -81,7 +81,7 @@ namespace Bot.Core.Tasks.Modules
 
                     while ((DateTime.UtcNow - startTime).TotalSeconds < 5 && !found && !cancellationToken.IsCancellationRequested)
                     {
-                        var screenshot = await ADBMigrationHelper.TakeScreenshotAsync(adbController, logger, cancellationToken);
+                        var screenshot = await AdbMigrationHelper.TakeScreenshotAsync(adbController, logger, cancellationToken);
                         var (isFound, rect, confidence) = _templateMatcher.MatchTemplate(
                             screenshot,
                             templatePath,
@@ -95,7 +95,7 @@ namespace Bot.Core.Tasks.Modules
                             matchRect = rect;
                             var clickPoint = matchRect.GetCenter();
                             logger.LogInfo($"[AutoHeal] Found {description} at ({clickPoint.X}, {clickPoint.Y}) with confidence {confidence:F3}");
-                            await ADBMigrationHelper.TapAsync(adbController, clickPoint.X, clickPoint.Y, logger, cancellationToken);
+                            await AdbMigrationHelper.TapAsync(adbController, clickPoint.X, clickPoint.Y, logger, cancellationToken);
                             await Task.Delay(500, cancellationToken); // Short delay after click
                             break;
                         }
@@ -123,7 +123,7 @@ namespace Bot.Core.Tasks.Modules
                             var retryStartTime = DateTime.UtcNow;
                             while ((DateTime.UtcNow - retryStartTime).TotalSeconds < 5 && !found && !cancellationToken.IsCancellationRequested)
                             {
-                                var retryScreenshot = await ADBMigrationHelper.TakeScreenshotAsync(adbController, logger, cancellationToken);
+                                var retryScreenshot = await AdbMigrationHelper.TakeScreenshotAsync(adbController, logger, cancellationToken);
                                 var (retryFound, retryRect, retryConfidence) = _templateMatcher.MatchTemplate(
                                     retryScreenshot,
                                     templatePath,
@@ -137,7 +137,7 @@ namespace Bot.Core.Tasks.Modules
                                     matchRect = retryRect;
                                     var clickPoint = matchRect.GetCenter();
                                     logger.LogInfo($"[AutoHeal] Found {description} at ({clickPoint.X}, {clickPoint.Y}) with confidence {retryConfidence:F3} after locator recovery");
-                                    await ADBMigrationHelper.TapAsync(adbController, clickPoint.X, clickPoint.Y, logger, cancellationToken);
+                                    await AdbMigrationHelper.TapAsync(adbController, clickPoint.X, clickPoint.Y, logger, cancellationToken);
                                     await Task.Delay(500, cancellationToken);
                                     break;
                                 }

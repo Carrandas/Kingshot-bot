@@ -281,7 +281,7 @@ namespace Bot.Core.Tasks.Modules
                     if ((DateTime.UtcNow - startTime).TotalMilliseconds < POST_LOAD_DURATION_MS)
                     {
                         logger.LogInfo($"[{account.AccountName}] ⏳ No UI elements detected, pressing Back before next attempt...");
-                        if (await GetCachedADBController(account.InstanceNumber, logger, cancellationToken) is ADBControllerV2 adb)
+                        if (await GetCachedADBController(account.InstanceNumber, logger, cancellationToken) is AdbControllerV2 adb)
                             await adb.PressBackButtonAsync(cancellationToken);
                         await Task.Delay(POST_LOAD_INTERVAL_MS, cancellationToken);
                     }

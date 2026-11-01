@@ -9,9 +9,9 @@ namespace Bot.Core.Services
     public class UserNotificationService : IUserNotificationService
     {
         private readonly LogService _logger;
-        private readonly GUILogService _guiLogger;
+        private readonly GuiLogService _guiLogger;
 
-        public UserNotificationService(LogService logger, GUILogService guiLogger)
+        public UserNotificationService(LogService logger, GuiLogService guiLogger)
         {
             _logger = logger;
             _guiLogger = guiLogger;
@@ -92,14 +92,14 @@ namespace Bot.Core.Services
             _guiLogger.SendUserNotification("__CLEAR_NOTIFICATIONS__");
         }
 
-        private string FormatMessage(string message, NotificationType type)
+        private static string FormatMessage(string message, NotificationType type)
         {
             var timestamp = DateTime.Now.ToString("HH:mm:ss");
             var icon = GetIconForType(type);
             return $"|USER|{type}|{timestamp}|{icon} {message}";
         }
 
-        private string GetIconForType(NotificationType type)
+        private static string GetIconForType(NotificationType type)
         {
             return type switch
             {

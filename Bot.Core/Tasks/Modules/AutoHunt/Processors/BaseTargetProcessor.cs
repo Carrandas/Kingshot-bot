@@ -58,7 +58,7 @@ namespace Bot.Core.Tasks.Modules.AutoHunt.Processors
         protected abstract Task<bool> WaitForImageAsync(string imageName, int instanceNumber, LogService logger, CancellationToken cancellationToken, int timeoutMs = 5000, double threshold = 0.6, Rectangle? searchArea = null);
 
         // Utility methods
-        protected AutoHuntSettings GetAutoHuntSettings(AccountSettings account)
+        protected static AutoHuntSettings GetAutoHuntSettings(AccountSettings account)
         {
             if (!account.TaskSettings.TryGetValue("AutoHunt", out var settingsJson) || string.IsNullOrEmpty(settingsJson))
             {
@@ -75,20 +75,20 @@ namespace Bot.Core.Tasks.Modules.AutoHunt.Processors
             }
         }
 
-        protected void SaveAutoHuntSettings(AccountSettings account, AutoHuntSettings settings)
+        protected static void SaveAutoHuntSettings(AccountSettings account, AutoHuntSettings settings)
         {
             var settingsJson = JsonSerializer.Serialize(settings);
             account.TaskSettings["AutoHunt"] = settingsJson;
             // Configuration is auto-saved via ConfigurationManager.Instance
         }
 
-        protected async Task<string> ReadPredictionText(AccountSettings account, LogService logger)
+        protected static async Task<string> ReadPredictionText(AccountSettings account, LogService logger)
         {
             // This would need OCR service - for now return empty
             return string.Empty;
         }
 
-        protected async Task<StaminaCheckResult> CheckForStaminaLow(
+        protected static async Task<StaminaCheckResult> CheckForStaminaLow(
             byte[]? screenshot,
             Rectangle staminaLowArea,
             AccountSettings account,
@@ -100,19 +100,19 @@ namespace Bot.Core.Tasks.Modules.AutoHunt.Processors
             return StaminaCheckResult.NoStaminaIssue;
         }
 
-        protected async Task<bool> CheckMaxMarch(AccountSettings account, LogService logger, AutoHuntSettings settings)
+        protected static async Task<bool> CheckMaxMarch(AccountSettings account, LogService logger, AutoHuntSettings settings)
         {
             // This would need march management service
             return false;
         }
 
-        protected async Task<bool> IsTargetMarchingAsync(AccountSettings account, LogService logger)
+        protected static async Task<bool> IsTargetMarchingAsync(AccountSettings account, LogService logger)
         {
             // This would need hunt mode navigation service
             return false;
         }
 
-        protected async Task HandleMarchingTarget(HuntTarget target, AccountSettings account, LogService logger, CancellationToken cancellationToken)
+        protected static async Task HandleMarchingTarget(HuntTarget target, AccountSettings account, LogService logger, CancellationToken cancellationToken)
         {
             // This would need hunt mode navigation service
             await Task.Delay(1000, cancellationToken);

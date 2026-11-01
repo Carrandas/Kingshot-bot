@@ -65,7 +65,7 @@ namespace Bot.GUI.ViewModels
         }
 
         private readonly InstanceManager _instanceManager;
-        private readonly GUILogService _logger;
+        private readonly GuiLogService _logger;
         private readonly TaskManager _taskManager;
         private readonly CycleManagementService _cycleService;
         private readonly IUserNotificationService _userNotifications;
@@ -99,7 +99,7 @@ namespace Bot.GUI.ViewModels
         private MainViewModel()
         {
             _botCancellationTokenSource = new CancellationTokenSource();
-            _logger = new GUILogService(AppendLog);
+            _logger = new GuiLogService(AppendLog);
             _userNotifications = new UserNotificationService(_logger, _logger);
             CurrentLogMessage = "";
             
@@ -206,7 +206,7 @@ namespace Bot.GUI.ViewModels
                         return;
                     }
 
-                    if (_cycleService.IsPaused)
+                    if (CycleManagementService.IsPaused)
                     {
                         await _cycleService.ResumeAsync();
                         IsBotPaused = false;
@@ -238,7 +238,7 @@ namespace Bot.GUI.ViewModels
                 _logger.LogInfo($"LaunchBotCommand executed{(runOnce ? " (run once)" : "")}");
                 try {
                     // Clean up any existing ADB connections before starting
-                    await ADBConnectionManager.CloseAllConnections(_logger);
+                    await AdbConnectionManager.CloseAllConnections(_logger);
                     
                     _currentConfig = ConfigVM.GetCurrentBotConfig();
                     if (_currentConfig == null)
@@ -671,7 +671,7 @@ namespace Bot.GUI.ViewModels
                 _logger.LogInfo("Cancel token triggered", category: LogCategories.System);
 
                 // Reset pause state when stopping
-                if (_cycleService.IsPaused)
+                if (CycleManagementService.IsPaused)
                 {
                     _logger.LogInfo("Resetting pause state during stop", category: LogCategories.System);
                     PauseGate.Resume(); // a single run (▶) has no cycle stop to release the waiting tap
@@ -692,7 +692,7 @@ namespace Bot.GUI.ViewModels
                 
                 // Close all ADB connections in background
                 _logger.LogInfo("Closing all ADB connections", category: LogCategories.ADB);
-                await ADBConnectionManager.CloseAllConnections(_logger);
+                await AdbConnectionManager.CloseAllConnections(_logger);
 
                 // Update instance statuses
                 if (_instanceManager != null)

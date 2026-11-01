@@ -262,7 +262,7 @@ namespace Bot.Core.Tasks.Modules
             return DateTime.UtcNow >= nextCollection;
         }
 
-        private DateTime GetNextCollectionTime(string accountId, AccountSettings account)
+        private static DateTime GetNextCollectionTime(string accountId, AccountSettings account)
         {
             if (!_lastCollectionTimes.TryGetValue(accountId, out DateTime lastCollection))
             {

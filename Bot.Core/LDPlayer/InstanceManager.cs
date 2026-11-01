@@ -82,7 +82,7 @@ namespace Bot.Core.LDPlayer
             try
             {
                 _logger.LogInfo("Ensuring ADB server is ready before starting instances...");
-                var adbController = await ADBConnectionManager.GetConnectionAsync(0, _logger, cancellationToken);
+                var adbController = await AdbConnectionManager.GetConnectionAsync(0, _logger, cancellationToken);
                 if (adbController == null)
                 {
                     _logger.LogWarning("Initial ADB server check failed, but proceeding with instance starts...");
@@ -137,7 +137,7 @@ namespace Bot.Core.LDPlayer
                             // Verify ADB connection
                             try
                             {
-                                var adbController = await ADBConnectionManager.GetConnectionAsync(instanceNumber, _logger, cancellationToken);
+                                var adbController = await AdbConnectionManager.GetConnectionAsync(instanceNumber, _logger, cancellationToken);
                                 if (adbController != null)
                                 {
                                     _logger.LogInfo($"✅ ADB connection verified for instance {instanceNumber}");
@@ -520,7 +520,7 @@ namespace Bot.Core.LDPlayer
                 // Skip the initial delay since we know Android is started
                 initialDelayDone = true;
 
-                var adbController = await ADBConnectionManager.GetConnectionAsync(instanceNumber, _logger, cancellationToken);
+                var adbController = await AdbConnectionManager.GetConnectionAsync(instanceNumber, _logger, cancellationToken);
                 if (adbController == null || !await adbController.IsConnectedAndResponsive(cancellationToken))
                 {
                     var elapsedTime = DateTime.UtcNow - startTime;
@@ -536,13 +536,13 @@ namespace Bot.Core.LDPlayer
                         _logger.LogWarning($"[BootWait] ADB connection failed {adbRetryCount} times. Attempting comprehensive recovery...");
                         
                         // Notify user about recovery attempt
-                        if (_logger is GUILogService guiLogger)
+                        if (_logger is GuiLogService guiLogger)
                         {
                             guiLogger.SendUserNotification($"|USER|Warning|{DateTime.Now:HH:mm:ss}|⚠️ Connection issues detected. Attempting automatic recovery for Instance {instanceNumber}...");
                         }
                         
                         // Try comprehensive recovery
-                        var recoveryService = new ADBRecoveryService(_logger);
+                        var recoveryService = new AdbRecoveryService(_logger);
                         var recoverySuccess = await recoveryService.AttemptFullRecoveryAsync(instanceNumber, cancellationToken);
                         
                         if (recoverySuccess)
@@ -550,7 +550,7 @@ namespace Bot.Core.LDPlayer
                             _logger.LogInfo($"[BootWait] Recovery successful! Retrying connection...", category: LogCategories.ADB);
                             
                             // Notify user about successful recovery
-                            if (_logger is GUILogService guiLogger2)
+                            if (_logger is GuiLogService guiLogger2)
                             {
                                 guiLogger2.SendUserNotification($"|USER|Success|{DateTime.Now:HH:mm:ss}|✅ Automatic recovery successful! Connection restored for Instance {instanceNumber}.");
                             }
@@ -563,7 +563,7 @@ namespace Bot.Core.LDPlayer
                         {
                             _logger.LogError($"[BootWait] Comprehensive recovery failed for instance {instanceNumber}", category: LogCategories.ADB);
                             // Fall back to the old recovery method
-                            await ADBConnectionManager.AttemptServerRecoveryAsync(instanceNumber, _logger, cancellationToken);
+                            await AdbConnectionManager.AttemptServerRecoveryAsync(instanceNumber, _logger, cancellationToken);
                             adbRetryCount = 0;
                             await Task.Delay(5000, cancellationToken);
                             continue;

@@ -94,7 +94,7 @@ namespace Bot.Core.Utils
             }
         }
 
-        private string CleanLine(string line)
+        private static string CleanLine(string line)
         {
             if (string.IsNullOrWhiteSpace(line))
                 return string.Empty;
@@ -261,7 +261,7 @@ namespace Bot.Core.Utils
             return null;
         }
 
-        private int LevenshteinDistance(string s1, string s2)
+        private static int LevenshteinDistance(string s1, string s2)
         {
             if (string.IsNullOrEmpty(s1)) return string.IsNullOrEmpty(s2) ? 0 : s2.Length;
             if (string.IsNullOrEmpty(s2)) return s1.Length;

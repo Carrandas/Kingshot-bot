@@ -285,7 +285,7 @@ namespace Bot.Core.Tasks.Modules
 
         #region Execution Time Tracking
 
-        private void LoadExecutionTimes()
+        private static void LoadExecutionTimes()
         {
             try
             {
@@ -694,7 +694,7 @@ namespace Bot.Core.Tasks.Modules
         /// <summary>
         /// Simple check: Is the button region more green than grey?
         /// </summary>
-        private bool IsGreenNotGrey(System.Drawing.Bitmap screenshot, System.Drawing.Rectangle region, LogService logger, string accountName)
+        private static bool IsGreenNotGrey(System.Drawing.Bitmap screenshot, System.Drawing.Rectangle region, LogService logger, string accountName)
         {
             try
             {
@@ -759,7 +759,7 @@ namespace Bot.Core.Tasks.Modules
             MaxMarchesReached
         }
 
-        private bool ShouldCheckAutoJoin(AutoRallySettings settings, string accountName, LogService logger)
+        private static bool ShouldCheckAutoJoin(AutoRallySettings settings, string accountName, LogService logger)
         {
             var now = DateTime.UtcNow;
             
@@ -896,7 +896,7 @@ namespace Bot.Core.Tasks.Modules
                 await Task.Delay(1000, cancellationToken); // Wait for rally screen to load
 
                 // Step 2: Check for Auto-Join or Auto-joining text
-                using var ocrService = new OCRService(logger, new OCRConfiguration
+                using var ocrService = new OcrService(logger, new OcrConfiguration
                 {
                     ScaleFactor = 3,
                     AdaptiveC = 7,
@@ -946,7 +946,7 @@ namespace Bot.Core.Tasks.Modules
             }
         }
 
-        private async Task<TaskExecutionDetails> HandleExistingAutoJoinAsync(AccountSettings account, LogService logger, CancellationToken cancellationToken, OCRService ocrService)
+        private async Task<TaskExecutionDetails> HandleExistingAutoJoinAsync(AccountSettings account, LogService logger, CancellationToken cancellationToken, OcrService ocrService)
         {
             try
             {
@@ -1024,7 +1024,7 @@ namespace Bot.Core.Tasks.Modules
             }
         }
 
-        private async Task<TaskExecutionDetails> EnableAutoJoinAsync(AccountSettings account, LogService logger, CancellationToken cancellationToken, OCRService ocrService)
+        private async Task<TaskExecutionDetails> EnableAutoJoinAsync(AccountSettings account, LogService logger, CancellationToken cancellationToken, OcrService ocrService)
         {
             try
             {
@@ -1089,7 +1089,7 @@ namespace Bot.Core.Tasks.Modules
         private async Task<int> GetAvailableMarchesAsync(AccountSettings account, LogService logger)
         {
             var marchCapacityRect = new Rectangle(197, 205, 48, 20);
-            var marchOcrConfig = new OCRConfiguration
+            var marchOcrConfig = new OcrConfiguration
             {
                 ScaleFactor = 4,
                 AdaptiveC = 5,
@@ -1097,7 +1097,7 @@ namespace Bot.Core.Tasks.Modules
                 CharacterWhitelist = "0123456789/"
             };
 
-            using var marchOcr = new OCRService(logger, marchOcrConfig);
+            using var marchOcr = new OcrService(logger, marchOcrConfig);
             var screenshot = await TakeScreenshotAsync(account.InstanceNumber, logger);
             if (screenshot == null) return 1;
 

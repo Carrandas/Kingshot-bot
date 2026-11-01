@@ -38,14 +38,14 @@ namespace Bot.Core.Tasks.Modules
             public string RawOcrText { get; set; } = string.Empty;
         }
 
-        private TroopTrainingSettings GetTroopTrainingSettings(AccountSettings account)
+        private static TroopTrainingSettings GetTroopTrainingSettings(AccountSettings account)
         {
             // Use the new TroopTrainingSettings property directly
             return account.TroopTrainingSettings ?? new TroopTrainingSettings();
         }
 
 
-        private async Task<bool> PerformCurvedSwipeAsync(int instanceNumber, LogService logger, Rectangle swipeArea, CancellationToken cancellationToken)
+        private static async Task<bool> PerformCurvedSwipeAsync(int instanceNumber, LogService logger, Rectangle swipeArea, CancellationToken cancellationToken)
         {
             try
             {
@@ -62,15 +62,15 @@ namespace Bot.Core.Tasks.Modules
                 logger.LogInfo($"[Instance {instanceNumber}] Performing curved swipe from ({startX},{centerY}) to ({endX},{endY})");
 
                 // Execute the swipe using ADB V2 controller
-                var connection = await ADBMigrationHelper.GetConnectionAsync(instanceNumber, logger, cancellationToken);
+                var connection = await AdbMigrationHelper.GetConnectionAsync(instanceNumber, logger, cancellationToken);
                 if (connection == null)
                 {
                     logger.LogError($"[Instance {instanceNumber}] Failed to get ADB connection for swipe");
                     return false;
                 }
 
-                // Cast to ADBControllerV2 to access SwipeAsync method
-                if (connection is ADBControllerV2 adbController)
+                // Cast to AdbControllerV2 to access SwipeAsync method
+                if (connection is AdbControllerV2 adbController)
                 {
                     bool swipeResult = await adbController.SwipeAsync(startX, centerY, endX, endY, 500, cancellationToken);
 
@@ -88,7 +88,7 @@ namespace Bot.Core.Tasks.Modules
                 }
                 else
                 {
-                    logger.LogError($"[Instance {instanceNumber}] ADB connection is not ADBControllerV2 type");
+                    logger.LogError($"[Instance {instanceNumber}] ADB connection is not AdbControllerV2 type");
                     return false;
                 }
             }
@@ -273,19 +273,19 @@ namespace Bot.Core.Tasks.Modules
                     await Task.Delay(500, cancellationToken);
 
                     // Simplified timer config
-                    var timerOcrConfig = new OCRConfiguration {
+                    var timerOcrConfig = new OcrConfiguration {
                         CharacterWhitelist = "0123456789:",
                         ScaleFactor = 4
                     };
-                    using var timerOcrService = new OCRService(logger, timerOcrConfig);
+                    using var timerOcrService = new OcrService(logger, timerOcrConfig);
                     
                     // Simplified word config - removed unused properties
-                    var wordOcrConfig = new OCRConfiguration {
+                    var wordOcrConfig = new OcrConfiguration {
                         CharacterWhitelist = "ceidlmopt", 
                         ScaleFactor = 4,
                         PageSegMode = PageSegMode.SingleLine
                     };
-                    using var wordOcrService = new OCRService(logger, wordOcrConfig);
+                    using var wordOcrService = new OcrService(logger, wordOcrConfig);
 
                     var statuses = new List<TroopStatusInfo>();
                     var troopAreas = new Dictionary<string, Rectangle>
@@ -382,7 +382,7 @@ namespace Bot.Core.Tasks.Modules
             }
         }
 
-        private bool IsSimilar(string s1, string s2, int maxDistance)
+        private static bool IsSimilar(string s1, string s2, int maxDistance)
         {
             string s1Lower = s1.ToLowerInvariant();
             string s2Lower = s2.ToLowerInvariant();
@@ -515,14 +515,14 @@ namespace Bot.Core.Tasks.Modules
                             if (screenshot != null)
                             {
                                 // Create OCR config for text detection
-                                var textOcrConfig = new OCRConfiguration
+                                var textOcrConfig = new OcrConfiguration
                                 {
                                     CharacterWhitelist = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz ",
                                     ScaleFactor = 3,
                                     PageSegMode = PageSegMode.SingleLine
                                 };
 
-                                using var ocrService = new OCRService(logger, textOcrConfig);
+                                using var ocrService = new OcrService(logger, textOcrConfig);
                                 string detectedText = ocrService.ExtractTextFromScreenArea(screenshot, rookieCheckArea);
 
                                 logger.LogInfo($"[{account.AccountName}] 📝 OCR detected text: '{detectedText}'");
@@ -646,14 +646,14 @@ namespace Bot.Core.Tasks.Modules
                                             if (screenshot != null)
                                             {
                                                 // Create OCR config for text detection
-                                                var textOcrConfig = new OCRConfiguration
+                                                var textOcrConfig = new OcrConfiguration
                                                 {
                                                     CharacterWhitelist = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz ",
                                                     ScaleFactor = 3,
                                                     PageSegMode = PageSegMode.SingleLine
                                                 };
 
-                                                using var ocrService = new OCRService(logger, textOcrConfig);
+                                                using var ocrService = new OcrService(logger, textOcrConfig);
                                                 string detectedText = ocrService.ExtractTextFromScreenArea(screenshot, rookieCheckArea);
 
                                                 logger.LogInfo($"[{account.AccountName}] 📝 OCR detected text for {readyTroop.TroopType}: '{detectedText}'");
@@ -801,7 +801,7 @@ namespace Bot.Core.Tasks.Modules
                         logger.LogInfo("Detected ADB connection loss, attempting to recover...");
                         // V2 system handles connection recovery automatically
                         await Task.Delay(2000, cancellationToken);
-                        await ADBMigrationHelper.GetConnectionAsync(instanceNumber, logger, cancellationToken);
+                        await AdbMigrationHelper.GetConnectionAsync(instanceNumber, logger, cancellationToken);
                     }
                     if (attempt < maxRetries) await Task.Delay(GameCoordinates.Delays.BetweenErrorRetries, cancellationToken);
                 }
@@ -810,7 +810,7 @@ namespace Bot.Core.Tasks.Modules
             return false;
         }
 
-        private Rectangle GetTroopCompletionArea(string troopType)
+        private static Rectangle GetTroopCompletionArea(string troopType)
         {
             var lowerTroopType = troopType.ToLowerInvariant();
             Rectangle result = lowerTroopType switch

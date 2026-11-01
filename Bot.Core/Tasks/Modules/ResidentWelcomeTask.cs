@@ -19,7 +19,7 @@ namespace Bot.Core.Tasks.Modules
         private LocatorService? _locatorService;
         
         // Tooltip for the UI
-        public string ToolTip => "Welcomes in new residents";
+        public static string ToolTip => "Welcomes in new residents";
 
         protected override async Task OnInitializeAsync(LogService logger, CancellationToken cancellationToken)
         {

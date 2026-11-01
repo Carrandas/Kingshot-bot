@@ -17,7 +17,7 @@ namespace Bot.Core.LDPlayer
     /// Enhanced ADB connection manager inspired by wosbot-master's ddmlib approach.
     /// Uses AdvancedSharpAdbClient for persistent device connections and smart retry logic.
     /// </summary>
-    public static class ADBConnectionManagerV2
+    public static class AdbConnectionManagerV2
     {
         // Persistent ADB client and server management
         private static AdbClient? _adbClient;
@@ -108,7 +108,7 @@ namespace Bot.Core.LDPlayer
         /// <summary>
         /// Gets a persistent connection for the specified instance with smart retry logic
         /// </summary>
-        public static async Task<ADBControllerV2?> GetConnectionAsync(int instanceNumber, LogService logger, CancellationToken cancellationToken = default)
+        public static async Task<AdbControllerV2?> GetConnectionAsync(int instanceNumber, LogService logger, CancellationToken cancellationToken = default)
         {
             if (!_serverInitialized)
             {
@@ -129,7 +129,7 @@ namespace Bot.Core.LDPlayer
                 {
                     // Update last used time
                     _deviceConnections[instanceNumber] = existingConnection with { LastUsed = DateTime.UtcNow };
-                    return new ADBControllerV2(existingConnection.Device, existingConnection.Client, logger, instanceNumber);
+                    return new AdbControllerV2(existingConnection.Device, existingConnection.Client, logger, instanceNumber);
                 }
 
                 // Try to establish new connection with smart retry
@@ -150,7 +150,7 @@ namespace Bot.Core.LDPlayer
                             _deviceConnections[instanceNumber] = (connectedDevice, _adbClient!, DateTime.UtcNow, true);
                             
                             logger.LogInfo($"[ADBv2] Connected to instance {instanceNumber} ({deviceSerial}) on attempt {attempt}");
-                            return new ADBControllerV2(connectedDevice, _adbClient!, logger, instanceNumber);
+                            return new AdbControllerV2(connectedDevice, _adbClient!, logger, instanceNumber);
                         }
                         
                         if (attempt < MAX_RETRY_ATTEMPTS)
@@ -184,7 +184,7 @@ namespace Bot.Core.LDPlayer
                                         DeviceData connectedDevice = (DeviceData)device;
                                         
                                         _deviceConnections[instanceNumber] = (connectedDevice, _adbClient!, DateTime.UtcNow, true);
-                                        return new ADBControllerV2(connectedDevice, _adbClient!, logger, instanceNumber);
+                                        return new AdbControllerV2(connectedDevice, _adbClient!, logger, instanceNumber);
                                     }
                                 }
                                 catch (Exception restartEx)

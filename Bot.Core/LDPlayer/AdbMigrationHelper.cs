@@ -9,7 +9,7 @@ namespace Bot.Core.LDPlayer
     /// Unified ADB connection helper that uses the enhanced V2 ADB system.
     /// Provides automatic initialization and consistent interface for all ADB operations.
     /// </summary>
-    public static class ADBMigrationHelper
+    public static class AdbMigrationHelper
     {
         private static bool _v2SystemInitialized = false;
         private static readonly object _initLock = new object();
@@ -24,7 +24,7 @@ namespace Bot.Core.LDPlayer
                 if (_v2SystemInitialized) return;
             }
 
-            if (await ADBConnectionManagerV2.InitializeAsync(logger, maxConcurrentEmulators))
+            if (await AdbConnectionManagerV2.InitializeAsync(logger, maxConcurrentEmulators))
             {
                 lock (_initLock)
                 {
@@ -49,7 +49,7 @@ namespace Bot.Core.LDPlayer
                 await InitializeV2SystemAsync(logger);
             }
 
-            return await ADBConnectionManagerV2.GetConnectionAsync(instanceNumber, logger, cancellationToken);
+            return await AdbConnectionManagerV2.GetConnectionAsync(instanceNumber, logger, cancellationToken);
         }
 
         /// <summary>
@@ -57,13 +57,13 @@ namespace Bot.Core.LDPlayer
         /// </summary>
         public static async Task<byte[]> TakeScreenshotAsync(object connection, LogService logger, CancellationToken cancellationToken = default)
         {
-            if (connection is ADBControllerV2 v2Controller)
+            if (connection is AdbControllerV2 v2Controller)
             {
                 return await v2Controller.TakeScreenshotAsync(cancellationToken);
             }
             else
             {
-                throw new ArgumentException("Invalid connection type - expected ADBControllerV2");
+                throw new ArgumentException("Invalid connection type - expected AdbControllerV2");
             }
         }
 
@@ -72,13 +72,13 @@ namespace Bot.Core.LDPlayer
         /// </summary>
         public static async Task<bool> TapAsync(object connection, int x, int y, LogService logger, CancellationToken cancellationToken = default)
         {
-            if (connection is ADBControllerV2 v2Controller)
+            if (connection is AdbControllerV2 v2Controller)
             {
                 return await v2Controller.TapAsync(x, y, cancellationToken);
             }
             else
             {
-                throw new ArgumentException("Invalid connection type - expected ADBControllerV2");
+                throw new ArgumentException("Invalid connection type - expected AdbControllerV2");
             }
         }
 
@@ -87,13 +87,13 @@ namespace Bot.Core.LDPlayer
         /// </summary>
         public static async Task<bool> TapRandomInRectAsync(object connection, int x1, int y1, int x2, int y2, LogService logger, CancellationToken cancellationToken = default)
         {
-            if (connection is ADBControllerV2 v2Controller)
+            if (connection is AdbControllerV2 v2Controller)
             {
                 return await v2Controller.TapRandomInRectAsync(x1, y1, x2, y2, cancellationToken);
             }
             else
             {
-                throw new ArgumentException("Invalid connection type - expected ADBControllerV2");
+                throw new ArgumentException("Invalid connection type - expected AdbControllerV2");
             }
         }
 
@@ -102,13 +102,13 @@ namespace Bot.Core.LDPlayer
         /// </summary>
         public static async Task<bool> SwipeAsync(object connection, int startX, int startY, int endX, int endY, int durationMs, LogService logger, CancellationToken cancellationToken = default)
         {
-            if (connection is ADBControllerV2 v2Controller)
+            if (connection is AdbControllerV2 v2Controller)
             {
                 return await v2Controller.SwipeAsync(startX, startY, endX, endY, durationMs, cancellationToken);
             }
             else
             {
-                throw new ArgumentException("Invalid connection type - expected ADBControllerV2");
+                throw new ArgumentException("Invalid connection type - expected AdbControllerV2");
             }
         }
 
@@ -124,7 +124,7 @@ namespace Bot.Core.LDPlayer
         {
             if (_v2SystemInitialized)
             {
-                return ADBControllerV2.GetPerformanceStats();
+                return AdbControllerV2.GetPerformanceStats();
             }
             return null;
         }
@@ -140,7 +140,7 @@ namespace Bot.Core.LDPlayer
                 await InitializeV2SystemAsync(logger);
             }
 
-            return await ADBConnectionManagerV2.AcquireEmulatorSlotAsync(instanceNumber, logger, cancellationToken: cancellationToken);
+            return await AdbConnectionManagerV2.AcquireEmulatorSlotAsync(instanceNumber, logger, cancellationToken: cancellationToken);
         }
 
         /// <summary>
@@ -150,7 +150,7 @@ namespace Bot.Core.LDPlayer
         {
             if (_v2SystemInitialized)
             {
-                ADBConnectionManagerV2.ReleaseEmulatorSlot(instanceNumber, logger);
+                AdbConnectionManagerV2.ReleaseEmulatorSlot(instanceNumber, logger);
             }
         }
 
@@ -159,7 +159,7 @@ namespace Bot.Core.LDPlayer
         /// </summary>
         public static void CloseConnection(object connection, int instanceNumber, LogService logger)
         {
-            if (connection is ADBControllerV2 v2Controller)
+            if (connection is AdbControllerV2 v2Controller)
             {
                 v2Controller.Dispose();
                 // V2 system manages connections internally

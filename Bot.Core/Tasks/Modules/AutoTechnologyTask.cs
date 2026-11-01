@@ -156,7 +156,7 @@ namespace Bot.Core.Tasks.Modules
                 using var bitmap = new Bitmap(ms);
                 
                 // Create optimized OCR configuration specifically for x/x patterns
-                var ocrConfig = new OCRConfiguration
+                var ocrConfig = new OcrConfiguration
                 {
                     ScaleFactor = 5, // Higher scale for better recognition
                     AdaptiveC = 8, // Better contrast adaptation
@@ -180,7 +180,7 @@ namespace Bot.Core.Tasks.Modules
                         
                         try
                         {
-                            using var ocr = new OCRService(logger, ocrConfig);
+                            using var ocr = new OcrService(logger, ocrConfig);
                             
                             // Convert region to byte array for OCR
                             using var regionMs = new System.IO.MemoryStream();
@@ -305,7 +305,7 @@ namespace Bot.Core.Tasks.Modules
                 using var ms = new System.IO.MemoryStream(screenshot);
                 using var bitmap = new Bitmap(ms);
 
-                var numberOcrConfig = new OCRConfiguration
+                var numberOcrConfig = new OcrConfiguration
                 {
                     ScaleFactor = 4,
                     AdaptiveC = 7,
@@ -314,7 +314,7 @@ namespace Bot.Core.Tasks.Modules
                     PageSegMode = PageSegMode.SingleChar
                 };
 
-                var slashOcrConfig = new OCRConfiguration
+                var slashOcrConfig = new OcrConfiguration
                 {
                     ScaleFactor = 4,
                     AdaptiveC = 7,
@@ -338,7 +338,7 @@ namespace Bot.Core.Tasks.Modules
                             string leftText = "", middleText = "", rightText = "";
 
                             // OCR left region (number)
-                            using (var leftOcr = new OCRService(logger, numberOcrConfig))
+                            using (var leftOcr = new OcrService(logger, numberOcrConfig))
                             {
                                 using var leftMs = new System.IO.MemoryStream();
                                 using (var leftBitmap = bitmap.Clone(leftRegion, bitmap.PixelFormat))
@@ -350,7 +350,7 @@ namespace Bot.Core.Tasks.Modules
                             }
 
                             // OCR middle region (slash)
-                            using (var middleOcr = new OCRService(logger, slashOcrConfig))
+                            using (var middleOcr = new OcrService(logger, slashOcrConfig))
                             {
                                 using var middleMs = new System.IO.MemoryStream();
                                 using (var middleBitmap = bitmap.Clone(middleRegion, bitmap.PixelFormat))
@@ -362,7 +362,7 @@ namespace Bot.Core.Tasks.Modules
                             }
 
                             // OCR right region (number)
-                            using (var rightOcr = new OCRService(logger, numberOcrConfig))
+                            using (var rightOcr = new OcrService(logger, numberOcrConfig))
                             {
                                 using var rightMs = new System.IO.MemoryStream();
                                 using (var rightBitmap = bitmap.Clone(rightRegion, bitmap.PixelFormat))
@@ -418,7 +418,7 @@ namespace Bot.Core.Tasks.Modules
                 using var bitmap = new Bitmap(ms);
                 
                 // OCR configuration optimized for "idle" text detection
-                var ocrConfig = new OCRConfiguration
+                var ocrConfig = new OcrConfiguration
                 {
                     ScaleFactor = 4,
                     AdaptiveC = 6,
@@ -427,7 +427,7 @@ namespace Bot.Core.Tasks.Modules
                     PageSegMode = PageSegMode.SingleWord
                 };
 
-                using var ocr = new OCRService(logger, ocrConfig);
+                using var ocr = new OcrService(logger, ocrConfig);
                 
                 // Convert region to byte array for OCR
                 using var regionMs = new System.IO.MemoryStream();
@@ -448,7 +448,7 @@ namespace Bot.Core.Tasks.Modules
             }
         }
 
-        private AutoTechnologySettings GetTaskSettings<T>(AccountSettings account) where T : new()
+        private static AutoTechnologySettings GetTaskSettings<T>(AccountSettings account) where T : new()
         {
             if (!account.TaskSettings.TryGetValue("AutoTechnology", out var settingsJson))
             {

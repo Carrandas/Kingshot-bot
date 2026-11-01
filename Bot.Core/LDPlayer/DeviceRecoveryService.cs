@@ -81,7 +81,7 @@ namespace Bot.Core.LDPlayer
             {
                 _logger.LogInfo($"[Recovery] Trying simple reconnection for {device.DeviceSerial}");
                 
-                var controller = await ADBConnectionManager.GetConnectionAsync(device.InstanceNumber, _logger, cancellationToken);
+                var controller = await AdbConnectionManager.GetConnectionAsync(device.InstanceNumber, _logger, cancellationToken);
                 if (controller != null)
                 {
                     var startTime = DateTime.UtcNow;
@@ -262,7 +262,7 @@ namespace Bot.Core.LDPlayer
                     _logger.LogInfo($"[Recovery] No other devices active, proceeding with ADB restart for {device.DeviceSerial}");
                     
                     // Safe to restart ADB server
-                    await ADBConnectionManager.AttemptServerRecoveryAsync(device.InstanceNumber, _logger, cancellationToken);
+                    await AdbConnectionManager.AttemptServerRecoveryAsync(device.InstanceNumber, _logger, cancellationToken);
                     
                     // Wait for server to restart
                     await Task.Delay(5000, cancellationToken);
