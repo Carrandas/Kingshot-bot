@@ -196,7 +196,7 @@ namespace Bot.Core.ImageDetection
 
             var preloadTasks = commonTemplates
                 .Where(template => template.Exists())
-                .Select(template => (System.Threading.Tasks.Task)enhancedService.PreloadTemplateAsync(template))
+                .Select(template => enhancedService.PreloadTemplateAsync(template))
                 .ToList();
 
             if (preloadTasks.Count > 0)

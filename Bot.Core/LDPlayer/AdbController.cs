@@ -177,7 +177,7 @@ namespace Bot.Core.LDPlayer
             };
             using var process = Process.Start(psi);
             if (process == null)
-                throw new Exception("Failed to start adb screencap process.");
+                throw new InvalidOperationException("Failed to start adb screencap process.");
 
             // Create timeout for screenshot operation (15 seconds)
             using var timeoutCts = new CancellationTokenSource(15000);
@@ -221,7 +221,7 @@ namespace Bot.Core.LDPlayer
 
             int expectedLen = width * height * pixelSize;
             if (raw.Length < 12 + expectedLen)
-                throw new Exception($"Raw screencap data too short: expected {expectedLen} bytes, got {raw.Length - 12}");
+                throw new InvalidOperationException($"Raw screencap data too short: expected {expectedLen} bytes, got {raw.Length - 12}");
 
             // Convert raw framebuffer to Bitmap
             using var bmp = new System.Drawing.Bitmap(width, height, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
@@ -240,8 +240,7 @@ namespace Bot.Core.LDPlayer
                         byte r, g, b, a;
                         switch (format)
                         {
-                            case HAL_PIXEL_FORMAT_RGBA_8888: // RGBA
-                            default: // Default to RGBA
+                            default: // RGBA (HAL_PIXEL_FORMAT_RGBA_8888, also the fallback)
                                 r = raw[srcIdx];
                                 g = raw[srcIdx + 1];
                                 b = raw[srcIdx + 2];

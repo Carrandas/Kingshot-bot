@@ -234,7 +234,6 @@ namespace Bot.Core.Tasks.Modules.AutoHunt
                             if (availableMarches <= 0)
                             {
                                 logger.LogInfo($"[{account.AccountName}] No more marches available, waiting for marches...");
-                                continue;
                             }
                         }
                     }
@@ -863,9 +862,6 @@ namespace Bot.Core.Tasks.Modules.AutoHunt
             {
                 logger.LogInfo($"[{account.AccountName}] Found {targets.Count} valid targets after scanning");
             }
-
-            // Create visual blocking debug log - DISABLED FOR PERFORMANCE
-            // await CreateDebugLog(account, logger, targets, settings, accountId);
 
             return targets;
         }

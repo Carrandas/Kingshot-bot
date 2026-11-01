@@ -136,8 +136,10 @@ namespace Bot.Core.Utils
                 var programPaths = new[] {
                     Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
                     Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
+#pragma warning disable S1075 // fallback when the special-folder lookup returns nothing
                     @"C:\Program Files",
                     @"C:\Program Files (x86)"
+#pragma warning restore S1075
                 }.Distinct().Where(p => Directory.Exists(p));
 
                 // Only look for LDPlayer 9 subfolders

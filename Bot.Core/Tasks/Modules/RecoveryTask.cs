@@ -140,9 +140,10 @@ namespace Bot.Core.Tasks.Modules
                 { "map-view.png", mapViewPath }
             };
 
-            foreach (var image in requiredImages.Where(image => !File.Exists(image.Value)))
+            var missingImage = requiredImages.FirstOrDefault(image => !File.Exists(image.Value));
+            if (missingImage.Key != null)
             {
-                logger.LogError($"[{account.AccountName}] Required image not found: {image.Key}");
+                logger.LogError($"[{account.AccountName}] Required image not found: {missingImage.Key}");
                 return false;
             }
 

@@ -5,7 +5,7 @@ using System.Collections.Generic;
 
 namespace Bot.Core.Services
 {
-    public class LocalizationService
+    public static class LocalizationService
     {
         private static readonly Dictionary<string, Dictionary<string, string>> _translations = new();
         private static CultureInfo _currentCulture = Thread.CurrentThread.CurrentUICulture;

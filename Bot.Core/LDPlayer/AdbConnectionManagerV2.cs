@@ -141,7 +141,7 @@ namespace Bot.Core.LDPlayer
                         if (device != null)
                         {
                             // Store in non-nullable variable to satisfy compiler
-                            DeviceData connectedDevice = (DeviceData)device;
+                            DeviceData connectedDevice = device;
                             
                             // Cache the healthy connection
                             _deviceConnections[instanceNumber] = (connectedDevice, _adbClient!, DateTime.UtcNow, true);
@@ -178,7 +178,7 @@ namespace Bot.Core.LDPlayer
                                     if (device != null)
                                     {
                                         // Store in non-nullable variable to satisfy compiler
-                                        DeviceData connectedDevice = (DeviceData)device;
+                                        DeviceData connectedDevice = device;
                                         
                                         _deviceConnections[instanceNumber] = (connectedDevice, _adbClient!, DateTime.UtcNow, true);
                                         return new AdbControllerV2(connectedDevice, _adbClient!, logger, instanceNumber);

@@ -23,7 +23,7 @@ namespace Bot.Core.Tasks.Modules
         private static readonly ConcurrentDictionary<string, int> MarchesUsed = new();
         private static readonly ConcurrentDictionary<string, DateTime> LastExecutionTimes = new();
         
-        private readonly string _templateFolder = string.Empty;
+        private readonly string _templateFolder;
         private new UnifiedTemplateMatchingService? _templateMatcher;
         private const int SEARCH_TIMEOUT_MS = 2000; // 2 seconds for image searches (as requested)
         private const int SEARCH_INTERVAL_MS = 500; // Check every 0.5 seconds (4 attempts total)
@@ -78,7 +78,7 @@ namespace Bot.Core.Tasks.Modules
         }
 
 
-        protected override async Task<TaskExecutionDetails> ExecuteTaskLogicAsync(AccountSettings account, LogService logger, CancellationToken cancellationToken = default, bool isReRun = false, IUserNotificationService? userNotifications = null)
+        protected override async Task<TaskExecutionDetails> ExecuteTaskLogicAsync(AccountSettings account, LogService logger, CancellationToken cancellationToken, bool isReRun = false, IUserNotificationService? userNotifications = null)
         {
             try
             {
@@ -962,7 +962,7 @@ namespace Bot.Core.Tasks.Modules
                 logger.LogInfo($"[{account.AccountName}] Timer OCR result: '{timerText}'");
 
                 // Parse timer in HH:MM:SS format
-                if (TimeSpan.TryParse(timerText.Trim(), out TimeSpan timer))
+                if (TimeSpan.TryParse(timerText.Trim(), System.Globalization.CultureInfo.InvariantCulture, out TimeSpan timer))
                 {
                     logger.LogInfo($"[{account.AccountName}] ⏰ Auto-join timer: {timer}");
 

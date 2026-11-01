@@ -217,7 +217,7 @@ namespace Bot.Core.Tasks
             }
         }
         
-        public async Task<TaskExecutionDetails> ExecuteAsync(AccountSettings account, LogService logger, CancellationToken cancellationToken, bool isReRun = false, IUserNotificationService? userNotifications = null)
+        public async Task<TaskExecutionDetails> ExecuteAsync(AccountSettings account, LogService logger, CancellationToken cancellationToken = default, bool isReRun = false, IUserNotificationService? userNotifications = null)
         {
             try
             {

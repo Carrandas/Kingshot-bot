@@ -44,7 +44,7 @@ namespace Bot.Core.Tasks.Modules.AutoHunt.Models
     {
         public bool Success { get; set; }
         public bool StaminaDepleted { get; set; }
-        public string Message { get; set; } = string.Empty;
+        public string Message { get; set; }
 
         public TargetProcessResult(bool success, bool staminaDepleted, string message = "")
         {
@@ -66,7 +66,7 @@ namespace Bot.Core.Tasks.Modules.AutoHunt.Models
         public int AvailableMarches { get; set; }
         public bool WaitRequired { get; set; }
         public bool StaminaDepleted { get; set; }
-        public string Message { get; set; } = string.Empty;
+        public string Message { get; set; }
 
         public MarchAvailabilityResult(int availableMarches, bool waitRequired = false, bool staminaDepleted = false, string message = "")
         {

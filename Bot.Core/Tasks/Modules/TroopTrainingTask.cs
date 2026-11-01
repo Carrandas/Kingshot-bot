@@ -29,7 +29,7 @@ namespace Bot.Core.Tasks.Modules
         private static readonly Rectangle CavalryStatusArea = new Rectangle(159, 630, 130, 40);
         private static readonly Rectangle ArchersStatusArea = new Rectangle(158, 705, 130, 35);
 
-        private class TroopStatusInfo
+        private sealed class TroopStatusInfo
         {
             public string TroopType { get; set; } = string.Empty;
             public bool IsReady { get; set; }
@@ -355,7 +355,8 @@ namespace Bot.Core.Tasks.Modules
                 
                 foreach (var word in words)
                 {
-                    foreach (var keyword in readyKeywords.Where(keyword => IsSimilar(word, keyword, 2)))
+                    var keyword = readyKeywords.FirstOrDefault(k => IsSimilar(word, k, 2));
+                    if (keyword != null)
                     {
                         status.IsReady = true;
                         status.RemainingTime = TimeSpan.Zero;
@@ -425,7 +426,7 @@ namespace Bot.Core.Tasks.Modules
                     logger.LogInfo($"[{account.AccountName}] 🎯 Ready troops to process: {string.Join(", ", readyTroops.Select(t => t.TroopType))}");
                     
                     // Use the first ready troop to enter the training interface
-                    var primaryTroop = readyTroops.First();
+                    var primaryTroop = readyTroops[0];
                     Rectangle troopArea = GetTroopCompletionArea(primaryTroop.TroopType);
                     var centerPoint = troopArea.GetCenter();
                     

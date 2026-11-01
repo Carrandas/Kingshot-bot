@@ -1027,50 +1027,5 @@ namespace Bot.Core.Tasks.Modules
             return false;
         }
 
-        // Debug screenshot saving method disabled
-        /*
-        /// <summary>
-        /// Saves a debug screenshot when claim button detection fails
-        /// </summary>
-        private async Task SaveDebugScreenshotAsync(string imageName, int instanceNumber, double bestConfidence, LogService logger)
-        {
-            try
-            {
-                var screenshot = await TakeScreenshotAsync(instanceNumber, logger);
-                if (screenshot == null) return;
-
-                // Get the best match location to draw bounding box
-                Rectangle bestMatchRect = await GetBestMatchLocationAsync(imageName, screenshot, instanceNumber, logger);
-
-                // Create debug directory
-                string debugFolder = Path.Combine(AppContext.BaseDirectory, "debug_screenshots", "claim_missions");
-                if (!Directory.Exists(debugFolder))
-                {
-                    Directory.CreateDirectory(debugFolder);
-                }
-
-                // Generate timestamp and filename
-                string timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss_fff");
-                string safeImageName = imageName.Replace(".png", "").Replace(".", "_");
-                string filename = $"{timestamp}_{safeImageName}_conf{bestConfidence:F3}_inst{instanceNumber}.png";
-                string filePath = Path.Combine(debugFolder, filename);
-
-                // Draw bounding box on screenshot and save
-                await SaveScreenshotWithBoundingBoxAsync(screenshot, bestMatchRect, bestConfidence, filePath, logger);
-                
-                logger.LogInfo($"🐛 Debug screenshot saved: {filename} (confidence: {bestConfidence:F3})");
-                logger.LogInfo($"🐛 Debug path: {filePath}");
-                logger.LogInfo($"🐛 Best match location: {bestMatchRect} (red box drawn)");
-                
-                // Keep only last 20 debug screenshots to avoid filling disk
-                await CleanupOldDebugScreenshots(debugFolder, logger);
-            }
-            catch (Exception ex)
-            {
-                logger.LogWarning($"Failed to save debug screenshot for {imageName}: {ex.Message}");
-            }
-        }
-        */
-
     }
 }

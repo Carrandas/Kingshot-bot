@@ -204,7 +204,6 @@ namespace Bot.Core.Tasks.Modules
                 if ((DateTime.UtcNow - startTime).TotalMilliseconds + DETECTION_POLL_INTERVAL_MS < timeoutMs)
                 {
                     await Task.Delay(DETECTION_POLL_INTERVAL_MS, cancellationToken);
-                    continue;
                 }
 
                 // Continue waiting if we haven't reached timeout

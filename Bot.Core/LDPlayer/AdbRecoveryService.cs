@@ -179,7 +179,7 @@ namespace Bot.Core.LDPlayer
                 // Kill processes using the port
                 var netstatInfo = new ProcessStartInfo
                 {
-                    FileName = "cmd.exe",
+                    FileName = Path.Combine(Environment.SystemDirectory, "cmd.exe"),
                     Arguments = $"/c netstat -ano | findstr :{port}",
                     UseShellExecute = false,
                     RedirectStandardOutput = true,

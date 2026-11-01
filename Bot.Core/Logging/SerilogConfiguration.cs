@@ -25,7 +25,7 @@ namespace Bot.Core.Logging
         internal static readonly TimeSpan CacheTimeout = TimeSpan.FromMinutes(30);
 
         // Destructuring policies to mask sensitive data
-        private class SensitiveDataDestructuringPolicy : IDestructuringPolicy
+        private sealed class SensitiveDataDestructuringPolicy : IDestructuringPolicy
         {
             public bool TryDestructure(object? value, ILogEventPropertyValueFactory propertyValueFactory, out LogEventPropertyValue? result)
             {

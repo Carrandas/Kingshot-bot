@@ -243,7 +243,7 @@ namespace Bot.Core.LDPlayer
                     
                     // Check if there are other active devices
                     var lines = output.Split('\n');
-                    var activeDevices = lines.Count(line => line.Contains("	device") && !line.Contains(device.DeviceSerial));
+                    var activeDevices = lines.Count(line => line.Contains("\tdevice") && !line.Contains(device.DeviceSerial));
 
                     if (activeDevices > 0)
                     {

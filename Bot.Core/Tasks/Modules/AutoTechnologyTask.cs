@@ -24,7 +24,7 @@ namespace Bot.Core.Tasks.Modules
                 logger.LogInfo($"[{account.AccountName}] Starting Auto Technology task");
 
                 // Get settings
-                var settings = GetTaskSettings<AutoTechnologySettings>(account);
+                var settings = GetTaskSettings(account);
                 
                 // First, look for and click menu-arrow.png
                 var menuArrowFound = await FindAndClickImageAsync("menu-arrow.png", account.InstanceNumber, logger, 
@@ -445,7 +445,7 @@ namespace Bot.Core.Tasks.Modules
             }
         }
 
-        private static AutoTechnologySettings GetTaskSettings<T>(AccountSettings account) where T : new()
+        private static AutoTechnologySettings GetTaskSettings(AccountSettings account)
         {
             if (!account.TaskSettings.TryGetValue("AutoTechnology", out var settingsJson))
             {

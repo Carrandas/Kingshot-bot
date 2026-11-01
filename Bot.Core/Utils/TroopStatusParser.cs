@@ -309,7 +309,7 @@ namespace Bot.Core.Utils
 
         public bool HasAnyCompleted => TroopStatuses.Values.Any(s => s.Status == TroopCompletionStatus.Completed);
         public bool AllCompleted => TroopStatuses.Values.All(s => s.Status == TroopCompletionStatus.Completed);
-        public List<string> CompletedTroops => TroopStatuses.Where(kvp => kvp.Value.Status == TroopCompletionStatus.Completed)
+        public List<string> GetCompletedTroops() => TroopStatuses.Where(kvp => kvp.Value.Status == TroopCompletionStatus.Completed)
                                                            .Select(kvp => kvp.Key)
                                                            .ToList();
     }

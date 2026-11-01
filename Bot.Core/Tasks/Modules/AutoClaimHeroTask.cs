@@ -302,7 +302,6 @@ namespace Bot.Core.Tasks.Modules
                         if (!backArrowFound)
                         {
                             logger.LogWarning("Failed to find back arrow after 5 seconds of continuous checking");
-                            continue;
                         }
                     }
                 }

@@ -20,17 +20,16 @@ namespace Bot.Core.Logging
 
         // Static tracking to prevent excessive initialization messages
         private static readonly ConcurrentDictionary<string, bool> _initializedLoggers = new();
-        private static volatile bool _globalLoggerInitialized = false;
 
         // Default constructor for global logs
+        static LogService()
+        {
+            Console.WriteLine("[LogService] Global logger initialized with Serilog");
+        }
+
         public LogService()
         {
             _logger = SerilogConfiguration.GetLogger();
-            if (!_globalLoggerInitialized)
-            {
-                _globalLoggerInitialized = true;
-                Console.WriteLine("[LogService] Global logger initialized with Serilog");
-            }
         }
 
         // Constructor for per-instance logs

@@ -143,7 +143,7 @@ namespace Bot.Core.Utils
                     return await HandleNoViewDetected("[Locator] ❌ Could not create ADB controller");
                 }
 
-                var screenshot = await adbController!.TakeScreenshotAsync(cancellationToken);
+                var screenshot = await adbController.TakeScreenshotAsync(cancellationToken);
                 if (screenshot == null || screenshot.Length == 0)
                 {
                     return await HandleNoViewDetected("[Locator] ❌ Failed to capture screenshot");
@@ -178,21 +178,6 @@ namespace Bot.Core.Utils
                         _logger.LogInfo($"[Locator] Map view not detected - confidence {confidenceMap:F3} below threshold 0.7");
                     }
                 }
-
-                // Debug screenshot saving disabled for performance
-                // try
-                // {
-                //     var screenshotsDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "logs", "screenshots");
-                //     Directory.CreateDirectory(screenshotsDir);
-                //     var timestamp = DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss");
-                //     var debugImagePath = Path.Combine(screenshotsDir, $"locator_failed_{instanceNumber}_{timestamp}.png");
-                //     await File.WriteAllBytesAsync(debugImagePath, screenshot, cancellationToken);
-                //     _logger.LogWarning($"[Locator] 🕵️ Bot is lost. Saved a debug screenshot to: {debugImagePath}");
-                // }
-                // catch (Exception ex)
-                // {
-                //     _logger.LogError($"[Locator] 💥 Failed to save debug screenshot: {ex.Message}");
-                // }
 
                 return await HandleNoViewDetected("[Locator] ❌ Could not detect any known view - bot may be lost");
             }

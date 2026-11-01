@@ -70,10 +70,10 @@ namespace Bot.Core.Models
             {
                 // Find instance data that might belong to this account (we can't perfectly map, so we'll migrate all)
                 // Take the first non-empty instance data
-                foreach (var instanceData in UsedTargetAreasByInstance.Where(instanceData => instanceData.Value.Any()))
+                var firstNonEmpty = UsedTargetAreasByInstance.FirstOrDefault(instanceData => instanceData.Value.Any());
+                if (firstNonEmpty.Value != null)
                 {
-                    UsedTargetAreasByAccountId[accountId] = instanceData.Value;
-                    break;
+                    UsedTargetAreasByAccountId[accountId] = firstNonEmpty.Value;
                 }
             }
         }

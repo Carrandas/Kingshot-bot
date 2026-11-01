@@ -19,7 +19,7 @@ namespace Bot.Core.Tasks.Modules
         private static readonly Dictionary<int, string> _cachedAccountIds = new Dictionary<int, string>();
         private static readonly object _cacheLock = new object();
 
-        protected override async Task<TaskExecutionDetails> ExecuteTaskLogicAsync(AccountSettings account, LogService logger, CancellationToken cancellationToken = default, bool isReRun = false, IUserNotificationService? userNotifications = null)
+        protected override async Task<TaskExecutionDetails> ExecuteTaskLogicAsync(AccountSettings account, LogService logger, CancellationToken cancellationToken, bool isReRun = false, IUserNotificationService? userNotifications = null)
         {
             try
             {

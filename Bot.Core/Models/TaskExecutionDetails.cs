@@ -47,7 +47,7 @@ namespace Bot.Core.Models
         /// <summary>
         /// Common troubleshooting hints by failure category
         /// </summary>
-        public static readonly Dictionary<FailureCategory, string> CommonHints = new()
+        public static readonly IReadOnlyDictionary<FailureCategory, string> CommonHints = new Dictionary<FailureCategory, string>
         {
             { Models.FailureCategory.Connection, "Restart LDPlayer or check ADB connection" },
             { Models.FailureCategory.Detection, "Ensure game is fully loaded and resolution is 960x540" },
