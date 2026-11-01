@@ -20,10 +20,11 @@ namespace Bot.Core.ImageDetection
         // Template caches are shared by every instance (tasks each create their own matcher)
         private static readonly ConcurrentDictionary<string, (Mat BGR, Mat HSV, DateTime LastUsed, int RefCount)> _templateCache = new();
         private static readonly ConcurrentDictionary<(string, double), Lazy<ScaledColorTemplate>> _scaledTemplateCache = new();
-        private bool _disposed;
         private const int MAX_CACHE_SIZE = 500;
         private const int CACHE_CLEANUP_INTERVAL_MS = 60000;
+        #pragma warning disable S1144 // the static field keeps the timer alive; it is never read
         private static readonly System.Threading.Timer _cleanupTimer = new System.Threading.Timer(CleanupCaches, null, CACHE_CLEANUP_INTERVAL_MS, CACHE_CLEANUP_INTERVAL_MS);
+        #pragma warning restore S1144
         private static readonly object _cacheLock = new object();
         
         public static readonly double[] StandardScales = { 0.8, 0.9, 1.0, 1.1, 1.2 };
@@ -145,14 +146,14 @@ namespace Bot.Core.ImageDetection
                     if (ocvRect.Right > decoded.Bgr.Width || ocvRect.Bottom > decoded.Bgr.Height || ocvRect.X < 0 || ocvRect.Y < 0)
                     {
                         _logger.LogWarning($"Invalid search area: {rect}. Screenshot size: {decoded.Bgr.Width}x{decoded.Bgr.Height}. Using full image.");
-                        return ExecuteColorMatching(bgrChannels, hsvChannels, templatePath, threshold, scales, verboseLogging);
+                        return ExecuteColorMatching(bgrChannels, hsvChannels, templatePath, threshold);
                     }
 
                     var croppedBgr = bgrChannels.Select(c => new Mat(c, ocvRect)).ToArray();
                     var croppedHsv = hsvChannels.Select(c => new Mat(c, ocvRect)).ToArray();
                     try
                     {
-                        var result = ExecuteColorMatching(croppedBgr, croppedHsv, templatePath, threshold, scales, verboseLogging);
+                        var result = ExecuteColorMatching(croppedBgr, croppedHsv, templatePath, threshold);
                         if (result.found)
                         {
                             return (true,
@@ -169,7 +170,7 @@ namespace Bot.Core.ImageDetection
                     }
                 }
 
-                return ExecuteColorMatching(bgrChannels, hsvChannels, templatePath, threshold, scales, verboseLogging);
+                return ExecuteColorMatching(bgrChannels, hsvChannels, templatePath, threshold);
             }
             catch (ArgumentException ex)
             {
@@ -184,7 +185,7 @@ namespace Bot.Core.ImageDetection
         }
 
         private (bool found, Rectangle matchRect, double confidence) ExecuteColorMatching(
-            Mat[] screenshotBGRChannels, Mat[] screenshotHSVChannels, string templatePath, double threshold, double[] scales, bool verboseLogging)
+            Mat[] screenshotBGRChannels, Mat[] screenshotHSVChannels, string templatePath, double threshold)
         {
             if (screenshotBGRChannels[0].Empty())
             {
@@ -197,7 +198,7 @@ namespace Bot.Core.ImageDetection
 
             try
             {
-                return FindBestColorMatch(screenshotBGRChannels, screenshotHSVChannels, cacheKey, templateBGR, templateHSV, threshold, scales, verboseLogging);
+                return FindBestColorMatch(screenshotBGRChannels, screenshotHSVChannels, cacheKey, templateBGR, templateHSV, threshold);
             }
             finally
             {
@@ -257,7 +258,7 @@ namespace Bot.Core.ImageDetection
 
         private (bool found, Rectangle matchRect, double confidence) FindBestColorMatch(
             Mat[] screenshotBGRChannels, Mat[] screenshotHSVChannels, string cacheKey, Mat templateBGR, Mat templateHSV,
-            double threshold, double[] scales, bool verboseLogging)
+            double threshold)
         {
             double bestConfidence = -1;
             Rectangle bestRect = Rectangle.Empty;
@@ -386,7 +387,6 @@ namespace Bot.Core.ImageDetection
         public void Dispose()
         {
             // The template caches are shared with other instances, so they are not released here
-            _disposed = true;
         }
     }
 }

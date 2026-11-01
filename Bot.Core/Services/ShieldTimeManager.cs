@@ -11,7 +11,6 @@ namespace Bot.Core.Services
     {
         private static readonly ConcurrentDictionary<int, (DateTime StartTime, TimeSpan Duration)> _shieldTimers = new();
         private static readonly ConcurrentDictionary<int, Timer> _updateTimers = new();
-        private readonly LogService _logger;
 
         public event Action<int, TimeSpan?>? ShieldTimeUpdated;
 
@@ -35,7 +34,6 @@ namespace Bot.Core.Services
 
         private ShieldTimeManager(LogService logger)
         {
-            _logger = logger;
         }
 
         public void UpdateShieldTime(int instanceNumber, DateTime startTime, TimeSpan duration)

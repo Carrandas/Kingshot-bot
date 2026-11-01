@@ -20,11 +20,12 @@ namespace Bot.Core.ImageDetection
         // and per-instance caches meant each task re-read every template from disk
         private static readonly ConcurrentDictionary<string, (Mat Template, DateTime LastUsed, int RefCount)> _templateCache = new();
         private static readonly ConcurrentDictionary<(string, double), (Mat Mat, DateTime LastUsed, int RefCount)> _scaledTemplateCache = new();
-        private bool _disposed;
         // Room for every template in templates/ so the cleanup does not keep evicting and reloading them
         private const int MAX_CACHE_SIZE = 500;
         private const int CACHE_CLEANUP_INTERVAL_MS = 60000;
+        #pragma warning disable S1144 // the static field keeps the timer alive; it is never read
         private static readonly System.Threading.Timer _cleanupTimer = new System.Threading.Timer(CleanupCaches, null, CACHE_CLEANUP_INTERVAL_MS, CACHE_CLEANUP_INTERVAL_MS);
+        #pragma warning restore S1144
         private static readonly object _cacheLock = new object();
         
         public static readonly double[] StandardScales = { 0.8, 0.9, 1.0, 1.1, 1.2 };
@@ -194,10 +195,10 @@ namespace Bot.Core.ImageDetection
                     if (ocvRect.Right > screenshotGray.Width || ocvRect.Bottom > screenshotGray.Height || ocvRect.X < 0 || ocvRect.Y < 0)
                     {
                         _logger.LogInfo($"[DEBUG] Invalid search area: {rect}. Screenshot size: {screenshotGray.Width}x{screenshotGray.Height}. Using full image.");
-                        return ExecuteGrayscaleMatching(screenshotGray, templatePath, threshold, scales, verboseLogging);
+                        return ExecuteGrayscaleMatching(screenshotGray, templatePath, threshold, scales);
                     }
                     using var croppedSource = new Mat(screenshotGray, ocvRect);
-                    var result = ExecuteGrayscaleMatching(croppedSource, templatePath, threshold, scales, verboseLogging);
+                    var result = ExecuteGrayscaleMatching(croppedSource, templatePath, threshold, scales);
                     if (result.found)
                     {
                         return (true,
@@ -208,7 +209,7 @@ namespace Bot.Core.ImageDetection
                     return (false, Rectangle.Empty, result.confidence);
                 }
 
-                return ExecuteGrayscaleMatching(screenshotGray, templatePath, threshold, scales, verboseLogging);
+                return ExecuteGrayscaleMatching(screenshotGray, templatePath, threshold, scales);
             }
             catch (ArgumentException ex)
             {
@@ -223,7 +224,7 @@ namespace Bot.Core.ImageDetection
         }
 
         private (bool found, Rectangle matchRect, double confidence) ExecuteGrayscaleMatching(
-            Mat screenshotGray, string templatePath, double threshold, double[] scales, bool verboseLogging)
+            Mat screenshotGray, string templatePath, double threshold, double[] scales)
         {
             if (screenshotGray.Empty())
             {
@@ -236,7 +237,7 @@ namespace Bot.Core.ImageDetection
 
             try
             {
-                return FindBestMatch(screenshotGray, templateGray, cacheKey, threshold, scales, verboseLogging);
+                return FindBestMatch(screenshotGray, templateGray, cacheKey, threshold, scales);
             }
             finally
             {
@@ -251,7 +252,7 @@ namespace Bot.Core.ImageDetection
         }
 
         private (bool found, Rectangle matchRect, double confidence) FindBestMatch(
-            Mat screenshotImg, Mat template, string cacheKey, double threshold, double[] scales, bool verboseLogging)
+            Mat screenshotImg, Mat template, string cacheKey, double threshold, double[] scales)
         {
             double bestConfidence = -1;
             Rectangle bestRect = Rectangle.Empty;
@@ -332,7 +333,6 @@ namespace Bot.Core.ImageDetection
         public void Dispose()
         {
             // The template caches are shared with other instances, so they are not released here
-            _disposed = true;
         }
     }
 }

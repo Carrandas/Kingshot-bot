@@ -96,8 +96,6 @@ namespace Bot.Core.LDPlayer
                     await verifyProcess.WaitForExitAsync(linkedCts.Token);
                     
                     bool isConnected = output.Contains($"{deviceSerial}\tdevice");
-                    bool isOffline = output.Contains($"{deviceSerial}\toffline");
-                    bool isUnauthorized = output.Contains($"{deviceSerial}\tunauthorized");
                     
                     return isConnected;
                 }
@@ -224,13 +222,11 @@ namespace Bot.Core.LDPlayer
                 }
 
                 // Throttle concurrent ADB connections to prevent server overload
-                var throttleStartTime = DateTime.UtcNow;
                 if (!await _connectionThrottle.WaitAsync(TimeSpan.FromSeconds(30), cancellationToken).ConfigureAwait(false))
                 {
                     logger.LogError($"Connection throttle timeout after 30s for instance {instanceNumber}");
                     throw new TimeoutException($"Connection throttle timeout for instance {instanceNumber}");
                 }
-                var throttleWaitTime = DateTime.UtcNow - throttleStartTime;
                 
                 try
                 {

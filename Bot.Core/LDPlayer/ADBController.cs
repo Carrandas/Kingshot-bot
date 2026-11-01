@@ -208,14 +208,6 @@ namespace Bot.Core.LDPlayer
             const int HAL_PIXEL_FORMAT_BGRA_8888 = 0x3;  // BGRA
             const int HAL_PIXEL_FORMAT_BGRX_8888 = 0x4;  // BGR
 
-            string formatName = format switch
-            {
-                HAL_PIXEL_FORMAT_RGBA_8888 => "RGBA",
-                HAL_PIXEL_FORMAT_BGRA_8888 => "BGRA",
-                HAL_PIXEL_FORMAT_RGBX_8888 => "RGB",
-                HAL_PIXEL_FORMAT_BGRX_8888 => "BGR",
-                _ => $"Unknown (0x{format:X8})"
-            };
 
             // Determine pixel size based on format
             int pixelSize = format switch

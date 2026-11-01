@@ -111,7 +111,7 @@ namespace Bot.Core.Tasks.Modules
                     if (ShouldCheckAutoJoin(settings, account.AccountName, logger))
                     {
                         logger.LogInfo($"[{account.AccountName}] 🤖 Auto Join enabled and timing check passed, setting up auto join...");
-                        var autoJoinResult = await HandleAutoJoinAsync(account, logger, cancellationToken, userNotifications);
+                        var autoJoinResult = await HandleAutoJoinAsync(account, logger, cancellationToken);
                         
                         // Update the last check time regardless of success/failure
                         settings.LastAutoJoinCheck = DateTime.UtcNow;
@@ -185,7 +185,7 @@ namespace Bot.Core.Tasks.Modules
                 // Check available marches before doing anything else (skip if AutoJoin is enabled)
                 if (!settings.AutoJoin)
                 {
-                    int initialMarches = await GetAvailableMarchesAsync(account, logger, cancellationToken);
+                    int initialMarches = await GetAvailableMarchesAsync(account, logger);
                     logger.LogInfo($"[{account.AccountName}] Initial march check: {initialMarches} marches available");
                     if (initialMarches <= 0)
                     {
@@ -416,7 +416,7 @@ namespace Bot.Core.Tasks.Modules
 
             // First attempt - check rally menu visibility, then look for green plus without scrolling
             logger.LogInfo($"[{account.AccountName}] 🔍 First attempt: checking rally menu visibility...");
-            if (!await IsRallyMenuVisibleAsync(account, logger, cancellationToken, rallyMenuPath))
+            if (!await IsRallyMenuVisibleAsync(account, logger, rallyMenuPath))
             {
                 logger.LogWarning($"[{account.AccountName}] ❌ Rally menu not visible, exiting green plus search");
                 return false;
@@ -436,19 +436,19 @@ namespace Bot.Core.Tasks.Modules
                 logger.LogInfo($"[{account.AccountName}] 📜 Green plus not found, checking rally menu before scroll attempt {attempt}/{maxScrollAttempts}");
                 
                 // Check rally menu visibility before scrolling
-                if (!await IsRallyMenuVisibleAsync(account, logger, cancellationToken, rallyMenuPath))
+                if (!await IsRallyMenuVisibleAsync(account, logger, rallyMenuPath))
                 {
                     logger.LogWarning($"[{account.AccountName}] ❌ Rally menu not visible before scroll attempt {attempt}, exiting");
                     return false;
                 }
                 
                 // Scroll from bottom up (swipe up)
-                await ScrollUpAsync(account.InstanceNumber, logger, cancellationToken);
+                await ScrollUpAsync(account.InstanceNumber, logger);
                 await Task.Delay(1000, cancellationToken); // Wait for scroll to complete
 
                 // Check rally menu visibility after scrolling
                 logger.LogInfo($"[{account.AccountName}] 🔍 Checking rally menu visibility after scroll attempt {attempt}...");
-                if (!await IsRallyMenuVisibleAsync(account, logger, cancellationToken, rallyMenuPath))
+                if (!await IsRallyMenuVisibleAsync(account, logger, rallyMenuPath))
                 {
                     logger.LogWarning($"[{account.AccountName}] ❌ Rally menu not visible after scroll attempt {attempt}, exiting");
                     return false;
@@ -472,7 +472,7 @@ namespace Bot.Core.Tasks.Modules
             return false;
         }
 
-        private async Task ScrollUpAsync(int instanceNumber, LogService logger, CancellationToken cancellationToken)
+        private async Task ScrollUpAsync(int instanceNumber, LogService logger)
         {
             try
             {
@@ -491,7 +491,7 @@ namespace Bot.Core.Tasks.Modules
             }
         }
 
-        private async Task<bool> IsRallyMenuVisibleAsync(AccountSettings account, LogService logger, CancellationToken cancellationToken, string rallyMenuPath)
+        private async Task<bool> IsRallyMenuVisibleAsync(AccountSettings account, LogService logger, string rallyMenuPath)
         {
             try
             {
@@ -503,7 +503,7 @@ namespace Bot.Core.Tasks.Modules
                 if (_templateMatcher == null) _templateMatcher = new UnifiedTemplateMatchingService(logger);
                 
                 // Use grayscale matching for fast detection
-                var (found, matchRect, confidence) = _templateMatcher.MatchTemplate(
+                var (found, _, confidence) = _templateMatcher.MatchTemplate(
                     screenshot,
                     rallyMenuPath,
                     account.InstanceNumber,
@@ -556,7 +556,7 @@ namespace Bot.Core.Tasks.Modules
                     if (_templateMatcher == null) _templateMatcher = new UnifiedTemplateMatchingService(logger);
                     
                     logger.LogInfo($"[{account.AccountName}] 🔍 Searching for {templateName} in area: {(searchArea?.ToString() ?? "full screen")}");
-                    var (found, matchRect, confidence) = _templateMatcher.MatchTemplate(
+                    var (found, _, confidence) = _templateMatcher.MatchTemplate(
                         screenshot,
                         templatePath,
                         account.InstanceNumber,
@@ -881,7 +881,7 @@ namespace Bot.Core.Tasks.Modules
             }
         }
 
-        private async Task<TaskExecutionDetails> HandleAutoJoinAsync(AccountSettings account, LogService logger, CancellationToken cancellationToken, IUserNotificationService? userNotifications)
+        private async Task<TaskExecutionDetails> HandleAutoJoinAsync(AccountSettings account, LogService logger, CancellationToken cancellationToken)
         {
             try
             {
@@ -1086,7 +1086,7 @@ namespace Bot.Core.Tasks.Modules
             return await ClickAsync(instanceNumber, logger, centerPoint);
         }
 
-        private async Task<int> GetAvailableMarchesAsync(AccountSettings account, LogService logger, CancellationToken cancellationToken)
+        private async Task<int> GetAvailableMarchesAsync(AccountSettings account, LogService logger)
         {
             var marchCapacityRect = new Rectangle(197, 205, 48, 20);
             var marchOcrConfig = new OCRConfiguration

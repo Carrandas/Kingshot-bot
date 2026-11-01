@@ -17,7 +17,6 @@ namespace Bot.Core.Tasks.Modules
         private const int TEMPLATE_TIMEOUT_MS = 5000; // 5 seconds timeout for template detection
         private const double CONFIDENCE_THRESHOLD = 0.7; // Standard confidence threshold
         
-        private readonly UnifiedTemplateMatchingService _templateMatchingService;
 
         // "Reward" chest at the right of the Hero Recruitment screen (fills up with recruits); a red badge when claimable
         private static readonly Rectangle RecruitRewardBadgeArea = new Rectangle(665, 405, 40, 40);
@@ -87,7 +86,6 @@ namespace Bot.Core.Tasks.Modules
         public AutoClaimHeroTask(UnifiedTemplateMatchingService templateMatchingService) 
             : base()
         {
-            _templateMatchingService = templateMatchingService;
         }
 
         public override TaskType TaskType => TaskType.AutoClaimHero;
@@ -312,7 +310,6 @@ namespace Bot.Core.Tasks.Modules
                 await ClaimRecruitRewardAsync(account, logger, cancellationToken);
 
                 // Return to base/map view
-                var backButtonArea = new Rectangle(87, 74, 30, 30);
                 for (int i = 0; i < 2; i++)
                 {
                     var backArrowScreenshot = await TakeScreenshotAsync(account.InstanceNumber, logger);

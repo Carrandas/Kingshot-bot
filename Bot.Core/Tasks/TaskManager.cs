@@ -321,13 +321,6 @@ namespace Bot.Core.Tasks
                     if (account.TaskSequence.Any() && !account.EnabledTasks.Contains(taskType) && !systemTasks.Contains(taskType)) continue;
                     if (account.HiddenTasks?.Contains(taskType) == true) continue; // hidden under Settings > Tasks: never runs
 
-                    // Check if task can run (e.g., AutoHunt before Farming)
-                    if (!CanRunTask(taskType, account))
-                    {
-                        _logger.LogInfo($"[{account.AccountName}] Skipping {taskType}: Task cannot run at this time");
-                        continue;
-                    }
-
                     var task = GetTaskInstance(taskType);
                     if (task != null)
                     {
@@ -411,7 +404,6 @@ namespace Bot.Core.Tasks
                                             _logger.LogInfo($"[{account.AccountName}] No other tasks available, waiting 60 seconds before retrying farming");
                                             _userNotifications?.ShowStatus($"Waiting for marches to return for {account.AccountName} - no other tasks to run", NotificationType.Info);
                                             
-                                            await WaitIfPausedAsync(cancellationToken);
                                             if (!cancellationToken.IsCancellationRequested)
                                             {
                                                 await Task.Delay(TimeSpan.FromSeconds(60), cancellationToken);
@@ -633,49 +625,10 @@ namespace Bot.Core.Tasks
             }
         }
 
-        private bool CanRunTask(TaskType task, AccountSettings account)
-        {
-            return true;
-        }
-
-        private AutoHuntSettings GetAutoHuntSettings(AccountSettings account)
-        {
-            if (!account.TaskSettings.TryGetValue("AutoHunt", out var settingsJson))
-            {
-                return new AutoHuntSettings();
-            }
-
-            try
-            {
-                return JsonSerializer.Deserialize<AutoHuntSettings>(settingsJson)
-                    ?? new AutoHuntSettings();
-            }
-            catch
-            {
-                return new AutoHuntSettings();
-            }
-        }
-
-        private bool IsAutoHuntCompleted(AutoHuntSettings settings)
-        {
-            // AutoHunt is always ready to run - no cooldown restrictions
-            return false;
-        }
-
         public void ResetStartupStatus()
         {
             _instanceStartupComplete.Clear();
             _logger.LogInfo("All instance startup statuses have been reset.");
-        }
-
-        /// <summary>
-        /// Wait if the cycle management service is paused
-        /// </summary>
-        private async Task WaitIfPausedAsync(CancellationToken cancellationToken)
-        {
-            // This is a simplified implementation - ideally this should reference the actual CycleManagementService
-            // For now, just yield control to allow for cancellation
-            await Task.Yield();
         }
 
 

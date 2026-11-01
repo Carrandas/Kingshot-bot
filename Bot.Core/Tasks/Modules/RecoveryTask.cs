@@ -203,8 +203,8 @@ namespace Bot.Core.Tasks.Modules
                     screenshot = await ADBMigrationHelper.TakeScreenshotAsync(adbController, logger, cancellationToken);
                     if (screenshot == null || screenshot.Length == 0) continue;
 
-                    var (foundBase, _, baseConf) = _templateMatcher.MatchTemplate(screenshot, baseViewPath, account.InstanceNumber, 0.6f);
-                    var (foundMap, _, mapConf) = _templateMatcher.MatchTemplate(screenshot, mapViewPath, account.InstanceNumber, 0.6f);
+                    var (foundBase, _, _) = _templateMatcher.MatchTemplate(screenshot, baseViewPath, account.InstanceNumber, 0.6f);
+                    var (foundMap, _, _) = _templateMatcher.MatchTemplate(screenshot, mapViewPath, account.InstanceNumber, 0.6f);
 
                     if (foundBase || foundMap)
                     {

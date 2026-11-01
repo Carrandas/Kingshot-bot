@@ -77,7 +77,6 @@ namespace Bot.Core.Tasks.Modules.AutoHunt.Processors
 
         protected void SaveAutoHuntSettings(AccountSettings account, AutoHuntSettings settings)
         {
-            var configManager = ConfigurationManager.Instance;
             var settingsJson = JsonSerializer.Serialize(settings);
             account.TaskSettings["AutoHunt"] = settingsJson;
             // Configuration is auto-saved via ConfigurationManager.Instance

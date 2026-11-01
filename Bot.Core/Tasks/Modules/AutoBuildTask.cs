@@ -35,7 +35,6 @@ namespace Bot.Core.Tasks.Modules
             new Rectangle(90, 445, 233, 34)
         };
 
-        private readonly Rectangle timerRegion = new Rectangle(450, 1000, 126, 99);
         private readonly Rectangle redXSearchArea = new Rectangle(449, 589, 211, 543);
         private readonly Rectangle goButtonSearchArea = new Rectangle(527, 588, 159, 547);
         private readonly Rectangle personHeadArea = new Rectangle(254, 5, 48, 47);
@@ -525,7 +524,7 @@ namespace Bot.Core.Tasks.Modules
                         var screenshot = await TakeScreenshotAsync(account.InstanceNumber, logger);
                         if (screenshot != null)
                         {
-                            var (found, matchRect, confidence) = _templateMatcher.MatchTemplate(
+                            var (found, matchRect, _) = _templateMatcher.MatchTemplate(
                                 screenshot,
                                 cancelImagePath,
                                 account.InstanceNumber,
@@ -545,7 +544,7 @@ namespace Bot.Core.Tasks.Modules
                                     screenshot = await TakeScreenshotAsync(account.InstanceNumber, logger);
                                     if (screenshot != null)
                                     {
-                                        var (confirmFound, confirmRect, confirmConfidence) = _templateMatcher.MatchTemplate(
+                                        var (confirmFound, confirmRect, _) = _templateMatcher.MatchTemplate(
                                             screenshot,
                                             confirmImagePath,
                                             account.InstanceNumber,
@@ -586,7 +585,7 @@ namespace Bot.Core.Tasks.Modules
                             var screenshot = await TakeScreenshotAsync(account.InstanceNumber, logger);
                             if (screenshot != null)
                             {
-                                var (found, matchRect, confidence) = _templateMatcher.MatchTemplate(
+                                var (found, _, confidence) = _templateMatcher.MatchTemplate(
                                     screenshot,
                                     baseViewImagePath,
                                     account.InstanceNumber,
@@ -638,50 +637,6 @@ namespace Bot.Core.Tasks.Modules
                 logger.LogError($"[{account.AccountName}] Error in train icon fallback: {ex.Message}");
                 return false;
             }
-        }
-
-        private async Task<TimeSpan?> ReadSpeedupTimer(AccountSettings account, LogService logger)
-        {
-            var ocrConfig = new OCRConfiguration 
-            { 
-                ScaleFactor = 2.0f,
-                CharacterWhitelist = "0123456789:"
-            };
-            
-            using var ocrService = new OCRService(logger, ocrConfig);
-            var screenshot = await TakeScreenshotAsync(account.InstanceNumber, logger);
-            if (screenshot == null) return null;
-
-            var text = ocrService.ExtractTextFromScreenArea(screenshot, timerRegion);
-            logger.LogInfo($"[{account.AccountName}] Timer OCR Result: '{text}'");
-            
-            if (TryParseTimer(text, out var timeSpan))
-                return timeSpan;
-                
-            return null;
-        }
-
-        private bool TryParseTimer(string text, out TimeSpan result)
-        {
-            result = TimeSpan.Zero;
-            
-            if (string.IsNullOrWhiteSpace(text))
-                return false;
-
-            // Remove any non-timer characters
-            text = new string(text.Where(c => char.IsDigit(c) || c == ':').ToArray());
-            
-            string[] parts = text.Split(':');
-            if (parts.Length != 3)
-                return false;
-
-            if (!int.TryParse(parts[0], out int hours) ||
-                !int.TryParse(parts[1], out int minutes) ||
-                !int.TryParse(parts[2], out int seconds))
-                return false;
-
-            result = new TimeSpan(hours, minutes, seconds);
-            return true;
         }
 
         protected override async Task OnInitializeAsync(LogService logger, CancellationToken cancellationToken)

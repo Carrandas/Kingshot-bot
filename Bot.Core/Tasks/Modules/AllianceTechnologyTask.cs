@@ -119,7 +119,7 @@ namespace Bot.Core.Tasks.Modules
                 {
                     cancellationToken.ThrowIfCancellationRequested();
                     var button = await MatchAsync(ContributeTemplate, ContributeButtonArea, instance, logger);
-                    if (!button.found || !await IsTealAsync(button.rect, instance, logger)) break;
+                    if (!button.found || !await IsTealAsync( instance, logger)) break;
 
                     // Holding the button repeats the contribution until it is released or the attempts run out
                     var center = new Point(button.rect.X + button.rect.Width / 2, button.rect.Y + button.rect.Height / 2);
@@ -166,7 +166,7 @@ namespace Bot.Core.Tasks.Modules
             return true;
         }
 
-        private async Task<bool> IsTealAsync(Rectangle buttonRect, int instance, LogService logger)
+        private async Task<bool> IsTealAsync( int instance, LogService logger)
         {
             var shot = await TakeScreenshotAsync(instance, logger);
             if (shot == null) return false;
@@ -210,7 +210,7 @@ namespace Bot.Core.Tasks.Modules
         private bool ShouldExecute(string accountKey, AccountSettings account)
         {
             LoadExecutionTimes();
-            if (!_lastExecutionTimes.TryGetValue(accountKey, out DateTime lastExecution))
+            if (!_lastExecutionTimes.TryGetValue(accountKey, out _))
             {
                 return true; // First time execution
             }

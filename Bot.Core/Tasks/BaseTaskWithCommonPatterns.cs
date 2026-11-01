@@ -59,26 +59,23 @@ namespace Bot.Core.Tasks
         private const int MAX_SCREENSHOT_CACHE_SIZE = 10; // Maximum cached screenshots
 
         // Performance: timer-based cleanup instead of per-operation cleanup
+        #pragma warning disable S1144 // the static field keeps the timer alive; it is never read
         private static readonly Timer _screenshotCacheCleanupTimer = new Timer(
             _ => CleanupOldScreenshots(),
             null,
             TimeSpan.FromSeconds(5),  // Initial delay
             TimeSpan.FromSeconds(5)); // Cleanup every 5 seconds
+        #pragma warning restore S1144
         
         // Global resource throttling - adjusted for multi-instance support
         // Performance: increased from 3 to 6 concurrent screenshots for better multi-instance throughput
         private static readonly SemaphoreSlim _globalOperationLimiter = new SemaphoreSlim(9, 9);
         private static readonly SemaphoreSlim _globalScreenshotLimiter = new SemaphoreSlim(6, 6);
         
-        // Instance-specific operation locks to prevent same-instance conflicts
-        private static readonly ConcurrentDictionary<int, SemaphoreSlim> _instanceOperationLocks = new();
-        
         // Timing controls for auto tasks to prevent excessive triggering
         private static readonly ConcurrentDictionary<int, DateTime> _lastAllianceHelpTime = new();
         private static readonly ConcurrentDictionary<int, DateTime> _lastAutoHealTime = new();
         private static readonly TimeSpan AutoTaskCooldown = TimeSpan.FromMinutes(1); // 1 minute cooldown
-        
-        private static readonly string[] ResourceIcons = { "bread.png", "wood.png", "stone.png", "iron.png" };
         
         /// <summary>
         /// Checks current view and automatically runs Alliance Help and/or Auto Heal if enabled

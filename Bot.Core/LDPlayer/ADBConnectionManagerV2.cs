@@ -35,7 +35,6 @@ namespace Bot.Core.LDPlayer
         
         // Emulator slot management (inspired by wosbot-master's queuing)
         private static readonly SemaphoreSlim _emulatorSlots = new(3, 10); // Dynamic based on config
-        private static readonly ConcurrentQueue<(int InstanceNumber, TaskCompletionSource<bool> Tcs, DateTime QueueTime)> _slotQueue = new();
         
         // Health monitoring
         private static Timer? _healthCheckTimer;
@@ -47,8 +46,6 @@ namespace Bot.Core.LDPlayer
         private const int FAILURE_THRESHOLD_FOR_RESTART = 5; // More conservative
         private const int RESTART_COOLDOWN_MINUTES = 5;
         
-        // Performance optimization settings
-        private const int MAX_CACHED_CONNECTIONS = 20;
         private const int CONNECTION_HEALTH_CHECK_INTERVAL_MS = 30000; // 30 seconds
         private const int CONNECTION_CLEANUP_INTERVAL_MS = 120000; // 2 minutes
         private const int MAX_RETRY_ATTEMPTS = 3; // Reduced from 10
@@ -305,8 +302,6 @@ namespace Bot.Core.LDPlayer
         public static void UpdateEmulatorSlotLimits(int maxConcurrentEmulators)
         {
             // Create new semaphore with updated limit (similar to KingshotAuto's current approach)
-            var oldSemaphore = _emulatorSlots;
-            var newSemaphore = new SemaphoreSlim(maxConcurrentEmulators, maxConcurrentEmulators);
             
             // Note: In a real implementation, we'd need to handle this more carefully
             // For now, we'll keep the existing semaphore approach

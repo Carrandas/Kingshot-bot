@@ -162,7 +162,7 @@ namespace Bot.Core.Tasks.Modules.AutoHunt.Processors
                     if (deployScreenshot == null) continue;
 
                     // Check for deploy button first
-                    var (deployFound, deployRect, deployConfidence) = _templateMatcher.MatchTemplate(
+                    var (deployFound, deployRect, _) = _templateMatcher.MatchTemplate(
                         deployScreenshot,
                         Path.Combine(_imageTemplateFolder, "deploy-button.png"),
                         account.InstanceNumber,
@@ -180,7 +180,7 @@ namespace Bot.Core.Tasks.Modules.AutoHunt.Processors
                     }
 
                     // Check for max march
-                    var (maxMarchFound, _, maxMarchConfidence) = _templateMatcher.MatchTemplate(
+                    var (maxMarchFound, _, _) = _templateMatcher.MatchTemplate(
                         deployScreenshot,
                         Path.Combine(_imageTemplateFolder, "max-march.png"),
                         account.InstanceNumber,

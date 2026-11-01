@@ -41,57 +41,6 @@ namespace Bot.Core.Models
             // Don't create default accounts here - let the app decide when to add them
         }
 
-        private void CreateDefaultAccounts()
-        {
-            // Create 3 sample accounts with common task configurations
-            var defaultTasks = new[]
-            {
-                TaskType.Farming,
-                TaskType.AutoHunt,
-                TaskType.AutoHeal,
-                TaskType.ClaimMail,
-                TaskType.CollectVip
-            };
-
-            var sampleAccounts = new[]
-            {
-                new { Name = "Account 1", Instance = 0 },
-                new { Name = "Account 2", Instance = 1 },
-                new { Name = "Account 3", Instance = 2 }
-            };
-
-            foreach (var sample in sampleAccounts)
-            {
-                var account = new AccountSettings
-                {
-                    AccountName = sample.Name,
-                    InstanceNumber = sample.Instance,
-                    IsEnabled = true
-                };
-
-                // Add default enabled tasks
-                foreach (var task in defaultTasks)
-                {
-                    account.EnabledTasks.Add(task);
-                }
-
-                // Add basic farming targets
-                account.FarmingTargets.Add(new FarmingTarget
-                {
-                    ResourceType = ResourceType.Bread,
-                    Level = 6
-                });
-                
-                account.FarmingTargets.Add(new FarmingTarget
-                {
-                    ResourceType = ResourceType.Wood,
-                    Level = 6
-                });
-
-                Accounts.Add(account);
-            }
-        }
-
 
         // General settings
         public bool AutoRestart { get; set; } = true;

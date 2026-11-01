@@ -56,7 +56,6 @@ namespace Bot.Core.Tasks.Modules
 
         public DateTime? GetNextRunUtc(string accountKey, AccountSettings account) => DailyGate.NextRunUtc(TaskType, accountKey);
 
-        private bool _allGemPriced;
 
         protected override async Task<TaskExecutionDetails> ExecuteTaskLogicAsync(AccountSettings account, LogService logger, CancellationToken cancellationToken, bool isReRun = false, IUserNotificationService? userNotifications = null)
         {
@@ -140,7 +139,6 @@ namespace Bot.Core.Tasks.Modules
         {
             var unchanged = new int[PriceAreas.Length];
             int bought = 0, popups = 0;
-            _allGemPriced = false;
             while (bought < MaxBuysPerRound)
             {
                 // A popup (e.g. the gem purchase confirmation) dims the grid so gem prices no longer match:
@@ -169,7 +167,6 @@ namespace Bot.Core.Tasks.Modules
                 if (slot < 0)
                 {
                     // a slot skipped as unchanged (e.g. not affordable yet) may be buyable later today
-                    _allGemPriced = unchanged.All(u => u < MaxUnchangedTapsPerSlot);
                     break;
                 }
 

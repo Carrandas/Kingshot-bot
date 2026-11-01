@@ -179,7 +179,6 @@ namespace Bot.Core.Tasks.Modules
                             logger.LogInfo($"[{account.AccountName}] 🎯 PROCESSING ALL READY TROOPS IN ONE OPERATION: {string.Join(", ", validReadyTroops.Select(t => t.TroopType))}");
                             
                             // Process all ready troops in a single operation (pick the first one to enter the training interface)
-                            var primaryTroop = validReadyTroops.First();
                             bool success = await ProcessAllReadyTroops(account, logger, cancellationToken, validReadyTroops);
                             
                             if (success)
@@ -823,17 +822,6 @@ namespace Bot.Core.Tasks.Modules
             };
 
             return result;
-        }
-
-        private Rectangle GetTrainingArea(string troopType)
-        {
-            return troopType.ToLowerInvariant() switch
-            {
-                "infantry" => new Rectangle(304, 576, 93, 56), 
-                "cavalry" => new Rectangle(328, 565, 94, 67),  
-                "archers" => new Rectangle(308, 556, 114, 67), 
-                _ => new Rectangle(304, 576, 93, 56) 
-            };
         }
 
         

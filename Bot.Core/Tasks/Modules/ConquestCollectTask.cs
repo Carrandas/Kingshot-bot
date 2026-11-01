@@ -253,7 +253,7 @@ namespace Bot.Core.Tasks.Modules
         private bool ShouldCollect(string accountId, AccountSettings account)
         {
             LoadCollectionTimes();
-            if (!_lastCollectionTimes.TryGetValue(accountId, out DateTime lastCollection))
+            if (!_lastCollectionTimes.TryGetValue(accountId, out _))
             {
                 return true; // First time collection
             }

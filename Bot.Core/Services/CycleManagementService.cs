@@ -257,7 +257,7 @@ namespace Bot.Core.Services
                             try
                             {
                                 _logger.LogInfo($"✅ Account {account.AccountName} acquired instance semaphore slot");
-                                success = await ProcessAccountAsync(account, config, cycleToken, accountCycleResults, accountIndex);
+                                success = await ProcessAccountAsync(account, config, cycleToken, accountCycleResults);
                             }
                             finally
                             {
@@ -271,7 +271,6 @@ namespace Bot.Core.Services
                     else
                     {
                         // Parallel processing with semaphore control
-                        var maxConcurrentCycling = Math.Min(effectiveMaxConcurrent, cyclingAccounts.Count);
                         _logger.LogInfo($"🔄 Processing {cyclingAccounts.Count} cycling accounts in parallel (sharing {effectiveMaxConcurrent} total slots with persistent accounts)");
                         for (int accountIndex = 0; accountIndex < cyclingAccounts.Count; accountIndex++)
                         {
@@ -316,7 +315,7 @@ namespace Bot.Core.Services
                                 await _instanceSemaphore.WaitAsync(cycleToken);
                                 _logger.LogInfo($"✅ Account {account.AccountName} acquired instance semaphore slot");
                                 
-                                var success = await ProcessAccountAsync(account, config, cycleToken, accountCycleResults, currentIndex);
+                                var success = await ProcessAccountAsync(account, config, cycleToken, accountCycleResults);
                                 return success;
                             }, cycleToken);
                             
@@ -381,7 +380,7 @@ namespace Bot.Core.Services
             }
         }
 
-        private async Task<bool> ProcessAccountAsync(AccountSettings account, BotConfig config, CancellationToken cycleToken, Dictionary<string, bool> accountCycleResults, int accountIndex = 0)
+        private async Task<bool> ProcessAccountAsync(AccountSettings account, BotConfig config, CancellationToken cycleToken, Dictionary<string, bool> accountCycleResults)
         {
             bool accountOverallSuccess = false;
             try
@@ -592,36 +591,6 @@ namespace Bot.Core.Services
             {
                 // Log but don't throw during shutdown
                 System.Diagnostics.Debug.WriteLine($"Error during cycle shutdown: {ex.Message}");
-            }
-        }
-
-        private async Task<bool> RunTasksForSingleAccountAsync(AccountSettings account, CancellationToken cancellationToken)
-        {
-            try
-            {
-                _logger.LogInfo($"⚙️ Calling TaskManager for account {account.AccountName} (Instance {account.InstanceNumber})");
-
-                var success = await _taskManager.RunTasksForAccountAsync(account, cancellationToken);
-
-                if (success)
-                {
-                    _logger.LogInfo($"📊 TaskManager result for {account.AccountName}: Success");
-                }
-                else
-                {
-                     _logger.LogError($"💥 TaskManager returned failure for {account.AccountName}.");
-                }
-                return success;
-            }
-            catch (OperationCanceledException)
-            {
-                _logger.LogInfo($"🛑 Task execution for {account.AccountName} was cancelled.");
-                return false;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError($"💥 Error running tasks for {account.AccountName}: {ex.Message}");
-                return false;
             }
         }
 

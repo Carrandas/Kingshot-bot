@@ -40,10 +40,6 @@ namespace Bot.Core.Tasks.Modules.AutoHunt
 
         // Services
         private readonly ITargetDetectionService _targetDetectionService;
-        private readonly IMarchManagementService _marchManagementService;
-        private readonly IStaminaManagementService _staminaManagementService;
-        private readonly IHuntModeNavigationService _huntModeNavigationService;
-        private readonly IAutoHuntVisualDebugger _visualDebugger;
 
         public AutoHuntCoordinator(
             ITargetDetectionService targetDetectionService,
@@ -53,10 +49,6 @@ namespace Bot.Core.Tasks.Modules.AutoHunt
             IAutoHuntVisualDebugger visualDebugger)
         {
             _targetDetectionService = targetDetectionService;
-            _marchManagementService = marchManagementService;
-            _staminaManagementService = staminaManagementService;
-            _huntModeNavigationService = huntModeNavigationService;
-            _visualDebugger = visualDebugger;
         }
 
         public async Task<TaskExecutionDetails> ExecuteAutoHuntAsync(
@@ -74,7 +66,7 @@ namespace Bot.Core.Tasks.Modules.AutoHunt
                     _templateMatcher = new UnifiedTemplateMatchingService(logger);
                 }
                 // Get unique account ID for this account
-                var accountId = await GetAccountIdAsync(account, logger);
+                var accountId = await GetAccountIdAsync(account);
                 logger.LogInfo($"[{account.AccountName}] Using account ID: '{accountId}' for blocked area tracking");
 
                 // Ensure map view first
@@ -88,7 +80,7 @@ namespace Bot.Core.Tasks.Modules.AutoHunt
                 await Task.Delay(2000, cancellationToken);
 
                 // Check available marches before doing anything else
-                int initialMarches = await GetAvailableMarchesDirectly(account, logger, cancellationToken);
+                int initialMarches = await GetAvailableMarchesDirectly(account, logger);
                 logger.LogInfo($"[{account.AccountName}] Initial march check: {initialMarches} marches available");
                 if (initialMarches <= 0)
                 {
@@ -144,7 +136,7 @@ namespace Bot.Core.Tasks.Modules.AutoHunt
                         else
                         {
                             logger.LogInfo($"[{account.AccountName}] Already in hunt mode, skipping map view and march wait checks.");
-                            availableMarches = await GetAvailableMarchesDirectly(account, logger, cancellationToken);
+                            availableMarches = await GetAvailableMarchesDirectly(account, logger);
                             logger.LogInfo($"[{account.AccountName}] Current available marches: {availableMarches}");
                             
                             // Reset the flag for the next iteration
@@ -314,9 +306,9 @@ namespace Bot.Core.Tasks.Modules.AutoHunt
             // Route to appropriate processor
             return target.Type switch
             {
-                "king" => await ProcessKingTarget(target, sessionState, account, logger, cancellationToken, accountId),
+                "king" => await ProcessKingTarget(target, account, logger, cancellationToken, accountId),
                 "bear" or "bear-elite" => await ProcessBearTarget(target, sessionState, account, logger, cancellationToken, accountId),
-                "scout" => await ProcessScoutTarget(target, sessionState, account, logger, cancellationToken, accountId),
+                "scout" => await ProcessScoutTarget(target, account, logger, cancellationToken, accountId),
                 "attack" => await ProcessAttackTarget(target, sessionState, account, logger, cancellationToken, accountId),
                 _ => TargetProcessResult.Failed($"Unknown target type: {target.Type}")
             };
@@ -326,7 +318,6 @@ namespace Bot.Core.Tasks.Modules.AutoHunt
 
         private async Task<TargetProcessResult> ProcessKingTarget(
             HuntTarget target,
-            AutoHuntSessionState sessionState,
             AccountSettings account,
             LogService logger,
             CancellationToken cancellationToken,
@@ -405,7 +396,7 @@ namespace Bot.Core.Tasks.Modules.AutoHunt
                 }
 
                 // Look for deploy button or max march
-                if (!await HandleDeployment(account, logger, cancellationToken, accountId))
+                if (!await HandleDeployment(account, logger, cancellationToken))
                 {
                     return TargetProcessResult.Failed("Deployment failed");
                 }
@@ -420,7 +411,6 @@ namespace Bot.Core.Tasks.Modules.AutoHunt
                 await Task.Delay(2000, cancellationToken);
 
                 // Final max march check
-                var marchSettings = GetAutoHuntSettings(account);
                 if (await CheckMaxMarchDirectly(account, logger))
                 {
                     logger.LogInfo($"[{account.AccountName}] Max march detected after king deployment");
@@ -566,7 +556,6 @@ namespace Bot.Core.Tasks.Modules.AutoHunt
                 await Task.Delay(2000, cancellationToken);
 
                 // Final max march check
-                var marchSettings = GetAutoHuntSettings(account);
                 if (await CheckMaxMarchDirectly(account, logger))
                 {
                     logger.LogInfo($"[{account.AccountName}] Max march detected after bear deployment");
@@ -583,7 +572,6 @@ namespace Bot.Core.Tasks.Modules.AutoHunt
 
         private async Task<TargetProcessResult> ProcessScoutTarget(
             HuntTarget target,
-            AutoHuntSessionState sessionState,
             AccountSettings account,
             LogService logger,
             CancellationToken cancellationToken,
@@ -634,8 +622,7 @@ namespace Bot.Core.Tasks.Modules.AutoHunt
                 var staminaCheckScreenshot = await TakeScreenshotAsync(account.InstanceNumber, logger);
                 if (staminaCheckScreenshot != null)
                 {
-                    var staminaLowArea = new Rectangle(285, 122, 155, 41);
-                    var staminaResult = await CheckForStaminaLowDirectly(staminaCheckScreenshot, staminaLowArea, account, logger);
+                    var staminaResult = await CheckForStaminaLowDirectly(staminaCheckScreenshot, account, logger);
                     if (staminaResult == StaminaCheckResult.StaminaDepleted)
                     {
                         return TargetProcessResult.StaminaEmpty("Stamina depleted during scout rescue");
@@ -717,8 +704,7 @@ namespace Bot.Core.Tasks.Modules.AutoHunt
                 var staminaCheckScreenshot = await TakeScreenshotAsync(account.InstanceNumber, logger);
                 if (staminaCheckScreenshot != null)
                 {
-                    var staminaLowArea = new Rectangle(285, 122, 155, 41);
-                    var staminaResult = await CheckForStaminaLowDirectly(staminaCheckScreenshot, staminaLowArea, account, logger);
+                    var staminaResult = await CheckForStaminaLowDirectly(staminaCheckScreenshot, account, logger);
                     if (staminaResult == StaminaCheckResult.StaminaDepleted)
                     {
                         return TargetProcessResult.StaminaEmpty("Stamina depleted during attack");
@@ -1077,7 +1063,7 @@ namespace Bot.Core.Tasks.Modules.AutoHunt
                 var screenshot = await TakeScreenshotAsync(account.InstanceNumber, logger);
                 if (screenshot == null) continue;
 
-                foreach (var (imageName, requiresMarch) in targetTypes)
+                foreach (var (imageName, _) in targetTypes)
                 {
                     // Skip certain targets if not in hunt mode
                     if (!huntModeFound && (imageName == "king.png" || imageName == "scout.png" || imageName == "attack.png"))
@@ -1085,7 +1071,7 @@ namespace Bot.Core.Tasks.Modules.AutoHunt
                         continue;
                     }
 
-                    var (found, matchRect, confidence) = _templateMatcher.MatchTemplate(
+                    var (_, matchRect, confidence) = _templateMatcher.MatchTemplate(
                         screenshot,
                         Path.Combine(ImageTemplateFolder, imageName),
                         account.InstanceNumber,
@@ -1274,7 +1260,7 @@ namespace Bot.Core.Tasks.Modules.AutoHunt
             var levelUpScreenshot = await TakeScreenshotAsync(account.InstanceNumber, logger);
             if (levelUpScreenshot != null)
             {
-                var (levelUpFound, _, levelUpConfidence) = _templateMatcher.MatchTemplate(
+                var (levelUpFound, _, _) = _templateMatcher.MatchTemplate(
                     levelUpScreenshot,
                     Path.Combine(ImageTemplateFolder, "level-up.png"),
                     account.InstanceNumber,
@@ -1291,47 +1277,6 @@ namespace Bot.Core.Tasks.Modules.AutoHunt
                         await Task.Delay(500, cancellationToken);
                     }
                 }
-            }
-        }
-
-        private async Task CreateDebugLog(
-            AccountSettings account, 
-            LogService logger, 
-            List<HuntTarget> targets, 
-            AutoHuntSettings settings, 
-            string accountId)
-        {
-            try
-            {
-                logger.LogInfo($"[{account.AccountName}] Starting visual blocking debug log creation...");
-                var screenshot = await TakeScreenshotAsync(account.InstanceNumber, logger);
-                if (screenshot != null)
-                {
-                    logger.LogInfo($"[{account.AccountName}] Screenshot captured ({screenshot.Length} bytes), creating target info...");
-                    var targetInfos = targets.Select(t => new TargetInfo
-                    {
-                        Type = t.Type,
-                        TargetArea = t.TargetArea,
-                        Confidence = t.Confidence
-                    }).ToList();
-
-                    var blockedAreasForVisual = settings.GetUsedTargetAreas(accountId).ToList();
-                    var action = targets.Any() ? $"found_{targets.Count}_targets" : "no_targets_found";
-                    logger.LogInfo($"[{account.AccountName}] Creating visual log: {targetInfos.Count} targets, {blockedAreasForVisual.Count} blocked areas, action: {action}");
-                    
-                    _ = Task.Run(() =>
-                    {
-                        CreateVisualBlockingLogSync(screenshot, account, logger, targetInfos, blockedAreasForVisual, action);
-                    });
-                }
-                else
-                {
-                    logger.LogWarning($"[{account.AccountName}] Screenshot was null, skipping visual blocking log");
-                }
-            }
-            catch (Exception ex)
-            {
-                logger.LogWarning($"[{account.AccountName}] Failed to create visual blocking log: {ex.Message}");
             }
         }
 
@@ -1353,77 +1298,9 @@ namespace Bot.Core.Tasks.Modules.AutoHunt
 
         #endregion
 
-        private void CreateVisualBlockingLogSync(
-            byte[] screenshotBytes,
-            AccountSettings account,
-            LogService logger,
-            List<TargetInfo> foundTargets,
-            List<Rectangle> blockedAreas,
-            string action)
-        {
-            try
-            {
-                logger.LogInfo($"[{account.AccountName}] CreateVisualBlockingLogSync called with action: {action}");
-                
-                if (screenshotBytes == null || screenshotBytes.Length == 0) 
-                {
-                    logger.LogWarning($"[{account.AccountName}] Screenshot bytes are null or empty");
-                    return;
-                }
-
-                var logDirectory = Path.Combine(AppContext.BaseDirectory, "logs", "screenshots", AutoHuntConstants.DEBUG_SCREENSHOT_FOLDER);
-                Directory.CreateDirectory(logDirectory);
-
-                var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss_fff");
-                var filename = $"blocking_{account.InstanceNumber}_{account.AccountName}_{action}_{timestamp}.png";
-                var filepath = Path.Combine(logDirectory, filename);
-                
-                using var originalImage = Image.FromStream(new MemoryStream(screenshotBytes));
-                using var bitmap = new Bitmap(originalImage);
-                using var graphics = Graphics.FromImage(bitmap);
-
-                // Set up drawing tools
-                using var blockedPen = new Pen(Color.Red, 3);
-                using var availablePen = new Pen(Color.Green, 3);
-                using var font = new Font("Arial", 8, FontStyle.Bold);
-                using var blockedBrush = new SolidBrush(Color.FromArgb(100, Color.Red));
-                using var availableBrush = new SolidBrush(Color.FromArgb(100, Color.Green));
-                using var textBrush = new SolidBrush(Color.White);
-
-                // Draw blocked areas (red)
-                if (blockedAreas != null)
-                {
-                    foreach (var blockedArea in blockedAreas)
-                    {
-                        graphics.FillRectangle(blockedBrush, blockedArea);
-                        graphics.DrawRectangle(blockedPen, blockedArea);
-                        graphics.DrawString("BLOCKED", font, textBrush, blockedArea.X + 2, blockedArea.Y + 2);
-                    }
-                }
-
-                // Draw available/found targets (green)
-                if (foundTargets != null)
-                {
-                    foreach (var target in foundTargets)
-                    {
-                        graphics.FillRectangle(availableBrush, target.TargetArea);
-                        graphics.DrawRectangle(availablePen, target.TargetArea);
-                        graphics.DrawString($"{target.Type.ToUpper()}", font, textBrush, target.TargetArea.X + 2, target.TargetArea.Y + 2);
-                    }
-                }
-
-                bitmap.Save(filepath, ImageFormat.Png);
-                logger.LogInfo($"[{account.AccountName}] Visual blocking log saved: {filepath}");
-            }
-            catch (Exception ex)
-            {
-                logger.LogError($"[{account.AccountName}] Error creating visual blocking log: {ex.Message}");
-            }
-        }
-
         #region March Management
 
-        private async Task<int> GetAvailableMarchesDirectly(AccountSettings account, LogService logger, CancellationToken cancellationToken)
+        private async Task<int> GetAvailableMarchesDirectly(AccountSettings account, LogService logger)
         {
             var screenshot = await TakeScreenshotAsync(account.InstanceNumber, logger);
             if (screenshot == null) return 0;
@@ -1485,7 +1362,7 @@ namespace Bot.Core.Tasks.Modules.AutoHunt
                 await WaitIfPausedAsync(cancellationToken);
                 if (cancellationToken.IsCancellationRequested) return -1;
 
-                availableMarches = await GetAvailableMarchesDirectly(account, logger, cancellationToken);
+                availableMarches = await GetAvailableMarchesDirectly(account, logger);
                 
                 if (availableMarches > 0)
                 {
@@ -1497,7 +1374,7 @@ namespace Bot.Core.Tasks.Modules.AutoHunt
                 var screenshot = await TakeScreenshotAsync(account.InstanceNumber, logger);
                 if (screenshot != null)
                 {
-                    var staminaResult = await CheckForStaminaLowDirectly(screenshot, AutoHuntConstants.StaminaArea, account, logger);
+                    var staminaResult = await CheckForStaminaLowDirectly(screenshot, account, logger);
                     if (staminaResult == StaminaCheckResult.StaminaDepleted)
                     {
                         return -1; // Signal stamina depletion
@@ -1598,7 +1475,6 @@ namespace Bot.Core.Tasks.Modules.AutoHunt
 
         private async Task<StaminaCheckResult> CheckForStaminaLowDirectly(
             byte[]? screenshot,
-            Rectangle staminaArea,
             AccountSettings account,
             LogService logger)
         {
@@ -1772,8 +1648,7 @@ namespace Bot.Core.Tasks.Modules.AutoHunt
         private async Task<bool> HandleDeployment(
             AccountSettings account, 
             LogService logger, 
-            CancellationToken cancellationToken, 
-            string accountId)
+            CancellationToken cancellationToken)
         {
             DateTime startTime = DateTime.UtcNow;
             bool buttonFound = false;
@@ -1784,7 +1659,7 @@ namespace Bot.Core.Tasks.Modules.AutoHunt
                 if (deployScreenshot == null) continue;
 
                 // Check for deploy button
-                var (deployFound, deployRect, deployConfidence) = _templateMatcher.MatchTemplate(
+                var (deployFound, deployRect, _) = _templateMatcher.MatchTemplate(
                     deployScreenshot,
                     Path.Combine(ImageTemplateFolder, "deploy-button.png"),
                     account.InstanceNumber,
@@ -1834,8 +1709,7 @@ namespace Bot.Core.Tasks.Modules.AutoHunt
             var confirmScreenshot = await TakeScreenshotAsync(account.InstanceNumber, logger);
             if (confirmScreenshot != null)
             {
-                var staminaLowArea = new Rectangle(285, 122, 155, 41);
-                var staminaResult = await CheckForStaminaLowDirectly(confirmScreenshot, staminaLowArea, account, logger);
+                var staminaResult = await CheckForStaminaLowDirectly(confirmScreenshot, account, logger);
                 
                 if (staminaResult == StaminaCheckResult.StaminaDepleted)
                 {
@@ -1867,7 +1741,7 @@ namespace Bot.Core.Tasks.Modules.AutoHunt
             return TargetProcessResult.Successful("Confirmation handled");
         }
 
-        private async Task<string> GetAccountIdAsync(AccountSettings account, LogService logger)
+        private async Task<string> GetAccountIdAsync(AccountSettings account)
         {
             // Use account name as ID since AccountDetectionTask is not available
             return $"{account.InstanceNumber}_{account.AccountName}";
@@ -1875,8 +1749,6 @@ namespace Bot.Core.Tasks.Modules.AutoHunt
 
         private AutoHuntSettings GetAutoHuntSettings(AccountSettings account)
         {
-            var configManager = ConfigurationManager.Instance;
-            var config = configManager.GetConfig();
             
             if (!account.TaskSettings.TryGetValue("AutoHunt", out var settingsJson) || string.IsNullOrEmpty(settingsJson))
             {
@@ -1895,7 +1767,6 @@ namespace Bot.Core.Tasks.Modules.AutoHunt
 
         private void SaveAutoHuntSettings(AccountSettings account, AutoHuntSettings settings)
         {
-            var configManager = ConfigurationManager.Instance;
             var settingsJson = JsonSerializer.Serialize(settings);
             account.TaskSettings["AutoHunt"] = settingsJson;
             // Configuration is auto-saved via ConfigurationManager.Instance

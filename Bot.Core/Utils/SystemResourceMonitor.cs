@@ -88,7 +88,6 @@ namespace Bot.Core.Utils
                 _lastCheck = DateTime.UtcNow;
                 
                 // Get memory usage using GC and process information
-                var totalMemory = GC.GetTotalMemory(false);
                 var workingSet = _currentProcess.WorkingSet64;
                 
                 // Calculate memory usage without PerformanceCounter dependency
@@ -96,7 +95,6 @@ namespace Bot.Core.Utils
                 
                 // Use GC memory pressure as indicator of system memory availability
                 // This is more reliable than assuming fixed system memory
-                var gcMemoryMB = totalMemory / (1024.0 * 1024.0);
                 
                 // Estimate total available memory based on process usage patterns
                 // If process is using a lot of memory, assume less is available

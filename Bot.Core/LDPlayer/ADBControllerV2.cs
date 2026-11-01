@@ -46,7 +46,6 @@ namespace Bot.Core.LDPlayer
         private readonly SemaphoreSlim _commandSemaphore = new(1, 1);
         
         // Connection health tracking
-        private DateTime _lastSuccessfulOperation = DateTime.UtcNow;
         private int _consecutiveFailures = 0;
         private const int MAX_CONSECUTIVE_FAILURES = 3;
         
@@ -572,7 +571,6 @@ namespace Bot.Core.LDPlayer
         /// </summary>
         private void RecordSuccessfulOperation()
         {
-            _lastSuccessfulOperation = DateTime.UtcNow;
             _consecutiveFailures = 0;
         }
 
@@ -599,32 +597,6 @@ namespace Bot.Core.LDPlayer
             _performanceMetrics.AddOrUpdate(operation, 
                 (duration.Ticks, 1),
                 (key, existing) => (existing.TotalTime + duration.Ticks, existing.Count + 1));
-        }
-
-        /// <summary>
-        /// Fix screencap line ending issues (common problem with screencap -p)
-        /// </summary>
-        private static byte[] FixScreencapLineEndings(byte[] data)
-        {
-            // Convert \r\n to \n for PNG compatibility
-            var result = new List<byte>();
-            
-            for (int i = 0; i < data.Length; i++)
-            {
-                if (i < data.Length - 1 && data[i] == 0x0D && data[i + 1] == 0x0A)
-                {
-                    result.Add(0x0A); // Add only \n
-                    #pragma warning disable S127 // deliberately skips the 
-                    i++; // Skip the \r
-                    #pragma warning restore S127
-                }
-                else
-                {
-                    result.Add(data[i]);
-                }
-            }
-            
-            return result.ToArray();
         }
 
         /// <summary>

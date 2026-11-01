@@ -57,18 +57,13 @@ namespace Bot.Core.Tasks.Modules
             }
         }
 
-        // UI element coordinates
-        private static readonly Rectangle MarchCapacityTextRect = new Rectangle(190, 196, 52, 32);  // 190,196 to 242,228
         private static readonly Rectangle SearchIconRect = new Rectangle(20, 855, 47, 43);  // Search icon in top menu
         private static readonly Rectangle ResourceScrollArea = new Rectangle(0, 820, 718, 200);  // Resource selection area
         private static readonly Rectangle GatherButtonArea = new Rectangle(257, 592, 207, 72);  // 257,592 to 464,664
         private static readonly Rectangle SearchButtonArea = new Rectangle(117, 1166, 414, 102);  // 117,1166 to 531,1268
         private static readonly Rectangle DeployButtonArea = new Rectangle(388, 1159, 315, 107);  // From AutoHuntTask: 388,1159 to 703,1266
-        private static readonly Rectangle MaxMarchArea = new Rectangle(234, 311, 244, 57);  // 234,311 to 478,368
-        private static readonly Rectangle LevelTextRect = new Rectangle(102, 991, 426, 40);  // 102,991 to 528,1031
         private static readonly Rectangle LevelPlusButtonRect = new Rectangle(470, 1037, 35, 34);
         private static readonly Rectangle LevelMinusButtonRect = new Rectangle(52, 1039, 34, 29);
-        private static readonly Rectangle FailedGatherFallbackClickRect = new Rectangle(201, 398, 300, 403);
         
         /// <summary>
         /// Main execution method for the farming task.
@@ -135,7 +130,7 @@ namespace Bot.Core.Tasks.Modules
                 // Initialize marches count
                 // Rallies and returning marches also use slots, so the total is not capped here:
                 // each resource is sent at most once and skipped while its icon shows in the Marching panel
-                int currentMarches = await GetAvailableMarchesAsync(account, logger, cancellationToken);
+                int currentMarches = await GetAvailableMarchesAsync(account, logger);
                 if (currentMarches <= 0)
                 {
                     logger.LogInfo($"[{account.AccountName}] No marches available after map view check.");
@@ -169,7 +164,6 @@ namespace Bot.Core.Tasks.Modules
 
                 // Main farming loop
                 int marchesSentSuccessfully = 0;
-                var initialMarchesSent = FarmingSettings.GetMarchesSent(account.InstanceNumber);
                 
                 try
                 {
@@ -185,13 +179,12 @@ namespace Bot.Core.Tasks.Modules
                         // Check march limit before sending each march
                         if (account.FarmingSettings.HasReachedMarchLimit(account.InstanceNumber))
                         {
-                            var remainingMarches = account.FarmingSettings.GetRemainingMarches(account.InstanceNumber);
                             logger.LogInfo($"[{account.AccountName}] 🛑 March limit reached during farming loop");
                             userNotifications?.ShowStatus($"March limit reached: {account.FarmingSettings.MaxFarmingMarches} marches sent", NotificationType.Warning);
                             break;
                         }
                         
-                        currentMarches = await GetAvailableMarchesAsync(account, logger, cancellationToken);
+                        currentMarches = await GetAvailableMarchesAsync(account, logger);
                         if (currentMarches <= 0)
                         {
                             logger.LogInfo($"[{account.AccountName}] No more marches available.");
@@ -211,7 +204,7 @@ namespace Bot.Core.Tasks.Modules
 
                         logger.LogInfo($"[{account.AccountName}] 🎯 Attempting to send march for {currentTarget.ResourceType} Level {currentTarget.Level}");
 
-                        bool marchSent = await ProcessSingleMarchAsync(account, logger, cancellationToken, currentTarget, userNotifications);
+                        bool marchSent = await ProcessSingleMarchAsync(account, logger, cancellationToken, currentTarget);
                         if (marchSent)
                         {
                             marchesSentSuccessfully++;
@@ -311,7 +304,7 @@ namespace Bot.Core.Tasks.Modules
             }
         }
 
-        private async Task<int> GetAvailableMarchesAsync(AccountSettings account, LogService logger, CancellationToken cancellationToken)
+        private async Task<int> GetAvailableMarchesAsync(AccountSettings account, LogService logger)
         {
             // 1. Define a much tighter cropping area to isolate *only* the "3/3" text.
             // This prevents the OCR from seeing other noisy UI elements.
@@ -354,7 +347,7 @@ namespace Bot.Core.Tasks.Modules
         /// <summary>
         /// Processes a single march to a specific resource target.
         /// </summary>
-        private async Task<bool> ProcessSingleMarchAsync(AccountSettings account, LogService logger, CancellationToken cancellationToken, FarmingTarget target, IUserNotificationService? userNotifications = null)
+        private async Task<bool> ProcessSingleMarchAsync(AccountSettings account, LogService logger, CancellationToken cancellationToken, FarmingTarget target)
         {
             if (target == null)
             {
@@ -464,7 +457,7 @@ namespace Bot.Core.Tasks.Modules
                         if (_templateMatcher == null) _templateMatcher = new UnifiedTemplateMatchingService(logger);
 
                         // Check for deploy button
-                        var (deployFound, deployRect, deployConfidence) = _templateMatcher.MatchTemplate(
+                        var (deployFound, deployRect, _) = _templateMatcher.MatchTemplate(
                             screenshot,
                             deployButtonPath,
                             account.InstanceNumber,
@@ -511,7 +504,7 @@ namespace Bot.Core.Tasks.Modules
                                 logger.LogInfo($"[{account.AccountName}] ⚠️ No troops available detected at {noTroopsRect} with confidence {noTroopsConfidence:F3}. Looking for back button...");
                                 
                                 // Look for and click the back button
-                                var (backFound, backRect, backConfidence) = _templateMatcher.MatchTemplate(
+                                var (backFound, backRect, _) = _templateMatcher.MatchTemplate(
                                     screenshot,
                                     backButtonPath,
                                     account.InstanceNumber,
@@ -1149,7 +1142,7 @@ namespace Bot.Core.Tasks.Modules
                 await Task.Delay(1000, cancellationToken); // Wait 1 second as requested
 
                 // Check if we're in map view by looking for map-view indicators
-                if (await CheckIfInMapViewAsync(account.InstanceNumber, logger, cancellationToken))
+                if (await CheckIfInMapViewAsync(account.InstanceNumber, logger))
                 {
                     logger.LogInfo($"[{account.AccountName}] ✅ Successfully returned to map view");
                     return;
@@ -1169,7 +1162,7 @@ namespace Bot.Core.Tasks.Modules
         /// <summary>
         /// Checks if we're currently in map view by looking for map-specific UI elements
         /// </summary>
-        private async Task<bool> CheckIfInMapViewAsync(int instanceNumber, LogService logger, CancellationToken cancellationToken)
+        private async Task<bool> CheckIfInMapViewAsync(int instanceNumber, LogService logger)
         {
             try
             {

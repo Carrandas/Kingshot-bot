@@ -42,7 +42,7 @@ namespace Bot.Core.Utils
             _ = CreateReadmeAsync().ConfigureAwait(false);
         }
 
-        private async Task<bool> HandleMapNotFound(int instanceNumber, CancellationToken cancellationToken)
+        private async Task<bool> HandleMapNotFound( CancellationToken cancellationToken)
         {
             _logger.LogInfo($"[{_account.AccountName}] Maps not found, initiating recovery process...");
             
@@ -257,7 +257,7 @@ namespace Bot.Core.Utils
             
             // If still no success after all attempts, trigger recovery
             _logger.LogError($"[{_account.AccountName}] Failed to find views or ads after {MAX_AD_ATTEMPTS} attempts, falling back to recovery");
-            if (await HandleMapNotFound(_account.InstanceNumber, CancellationToken.None))
+            if (await HandleMapNotFound( CancellationToken.None))
             {
                 // If recovery succeeded, try detecting view again
                 var adbController = await ADBConnectionManager.GetConnectionAsync(_account.InstanceNumber, _logger, CancellationToken.None);
@@ -339,7 +339,7 @@ namespace Bot.Core.Utils
                 {
                     _logger.LogError($"[Locator] ❌ Could not find {targetImageName} for navigation (confidence: {confidence:F3} < threshold: 0.7)");
                     // await SaveDebugScreenshot(screenshot, instanceNumber, $"navigation_failed_{targetImageName}_conf{confidence:F3}"); // DISABLED FOR PERFORMANCE
-                    return await HandleMapNotFound(instanceNumber, cancellationToken);
+                    return await HandleMapNotFound( cancellationToken);
                 }
                 _logger.LogInfo($"[Locator] ✅ Found {targetImageName} with confidence: {confidence:F3}");
 
@@ -379,7 +379,7 @@ namespace Bot.Core.Utils
                 {
                     // await SaveDebugScreenshot(screenshot, instanceNumber, $"navigation_timeout_{verifyImageName}"); // DISABLED FOR PERFORMANCE
                 }
-                return await HandleMapNotFound(instanceNumber, cancellationToken);
+                return await HandleMapNotFound( cancellationToken);
             }
             catch (Exception ex)
             {
@@ -522,46 +522,6 @@ namespace Bot.Core.Utils
             {
                 _logger.LogError($"[Locator] Error during view detection: {ex.Message}");
                 return ViewType.Unknown;
-            }
-        }
-
-        /// <summary>
-        /// Creates an ADB controller for the specified instance
-        /// </summary>
-        private async Task<ADBController?> GetADBControllerAsync(int instanceNumber, CancellationToken cancellationToken)
-        {
-            try
-            {
-                return await ADBConnectionManager.GetConnectionAsync(instanceNumber, _logger, cancellationToken);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError($"[Locator] Error getting ADB controller: {ex.Message}");
-                return null;
-            }
-        }
-
-        /// <summary>
-        /// Saves a debug screenshot with descriptive filename
-        /// </summary>
-        private async Task SaveDebugScreenshot(byte[] screenshot, int instanceNumber, string description)
-        {
-            try
-            {
-                var screenshotsDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "logs", "screenshots");
-                Directory.CreateDirectory(screenshotsDir);
-                
-                var timestamp = DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss");
-                var safeDescription = description.Replace(".", "_").Replace(" ", "_").Replace(":", "");
-                var filename = $"locator_{instanceNumber}_{timestamp}_{safeDescription}.png";
-                var filePath = Path.Combine(screenshotsDir, filename);
-                
-                await File.WriteAllBytesAsync(filePath, screenshot);
-                _logger.LogInfo($"[Locator] 📸 Saved debug screenshot: {filename}");
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError($"[Locator] Failed to save debug screenshot: {ex.Message}");
             }
         }
 

@@ -21,8 +21,6 @@ namespace Bot.Core.Tasks.Modules
 
         private readonly string _templateFolder;
         private readonly AutoShieldMetrics _metrics;
-        private readonly IConfigurationManager _configManager;
-        private readonly IServiceProvider? _serviceProvider;
         private const int POLL_INTERVAL_MS = 200;
         private const double TEMPLATE_MATCH_THRESHOLD = 0.7;
 
@@ -38,8 +36,6 @@ namespace Bot.Core.Tasks.Modules
 
         public AutoShieldTask(IConfigurationManager configManager, IServiceProvider? serviceProvider = null)
         {
-            _configManager = configManager ?? throw new ArgumentNullException(nameof(configManager));
-            _serviceProvider = serviceProvider;
             string baseDir = AppContext.BaseDirectory;
             _templateFolder = Path.Combine(baseDir, "templates", "images", "autoshield");
             _metrics = new AutoShieldMetrics();
@@ -71,7 +67,7 @@ namespace Bot.Core.Tasks.Modules
                 }
 
                 // Check current shield timer
-                var currentShieldTime = await ReadShieldTimerAsync(account, logger, cancellationToken);
+                var currentShieldTime = await ReadShieldTimerAsync(account, logger);
                 if (currentShieldTime == null)
                 {
                     logger.LogInfo($"[{account.AccountName}] No shield timer detected - likely no shield active. Will apply shield.");
@@ -110,7 +106,7 @@ namespace Bot.Core.Tasks.Modules
                 }
 
                 // Verify shield was applied
-                var newShieldTime = await ReadShieldTimerAsync(account, logger, cancellationToken);
+                var newShieldTime = await ReadShieldTimerAsync(account, logger);
                 if (newShieldTime == null)
                 {
                     _metrics.FailedAttempts++;
@@ -214,7 +210,7 @@ namespace Bot.Core.Tasks.Modules
             }
         }
 
-        private async Task<TimeSpan?> ReadShieldTimerAsync(AccountSettings account, LogService logger, CancellationToken cancellationToken)
+        private async Task<TimeSpan?> ReadShieldTimerAsync(AccountSettings account, LogService logger)
         {
             try
             {
@@ -431,7 +427,7 @@ namespace Bot.Core.Tasks.Modules
                     
                     // Sometimes the shield is applied without needing confirmation
                     // Use OCR to check if a shield timer is now showing
-                    var verificationShieldTime = await ReadShieldTimerAsync(account, logger, cancellationToken);
+                    var verificationShieldTime = await ReadShieldTimerAsync(account, logger);
                     if (verificationShieldTime != null && verificationShieldTime.Value > TimeSpan.Zero)
                     {
                         logger.LogInfo($"[{account.AccountName}] Shield was successfully applied without confirmation. Timer shows: {verificationShieldTime.Value.TotalHours:F1}h");

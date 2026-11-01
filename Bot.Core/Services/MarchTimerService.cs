@@ -81,7 +81,7 @@ namespace Bot.Core.Services
                 var hasVisualTimers = await DetectVisualMarchTimersAsync(screenshot, instanceNumber, logger);
                 
                 // Check for timer text using OCR
-                var timerText = await DetectTimerTextAsync(screenshot, instanceNumber, logger, cancellationToken);
+                var timerText = await DetectTimerTextAsync(screenshot, instanceNumber, logger);
                 var remainingTime = ParseTimerText(timerText);
 
                 bool hasActiveTimers = hasVisualTimers || remainingTime.HasValue;
@@ -150,7 +150,7 @@ namespace Bot.Core.Services
             }
 
             // Check AutoIntel march times (similar logic)
-            if (account.TaskSettings.TryGetValue("AutoIntel", out var autoIntelJson))
+            if (account.TaskSettings.TryGetValue("AutoIntel", out _))
             {
                 try
                 {
@@ -228,7 +228,7 @@ namespace Bot.Core.Services
             return Task.FromResult(false);
         }
 
-        private Task<string> DetectTimerTextAsync(byte[] screenshot, int instanceNumber, LogService logger, CancellationToken cancellationToken)
+        private Task<string> DetectTimerTextAsync(byte[] screenshot, int instanceNumber, LogService logger)
         {
             try
             {

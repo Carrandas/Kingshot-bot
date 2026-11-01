@@ -23,15 +23,6 @@ namespace Bot.Core.Tasks.Modules
 
         private LocatorService? _locatorService;
         
-        // Static dictionary to track last collection times per instance
-        private static readonly ConcurrentDictionary<int, DateTime> _lastCollectionTimes = new();
-        private static readonly string TimeStorageFile = Path.Combine(
-            AppContext.BaseDirectory, "data", "vip_collection_times.json"
-        );
-        
-        // Collection interval when both VIP rewards are collected (old 12 h timer per instance; the task now uses DailyGate)
-        private static readonly TimeSpan VipRewardsInterval = TimeSpan.FromHours(12);
-
         public DateTime? GetNextRunUtc(string accountKey, AccountSettings account) => DailyGate.NextRunUtc(TaskType, accountKey);
         public void ClearSchedule(string accountKey) => DailyGate.Clear(TaskType, accountKey);
         
@@ -80,7 +71,7 @@ namespace Bot.Core.Tasks.Modules
 
                 // Step 2: Find and click VIP button (with color template matching)
                 logger.LogInfo($"[{account.AccountName}] Looking for VIP button...");
-                if (!await FindAndClickImageWithColorAsync("vip.png", account.InstanceNumber, logger, cancellationToken))
+                if (!await FindAndClickImageWithColorAsync("vip.png", account.InstanceNumber, logger))
                 {
                     logger.LogWarning($"[{account.AccountName}] VIP button not found");
                     return TaskExecutionDetails.Failed("VIP button not found");
@@ -146,7 +137,7 @@ namespace Bot.Core.Tasks.Modules
                 // Step 3: Find and click VIP chest (with color template matching in specific area)
                 logger.LogInfo($"[{account.AccountName}] Looking for VIP chest in area {VipChestSearchArea}...");
                 // vip-chest.png is the red dot on the daily sign-in chest; no dot means it was already claimed today
-                bool chestClicked = await FindAndClickImageWithColorAsync("vip-chest.png", account.InstanceNumber, logger, cancellationToken, VipChestSearchArea);
+                bool chestClicked = await FindAndClickImageWithColorAsync("vip-chest.png", account.InstanceNumber, logger, VipChestSearchArea);
                 if (!chestClicked)
                 {
                     logger.LogInfo($"[{account.AccountName}] VIP chest has no red dot (already claimed), continuing with the daily bundle...");
@@ -392,7 +383,7 @@ namespace Bot.Core.Tasks.Modules
         /// <summary>
         /// Find and click image using color template matching (enhanced matching)
         /// </summary>
-        private async Task<bool> FindAndClickImageWithColorAsync(string imageName, int instanceNumber, LogService logger, CancellationToken cancellationToken, Rectangle? searchArea = null)
+        private async Task<bool> FindAndClickImageWithColorAsync(string imageName, int instanceNumber, LogService logger, Rectangle? searchArea = null)
         {
             try
             {
@@ -552,89 +543,5 @@ namespace Bot.Core.Tasks.Modules
             return "collectvip";
         }
         
-        private bool ShouldCollect(int instanceNumber)
-        {
-            if (!_lastCollectionTimes.TryGetValue(instanceNumber, out DateTime lastCollection))
-            {
-                return true; // First time collection
-            }
-
-            var nextCollection = GetNextCollectionTime(instanceNumber);
-            return DateTime.UtcNow >= nextCollection;
-        }
-
-        private DateTime GetNextCollectionTime(int instanceNumber)
-        {
-            if (!_lastCollectionTimes.TryGetValue(instanceNumber, out DateTime lastCollection))
-            {
-                return DateTime.UtcNow; // First time collection
-            }
-
-            // Use 12-hour interval when VIP rewards were collected
-            return lastCollection.Add(VipRewardsInterval);
-        }
-
-        private void UpdateCollectionTime(int instanceNumber)
-        {
-            _lastCollectionTimes[instanceNumber] = DateTime.UtcNow;
-            SaveCollectionTimes();
-        }
-
-        private void LoadCollectionTimes()
-        {
-            try
-            {
-                if (File.Exists(TimeStorageFile))
-                {
-                    var json = File.ReadAllText(TimeStorageFile);
-                    var options = new JsonSerializerOptions { WriteIndented = true };
-                    var times = JsonSerializer.Deserialize<ConcurrentDictionary<int, DateTime>>(json, options);
-                    if (times != null)
-                    {
-                        // Validate and clean up old entries
-                        var now = DateTime.UtcNow;
-                        foreach (var kvp in times)
-                        {
-                            // Only keep entries from the last 24 hours
-                            if (now.Subtract(kvp.Value).TotalHours <= 24)
-                            {
-                                _lastCollectionTimes[kvp.Key] = kvp.Value;
-                            }
-                        }
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[CollectVipTask] Error loading collection times: {ex.Message}");
-                _lastCollectionTimes.Clear();
-            }
-        }
-
-        private void SaveCollectionTimes()
-        {
-            try
-            {
-                var directory = Path.GetDirectoryName(TimeStorageFile);
-                if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
-                {
-                    Directory.CreateDirectory(directory);
-                }
-
-                // Validate times before saving
-                var now = DateTime.UtcNow;
-                var validTimes = _lastCollectionTimes
-                    .Where(kvp => now.Subtract(kvp.Value).TotalHours <= 24)
-                    .ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
-
-                var options = new JsonSerializerOptions { WriteIndented = true };
-                var json = JsonSerializer.Serialize(validTimes, options);
-                File.WriteAllText(TimeStorageFile, json);
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[CollectVipTask] Error saving collection times: {ex.Message}");
-            }
-        }
     }
 }

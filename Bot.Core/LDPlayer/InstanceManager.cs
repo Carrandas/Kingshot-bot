@@ -19,7 +19,6 @@ namespace Bot.Core.LDPlayer
         private readonly string _ldConsolePath;
         private readonly string _dnConsolePath;
         private readonly LogService _logger;
-        private readonly SemaphoreSlim _concurrencyLimiter;
         private const int MaxConcurrentOperations = 10;
 
         // Fast status checking cache
@@ -38,7 +37,6 @@ namespace Bot.Core.LDPlayer
             _ldConsolePath = ldConsolePath;
             _dnConsolePath = dnConsolePath;
             _logger = logger;
-            _concurrencyLimiter = new SemaphoreSlim(MaxConcurrentOperations, MaxConcurrentOperations);
             
             // Set the logger in LDPlayerHelper for telemetry
             LDPlayerHelper.SetLogger(logger);

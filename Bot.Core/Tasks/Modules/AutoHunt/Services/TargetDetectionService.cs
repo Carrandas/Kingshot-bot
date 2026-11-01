@@ -46,7 +46,7 @@ namespace Bot.Core.Tasks.Modules.AutoHunt.Services
             var bestConfidences = new Dictionary<string, List<(Rectangle location, double confidence)>>();
 
             // Get account ID for this account
-            var accountId = await GetAccountIdAsync(account, logger);
+            var accountId = await GetAccountIdAsync(account);
             
             // Log current blocked areas for this account
             var settings = GetAutoHuntSettings(account);
@@ -77,7 +77,7 @@ namespace Bot.Core.Tasks.Modules.AutoHunt.Services
             // Handle case where no targets found
             if (!targets.Any())
             {
-                await HandleNoTargetsFound(account, logger, cancellationToken, bestConfidences, foundAnyTick);
+                await HandleNoTargetsFound(account, logger, bestConfidences, foundAnyTick);
             }
             else
             {
@@ -130,7 +130,7 @@ namespace Bot.Core.Tasks.Modules.AutoHunt.Services
             return false;
         }
 
-        private async Task<string> GetAccountIdAsync(AccountSettings account, LogService logger)
+        private async Task<string> GetAccountIdAsync(AccountSettings account)
         {
             // Use account name as ID since AccountDetectionTask is not available
             return $"{account.InstanceNumber}_{account.AccountName}";
@@ -138,8 +138,6 @@ namespace Bot.Core.Tasks.Modules.AutoHunt.Services
 
         private AutoHuntSettings GetAutoHuntSettings(AccountSettings account)
         {
-            var configManager = ConfigurationManager.Instance;
-            var config = configManager.GetConfig();
             
             if (!account.TaskSettings.TryGetValue("AutoHunt", out var settingsJson) || string.IsNullOrEmpty(settingsJson))
             {
@@ -158,7 +156,6 @@ namespace Bot.Core.Tasks.Modules.AutoHunt.Services
 
         private void SaveAutoHuntSettings(AccountSettings account, AutoHuntSettings settings)
         {
-            var configManager = ConfigurationManager.Instance;
             var settingsJson = System.Text.Json.JsonSerializer.Serialize(settings);
             account.TaskSettings["AutoHunt"] = settingsJson;
             // Configuration is auto-saved via ConfigurationManager.Instance
@@ -311,7 +308,7 @@ namespace Bot.Core.Tasks.Modules.AutoHunt.Services
                 var screenshot = await TakeScreenshotAsync(account.InstanceNumber, logger);
                 if (screenshot == null) continue;
 
-                foreach (var (imageName, requiresMarch) in targetTypes)
+                foreach (var (imageName, _) in targetTypes)
                 {
                     // Skip certain targets if not in hunt mode
                     if (!huntModeFound && (imageName == "king.png" || imageName == "scout.png" || imageName == "attack.png"))
@@ -319,7 +316,7 @@ namespace Bot.Core.Tasks.Modules.AutoHunt.Services
                         continue;
                     }
 
-                    var (found, matchRect, confidence) = _templateMatcher.MatchTemplate(
+                    var (_, matchRect, confidence) = _templateMatcher.MatchTemplate(
                         screenshot,
                         Path.Combine(_imageTemplateFolder, imageName),
                         account.InstanceNumber,
@@ -437,7 +434,7 @@ namespace Bot.Core.Tasks.Modules.AutoHunt.Services
             }
         }
 
-        private async Task HandleNoTargetsFound(AccountSettings account, LogService logger, CancellationToken cancellationToken,
+        private async Task HandleNoTargetsFound(AccountSettings account, LogService logger,
             Dictionary<string, List<(Rectangle location, double confidence)>> bestConfidences, bool foundAnyTick)
         {
             // Log potential targets that didn't meet the threshold
@@ -511,6 +508,7 @@ namespace Bot.Core.Tasks.Modules.AutoHunt.Services
         }
 
         // Helper methods that would need to be injected or moved to base class
+        #pragma warning disable S1172 // placeholders: the coordinator does the real screenshot and tap work
         private async Task<byte[]?> TakeScreenshotAsync(int instanceNumber, LogService logger)
         {
             // This would need to be injected from BaseTaskWithCommonPatterns
@@ -529,5 +527,6 @@ namespace Bot.Core.Tasks.Modules.AutoHunt.Services
             // This would need to be injected from BaseTaskWithCommonPatterns
             return false;
         }
+        #pragma warning restore S1172
     }
 }

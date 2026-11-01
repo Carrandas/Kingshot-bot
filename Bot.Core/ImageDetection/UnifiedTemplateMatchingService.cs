@@ -9,7 +9,6 @@ namespace Bot.Core.ImageDetection
 {
     public sealed class UnifiedTemplateMatchingService : IDisposable
     {
-        private readonly LogService _logger;
         private readonly GrayscaleTemplateMatchingService _grayscaleService;
         private readonly ColorTemplateMatchingService _colorService;
         private bool _disposed;
@@ -29,7 +28,6 @@ namespace Bot.Core.ImageDetection
 
         public UnifiedTemplateMatchingService(LogService logger)
         {
-            _logger = logger;
             _grayscaleService = new GrayscaleTemplateMatchingService(logger);
             _colorService = new ColorTemplateMatchingService(logger);
         }
