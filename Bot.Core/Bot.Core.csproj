@@ -46,6 +46,7 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="Bot.Core.Tests" />
+    <InternalsVisibleTo Include="Bot.Core.IntegrationTests" />
   </ItemGroup>
 
   <ItemGroup>

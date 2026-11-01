@@ -61,6 +61,7 @@ namespace Bot.Core.Tasks.Modules
                 TaskType.Journey => "Journey",
                 TaskType.PetSkill => "Pet Skill",
                 TaskType.MysticTrial => "Mystic Trial",
+                TaskType.AutoJoinRally => "Auto Join Rally",
                 TaskType.TruegoldCrucible => "Truegold Crucible",
                 TaskType.AllianceTriumph => "Alliance Triumph",
                 TaskType.WaterEssence => "Water Essence",

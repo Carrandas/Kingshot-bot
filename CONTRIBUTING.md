@@ -32,12 +32,14 @@ dotnet build Bot.GUI/Bot.GUI.csproj -c Debug
 # Run (launch your terminal as Administrator)
 dotnet run --project Bot.GUI/Bot.GUI.csproj
 
-# Run the tests per project (the solution build includes the GUI, whose files are locked while it runs)
+# Run tests, per project (the solution build includes the GUI, whose files are locked while it runs)
 dotnet test Bot.Core.Tests              # unit tests: code only, no emulator
+dotnet test Bot.Core.IntegrationTests   # task detection on saved screenshots
 ```
 
 - **Unit tests** (`Bot.Core.Tests`) cover pure logic: character name matching, daily gates and schedules, run history, task registration and run order. `TaskRegistrationTests` fails when a new task is missing from `TaskManager`.
-- The unit tests don't touch LDPlayer. The `InstanceManager*` fixtures that do are `[Explicit]` and only run when selected by hand.
+- **Screenshot tests** (`Bot.Core.IntegrationTests`) run a task's detection on saved 720x1280 screenshots in `Screenshots/` and check the result against what the game really showed (for example: the hammer card is refreshed, the blue gems are kept). Add a screenshot with the expected result when you fix a detection bug; black out other players' names first.
+- Neither project touches LDPlayer. The `InstanceManager*` fixtures that do are `[Explicit]` and only run when selected by hand.
 
 Maintainers can produce a portable packaged build with `./Build.ps1 -Version 0.1.0` (add `-SkipInstaller` to skip the NSIS installer; output goes to `dist/`).
 
@@ -58,6 +60,7 @@ Bot.Core/                  # Core automation logic
   Utils/                    # OCR, locators, helpers
 Bot.GUI/                   # WPF UI (MVVM: ViewModels/, Views/, Converters/)
 Bot.Core.Tests/            # Unit tests (NUnit)
+Bot.Core.IntegrationTests/ # Screenshot tests (NUnit + Screenshots/)
 configs/                   # config.json (auto-created) + default_config.example.json
 templates/images/          # CV template images, one folder per task
 docs/                      # ARCHITECTURE.md and more

@@ -92,6 +92,7 @@ namespace Bot.Core.Tasks
             tasks[TaskType.AllianceMobilization] = new AllianceMobilizationTask();
             tasks[TaskType.PetSkill] = new PetSkillTask();
             tasks[TaskType.MysticTrial] = new MysticTrialTask();
+            tasks[TaskType.AutoJoinRally] = new AutoJoinRallyTask();
             return tasks;
         }
 
@@ -726,6 +727,7 @@ namespace Bot.Core.Tasks
             { TaskType.AllianceChests, 23 },
             { TaskType.AllianceMobilization, 24 },
             { TaskType.MysticTrial, 25 },
+            { TaskType.AutoJoinRally, 26 },
             { TaskType.AutoRally, 26 },
             { TaskType.ChangeAccount, 999 }    // ChangeAccount should always run last
         };

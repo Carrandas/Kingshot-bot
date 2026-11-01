@@ -14,6 +14,7 @@ KingshotAuto drives the game through a set of pluggable automation **tasks**. Ea
 **Combat and the world map**
 - **Intel Missions** (Auto Hunt) — attack beasts and run the Intel missions; taps the monocle agent for an extra batch of missions (setting, on by default)
 - **Auto Rally** — start and join rallies
+- **Auto Join Rally** — switch on the game's own rally auto-join (Alliance > War > Auto-Join), or restart its 8 hour timer when it is already on; keeps your troop, queue and rally type settings
 - **Farming** — send marches to gather resources on the world map
 - **Auto Shield** — keep your city shield active
 - **Auto Heal** — heal wounded troops
@@ -155,6 +156,7 @@ KingshotAuto/
 │   ├── Views/
 │   └── Converters/
 ├── Bot.Core.Tests/            # Unit tests
+├── Bot.Core.IntegrationTests/ # Screenshot tests
 ├── configs/                    # Config + documented example
 ├── templates/images/          # CV template images (one folder per task)└── docs/                       # ARCHITECTURE.md, etc.
 ```
@@ -172,7 +174,7 @@ This project is honest about its rough edges — these are great places to start
 - **Not all tasks work reliably.** Several task modules need fixing or tuning.
 - **Resolution sensitivity.** Template images were captured at a specific emulator resolution, so matching can fail on other resolutions/DPI settings. Making matching resolution-independent is a high-value contribution.
 - **Flaky ADB / emulator connectivity.** Connection handling can be brittle; improvements to reconnection and recovery are welcome.
-- **Test coverage is thin.** There are unit tests (`Bot.Core.Tests`) for the core logic; tests on saved screenshots are still to come.
+- **Test coverage is thin.** There are unit tests (`Bot.Core.Tests`) and screenshot tests (`Bot.Core.IntegrationTests`), but only a few tasks are covered yet.
 
 If you want to help, see [CONTRIBUTING.md](CONTRIBUTING.md) and open/claim an issue.
 

@@ -14,18 +14,23 @@ This file is committed: instructions for Claude Code working on this repo.
 | `KingshotAuto.exe --schedule` / `--once` | Start and press Run on schedule / Run once (`--cycle` = `--schedule`; `--launch` = Launch on every instance) |
 | `KingshotAuto.exe --task MysticTrial --character llsa` | Start and press ▶ for one task on one character (name matched like the roster; runs even when the task's switch is off) |
 | `dotnet test Bot.Core.Tests` | Unit tests (code only, no emulator) |
+| `dotnet test Bot.Core.IntegrationTests` | Screenshot tests: task detection on saved screenshots |
 | `.\Build.ps1 -Version "x.x.x"` | Package a portable zip + NSIS installer into `dist/` |
 | `.\Build.ps1 -Version "x.x.x" -SkipInstaller` | Portable zip only |
 
 - SDK pinned in `global.json` (10.0.100, rollForward latestMinor).
 - Code analysis: `SonarAnalyzer.CSharp` (in `Directory.Build.props`) reports SonarQube's C# rules as build warnings (`Sxxxx`). Don't add new ones; an intentionally empty `catch` gets its reason as a comment inside the braces.
 - The build fails while KingshotAuto.exe is running (locked DLLs): ask the user to close the GUI first. To only check that the GUI compiles while it runs, build into a scratch folder: `dotnet build Bot.GUI/Bot.GUI.csproj -c Debug -o <scratch>`.
-- Run the tests per project, not `dotnet test BotApp.sln`: the solution build includes Bot.GUI, whose output is locked while the GUI runs. The test project references only Bot.Core.
+- Run the tests per project, not `dotnet test BotApp.sln`: the solution build includes Bot.GUI, whose output is locked while the GUI runs. The test projects reference only Bot.Core.
 
 ## Tests
 - `Bot.Core.Tests` (NUnit 4): pure logic, e.g. `CharacterRoster` name matching, `DailyGate`/`Schedule`, `TaskRunHistory`, task registration and run order. The `InstanceManager*` fixtures drive LDPlayer and are `[Explicit]`: a plain `dotnet test` never touches the emulator.
   - Don't construct `TaskManager` in a test: its `InstanceManager` searches for the LDPlayer install and never finishes without one. Use `TaskManager.CreateTaskModules` / `GetRunOrder`.
   - `DailyGate` and `TaskRunHistory` save under `data/` in the test output folder; use a unique account key per test.
+- `Bot.Core.IntegrationTests` (NUnit 4): task detection on saved 720x1280 screenshots in `Screenshots/` (PNG, the same bytes `TakeScreenshotAsync` gives the matchers). Make the detection step of a task `internal` (e.g. `AllianceMobilizationTask.CheckCards`, `EventsThreshold`; `InternalsVisibleTo` is set for both projects) and assert the result.
+  - Expected results come from what the user confirmed in the game, never from what the code returned when the test was written.
+  - Black out other players' names (chat lines) in a screenshot before adding it: the repo is public.
+  - Check that a new test fails when the threshold is broken (e.g. lower `KeepThreshold` below the yellow gem's 0.42), then restore it.
 
 ## Project Structure
 ```

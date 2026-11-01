@@ -40,7 +40,8 @@ namespace Bot.Core.Models
         SuggestionBox,
         AllianceMobilization,
         PetSkill,
-        MysticTrial
+        MysticTrial,
+        AutoJoinRally
     }
 
     public class AccountSettings : INotifyPropertyChanged
