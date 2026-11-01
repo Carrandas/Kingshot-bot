@@ -189,7 +189,7 @@ namespace Bot.Core.LDPlayer
                 using var process = Process.Start(netstatInfo);
                 if (process != null)
                 {
-                    var output = await process.StandardOutput.ReadToEndAsync();
+                    var output = await process.StandardOutput.ReadToEndAsync(cancellationToken);
                     await process.WaitForExitAsync(cancellationToken);
                     
                     // Parse PIDs and kill conflicting processes
@@ -306,8 +306,8 @@ namespace Bot.Core.LDPlayer
                 using var process = Process.Start(testInfo);
                 if (process != null)
                 {
-                    var output = await process.StandardOutput.ReadToEndAsync();
-                    var error = await process.StandardError.ReadToEndAsync();
+                    var output = await process.StandardOutput.ReadToEndAsync(cancellationToken);
+                    var error = await process.StandardError.ReadToEndAsync(cancellationToken);
                     await process.WaitForExitAsync(cancellationToken);
                     
                     return process.ExitCode == 0 && output.Contains("test") && !error.Contains("error");

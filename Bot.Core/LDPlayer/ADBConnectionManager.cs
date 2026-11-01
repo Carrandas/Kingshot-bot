@@ -92,7 +92,7 @@ namespace Bot.Core.LDPlayer
 
                 if (verifyProcess != null)
                 {
-                    string output = await verifyProcess.StandardOutput.ReadToEndAsync();
+                    string output = await verifyProcess.StandardOutput.ReadToEndAsync(cancellationToken);
                     await verifyProcess.WaitForExitAsync(linkedCts.Token);
                     
                     bool isConnected = output.Contains($"{deviceSerial}\tdevice");
@@ -152,7 +152,7 @@ namespace Bot.Core.LDPlayer
                     using var timeoutCts = new CancellationTokenSource(10000); // 10 second timeout
                     using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
                     
-                    string output = await checkProcess.StandardOutput.ReadToEndAsync();
+                    string output = await checkProcess.StandardOutput.ReadToEndAsync(cancellationToken);
                     await checkProcess.WaitForExitAsync(linkedCts.Token);
                     
                     if (!output.Contains("* daemon not running"))
@@ -485,7 +485,7 @@ namespace Bot.Core.LDPlayer
                 string? devicesOutput = null;
                 if (devicesProcess != null)
                 {
-                    devicesOutput = await devicesProcess.StandardOutput.ReadToEndAsync();
+                    devicesOutput = await devicesProcess.StandardOutput.ReadToEndAsync(cancellationToken);
                     await devicesProcess.WaitForExitAsync(cancellationToken);
                 }
 
@@ -519,7 +519,7 @@ namespace Bot.Core.LDPlayer
 
                         if (connectProcess != null)
                         {
-                            string connectOutput = await connectProcess.StandardOutput.ReadToEndAsync();
+                            string connectOutput = await connectProcess.StandardOutput.ReadToEndAsync(cancellationToken);
                             await connectProcess.WaitForExitAsync(cancellationToken);
                             logger.LogInfo($"[ADB] Reconnect attempt result: {connectOutput.Trim()}");
                         }
@@ -544,8 +544,8 @@ namespace Bot.Core.LDPlayer
                 {
                     if (process != null)
                     {
-                        string output = await process.StandardOutput.ReadToEndAsync();
-                        string error = await process.StandardError.ReadToEndAsync();
+                        string output = await process.StandardOutput.ReadToEndAsync(cancellationToken);
+                        string error = await process.StandardError.ReadToEndAsync(cancellationToken);
                         await process.WaitForExitAsync(cancellationToken);
                         logger.LogInfo($"[ADB] kill-server output: {output.Trim()}");
                         if (!string.IsNullOrWhiteSpace(error))
@@ -601,8 +601,8 @@ namespace Bot.Core.LDPlayer
                     return string.Empty;
                 }
 
-                string output = await process.StandardOutput.ReadToEndAsync();
-                string error = await process.StandardError.ReadToEndAsync();
+                string output = await process.StandardOutput.ReadToEndAsync(cancellationToken);
+                string error = await process.StandardError.ReadToEndAsync(cancellationToken);
                 await process.WaitForExitAsync(cancellationToken);
                 
                 if (!string.IsNullOrWhiteSpace(error))

@@ -254,6 +254,12 @@ namespace Bot.Core.Logging
 
         public void Dispose()
         {
+            Dispose(true);
+            GC.SuppressFinalize(this);
+        }
+
+        protected virtual void Dispose(bool disposing)
+        {
             if (!_disposed)
             {
                 _disposed = true;

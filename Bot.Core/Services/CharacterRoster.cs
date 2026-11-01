@@ -20,7 +20,7 @@ namespace Bot.Core.Services
         /// <summary>Raised after a scan changed an account's character list, so the GUI can save the config.</summary>
         public static event Action<AccountSettings>? Changed;
 
-        private static readonly Regex AllianceTag = new Regex(@"^\s*[\[\(\{].{1,6}?[\]\)\}]\s*");
+        private static readonly Regex AllianceTag = new Regex(@"^\s*[\[\(\{].{1,6}?[\]\)\}]\s*", RegexOptions.None, Bot.Core.Utils.RegexTimeouts.Default);
 
         /// <summary>Comparison key for an OCR'd name: no alliance tag, lower case, I/l/1/| folded to 'l', O/0 folded to 'o', letters and digits only.</summary>
         public static string NormalizeKey(string name)

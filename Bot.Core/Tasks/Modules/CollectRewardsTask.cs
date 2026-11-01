@@ -233,7 +233,9 @@ namespace Bot.Core.Tasks.Modules
                         {
                             logger.LogWarning($"[{account.AccountName}] Left the store unexpectedly, stopping tab scan");
                             _runComplete = false;
+                            #pragma warning disable S127 // deliberately ends the page loop
                             page = MaxTabPages;
+                            #pragma warning restore S127
                             break;
                         }
 
@@ -674,7 +676,9 @@ namespace Bot.Core.Tasks.Modules
                     {
                         logger.LogWarning($"[{account.AccountName}] Left the Deals hub unexpectedly, stopping");
                         _runComplete = false;
+                        #pragma warning disable S127 // deliberately ends the page loop
                         page = MaxHubPages;
+                        #pragma warning restore S127
                         break;
                     }
 

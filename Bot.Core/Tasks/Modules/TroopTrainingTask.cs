@@ -335,7 +335,7 @@ namespace Bot.Core.Tasks.Modules
 
             try
             {
-                var timeMatch = Regex.Match(status.RawOcrText, @"(\d{1,2})\s?:\s?(\d{2})\s?:\s?(\d{2})");
+                var timeMatch = Regex.Match(status.RawOcrText, @"(\d{1,2})\s?:\s?(\d{2})\s?:\s?(\d{2})", RegexOptions.None, Bot.Core.Utils.RegexTimeouts.Default);
                 if (timeMatch.Success)
                 {
                     if (int.TryParse(timeMatch.Groups[1].Value, out int h) &&

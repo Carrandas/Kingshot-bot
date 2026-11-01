@@ -32,7 +32,7 @@ namespace Bot.Core.LDPlayer
             
             // Attempt to extract instance number from device serial for logging
             var instanceNumber = 0;
-            var match = Regex.Match(deviceSerial, @"emulator-(\d+)");
+            var match = Regex.Match(deviceSerial, @"emulator-(\d+)", RegexOptions.None, Bot.Core.Utils.RegexTimeouts.Default);
             if (match.Success)
             {
                 var serialNum = int.Parse(match.Groups[1].Value);
@@ -64,8 +64,8 @@ namespace Bot.Core.LDPlayer
             
             try
             {
-                var outputTask = process.StandardOutput.ReadToEndAsync();
-                var errorTask = process.StandardError.ReadToEndAsync();
+                var outputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
+                var errorTask = process.StandardError.ReadToEndAsync(cancellationToken);
                 var waitTask = process.WaitForExitAsync(linkedCts.Token);
                 
                 await Task.WhenAll(outputTask, errorTask, waitTask);
@@ -235,7 +235,9 @@ namespace Bot.Core.LDPlayer
             using var bmp = new System.Drawing.Bitmap(width, height, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
             var bmpData = bmp.LockBits(new System.Drawing.Rectangle(0, 0, width, height),
                 System.Drawing.Imaging.ImageLockMode.WriteOnly, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+            #pragma warning disable S6640 // fast raw-framebuffer to bitmap conversion
             unsafe
+            #pragma warning restore S6640
             {
                 byte* dst = (byte*)bmpData.Scan0;
                 int srcIdx = 12;
@@ -247,6 +249,7 @@ namespace Bot.Core.LDPlayer
                         switch (format)
                         {
                             case HAL_PIXEL_FORMAT_RGBA_8888: // RGBA
+                            default: // Default to RGBA
                                 r = raw[srcIdx];
                                 g = raw[srcIdx + 1];
                                 b = raw[srcIdx + 2];
@@ -269,12 +272,6 @@ namespace Bot.Core.LDPlayer
                                 g = raw[srcIdx + 1];
                                 r = raw[srcIdx + 2];
                                 a = 255;
-                                break;
-                            default: // Default to RGBA
-                                r = raw[srcIdx];
-                                g = raw[srcIdx + 1];
-                                b = raw[srcIdx + 2];
-                                a = raw[srcIdx + 3];
                                 break;
                         }
                         // ARGB in memory: [b, g, r, a]

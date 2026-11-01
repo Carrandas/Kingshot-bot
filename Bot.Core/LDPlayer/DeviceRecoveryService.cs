@@ -136,7 +136,7 @@ namespace Bot.Core.LDPlayer
                     using var cts = new CancellationTokenSource(10000); // 10 second timeout
                     using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, cts.Token);
                     
-                    string output = await reconnectProcess.StandardOutput.ReadToEndAsync();
+                    string output = await reconnectProcess.StandardOutput.ReadToEndAsync(cancellationToken);
                     await reconnectProcess.WaitForExitAsync(linkedCts.Token);
                     
                     _logger.LogInfo($"[Recovery] ADB reconnect output for {device.DeviceSerial}: {output.Trim()}");
@@ -238,7 +238,7 @@ namespace Bot.Core.LDPlayer
                     using var cts = new CancellationTokenSource(5000); // 5 second timeout
                     using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, cts.Token);
                     
-                    string output = await devicesProcess.StandardOutput.ReadToEndAsync();
+                    string output = await devicesProcess.StandardOutput.ReadToEndAsync(cancellationToken);
                     await devicesProcess.WaitForExitAsync(linkedCts.Token);
                     
                     // Check if there are other active devices
@@ -313,7 +313,7 @@ namespace Bot.Core.LDPlayer
                         using var cts = new CancellationTokenSource(5000);
                         using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, cts.Token);
                         
-                        string output = await devicesProcess.StandardOutput.ReadToEndAsync();
+                        string output = await devicesProcess.StandardOutput.ReadToEndAsync(cancellationToken);
                         await devicesProcess.WaitForExitAsync(linkedCts.Token);
                         
                         diagnostics["DeviceListOutput"] = output;
@@ -345,7 +345,7 @@ namespace Bot.Core.LDPlayer
                         using var cts = new CancellationTokenSource(5000);
                         using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, cts.Token);
                         
-                        string output = await instanceProcess.StandardOutput.ReadToEndAsync();
+                        string output = await instanceProcess.StandardOutput.ReadToEndAsync(cancellationToken);
                         await instanceProcess.WaitForExitAsync(linkedCts.Token);
                         
                         diagnostics["InstanceListOutput"] = output;

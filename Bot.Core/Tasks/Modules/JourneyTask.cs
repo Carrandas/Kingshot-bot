@@ -329,7 +329,7 @@ namespace Bot.Core.Tasks.Modules
             };
             using var ocr = new OCRService(logger, ocrConfig);
             string text = ocr.ExtractTextFromScreenArea(digits, new Rectangle(0, 0, IdleSuppliesTextArea.Width, IdleSuppliesTextArea.Height));
-            var match = Regex.Match(text ?? "", @"\d+");
+            var match = Regex.Match(text ?? "", @"\d+", RegexOptions.None, Bot.Core.Utils.RegexTimeouts.Default);
             logger.LogInfo($"Journey: idle supplies OCR '{text?.Trim()}'");
             return match.Success ? int.Parse(match.Value) : -1;
         }

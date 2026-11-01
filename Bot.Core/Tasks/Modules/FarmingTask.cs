@@ -340,7 +340,7 @@ namespace Bot.Core.Tasks.Modules
             }
 
             // 4. Use a reliable Regex to parse the "current/max" pattern.
-            Match match = Regex.Match(text, @"(\d+)\s*/\s*(\d+)");
+            Match match = Regex.Match(text, @"(\d+)\s*/\s*(\d+)", RegexOptions.None, Bot.Core.Utils.RegexTimeouts.Default);
             if (match.Success && int.TryParse(match.Groups[1].Value, out int current) && int.TryParse(match.Groups[2].Value, out int max)) {
                 int available = max - current;
                 logger.LogInfo($"[{account.AccountName}] Parsed Marches: {current}/{max}. Available: {available}");
@@ -842,7 +842,7 @@ namespace Bot.Core.Tasks.Modules
             // 4. Try to parse the level, but don't fail if OCR fails
             if (!string.IsNullOrEmpty(ocrText))
             {
-                var match = Regex.Match(ocrText, @"\d");
+                var match = Regex.Match(ocrText, @"\d", RegexOptions.None, Bot.Core.Utils.RegexTimeouts.Default);
                 if (match.Success && int.TryParse(match.Value, out int currentLevel))
                 {
                     logger.LogInfo($"[{account.AccountName}] Detected current level: {currentLevel}");
@@ -1059,7 +1059,7 @@ namespace Bot.Core.Tasks.Modules
 
                 // Check if we detected a valid timer format (HH:MM:SS)
                 var timePattern = @"^\d{1,2}:\d{2}:\d{2}$";
-                if (Regex.IsMatch(detectedText.Trim(), timePattern))
+                if (Regex.IsMatch(detectedText.Trim(), timePattern, RegexOptions.None, Bot.Core.Utils.RegexTimeouts.Default))
                 {
                     logger.LogInfo($"[{account.AccountName}] ⏰ Active boost detected with timer: {detectedText.Trim()}");
 
@@ -1110,7 +1110,7 @@ namespace Bot.Core.Tasks.Modules
                         string newTimerText = ocrService2.ExtractTextFromScreenArea(screenshot2, timerArea);
                         logger.LogInfo($"[{account.AccountName}] 📝 Timer after activation: '{newTimerText}'");
 
-                        if (Regex.IsMatch(newTimerText.Trim(), timePattern))
+                        if (Regex.IsMatch(newTimerText.Trim(), timePattern, RegexOptions.None, Bot.Core.Utils.RegexTimeouts.Default))
                         {
                             logger.LogInfo($"[{account.AccountName}] ✅ Boost successfully activated with timer: {newTimerText.Trim()}");
                         }

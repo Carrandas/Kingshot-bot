@@ -114,11 +114,6 @@ namespace Bot.Core.Tasks
             _logger.LogInfo($"Task Manager initialized with {_availableTasks.Count + 1} tasks");
         }
 
-        public async Task<bool> RunTasksForAccountAsync(AccountSettings account, CancellationToken cancellationToken = default)
-        {
-            return await RunTasksForAccountAsync(account, cancellationToken, runStartup: true);
-        }
-
         public async Task<bool> RunTasksForAccountAsync(AccountSettings account, CancellationToken cancellationToken = default, bool runStartup = true)
         {
             // one task loop per instance: the cycle service and the instance Start button both land here,
@@ -423,7 +418,9 @@ namespace Bot.Core.Tasks
                                             }
                                             
                                             // Retry farming immediately
+                                            #pragma warning disable S127 // deliberately retries the current task
                                             i--; // Retry the current task
+                                            #pragma warning restore S127
                                         }
                                     }
                                     else
@@ -498,7 +495,9 @@ namespace Bot.Core.Tasks
                                 }
 
                                 // Reset task index to start after Startup task
+                                #pragma warning disable S127 // deliberately restarts the task loop
                                 i = -1; // Will be incremented to 0 in next loop iteration
+                                #pragma warning restore S127
                                 continue;
                             }
                             else if (result.Success)

@@ -190,7 +190,7 @@ namespace Bot.Core.Tasks.Modules
             };
             using var ocr = new OCRService(logger, ocrConfig);
             string read = ocr.ExtractTextFromScreenArea(text, area);
-            var match = Regex.Match(read ?? "", @"(\d[\d,.]*)\s*/");
+            var match = Regex.Match(read ?? "", @"(\d[\d,.]*)\s*/", RegexOptions.None, Bot.Core.Utils.RegexTimeouts.Default);
             logger.LogInfo($"Water Essence: available OCR '{read?.Trim()}'");
             return match.Success && int.TryParse(match.Groups[1].Value.Replace(",", "").Replace(".", ""), out int value) ? value : -1;
         }

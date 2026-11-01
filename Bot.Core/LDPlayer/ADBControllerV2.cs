@@ -614,7 +614,9 @@ namespace Bot.Core.LDPlayer
                 if (i < data.Length - 1 && data[i] == 0x0D && data[i + 1] == 0x0A)
                 {
                     result.Add(0x0A); // Add only \n
+                    #pragma warning disable S127 // deliberately skips the 
                     i++; // Skip the \r
+                    #pragma warning restore S127
                 }
                 else
                 {

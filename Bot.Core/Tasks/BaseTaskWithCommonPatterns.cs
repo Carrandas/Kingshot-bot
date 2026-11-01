@@ -678,8 +678,8 @@ namespace Bot.Core.Tasks
                             {
                                 if (process != null)
                                 {
-                                    string output = await process.StandardOutput.ReadToEndAsync();
-                                    string error = await process.StandardError.ReadToEndAsync();
+                                    string output = await process.StandardOutput.ReadToEndAsync(cancellationToken);
+                                    string error = await process.StandardError.ReadToEndAsync(cancellationToken);
                                     await process.WaitForExitAsync(cancellationToken);
                                     logger.LogInfo($"ADB devices output before recovery: {output.Trim()} {error.Trim()}");
                                 }
@@ -711,8 +711,8 @@ namespace Bot.Core.Tasks
                             {
                                 if (process != null)
                                 {
-                                    string output = await process.StandardOutput.ReadToEndAsync();
-                                    string error = await process.StandardError.ReadToEndAsync();
+                                    string output = await process.StandardOutput.ReadToEndAsync(cancellationToken);
+                                    string error = await process.StandardError.ReadToEndAsync(cancellationToken);
                                     await process.WaitForExitAsync(cancellationToken);
                                     logger.LogInfo($"ADB start-server output: {output.Trim()} {error.Trim()}");
                                 }
@@ -729,8 +729,8 @@ namespace Bot.Core.Tasks
                             {
                                 if (process != null)
                                 {
-                                    string output = await process.StandardOutput.ReadToEndAsync();
-                                    string error = await process.StandardError.ReadToEndAsync();
+                                    string output = await process.StandardOutput.ReadToEndAsync(cancellationToken);
+                                    string error = await process.StandardError.ReadToEndAsync(cancellationToken);
                                     await process.WaitForExitAsync(cancellationToken);
                                     logger.LogInfo($"ADB devices output after recovery: {output.Trim()} {error.Trim()}");
                                 }

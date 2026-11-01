@@ -522,7 +522,7 @@ namespace Bot.Core.Services
                 _cycleGlobalCts?.Cancel();
                 
                 // Wait briefly for tasks to acknowledge cancellation
-                await Task.Delay(500);
+                await Task.Delay(500, _cycleGlobalCts.Token);
                 
                 // Force cleanup
                 _isRunning = false;
@@ -827,7 +827,7 @@ namespace Bot.Core.Services
             var timeout = TimeSpan.FromSeconds(30);
             try
             {
-                await Task.WhenAll(_persistentAccountTasks.Values).WaitAsync(timeout);
+                await Task.WhenAll(_persistentAccountTasks.Values).WaitAsync(timeout, _cycleGlobalCts.Token);
             }
             catch (TimeoutException)
             {

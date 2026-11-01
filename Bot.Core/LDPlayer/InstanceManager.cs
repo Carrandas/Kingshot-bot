@@ -383,8 +383,8 @@ namespace Bot.Core.LDPlayer
                     return "Process failed to start.";
                 }
                 
-                string output = await process.StandardOutput.ReadToEndAsync();
-                string error = await process.StandardError.ReadToEndAsync();
+                string output = await process.StandardOutput.ReadToEndAsync(cancellationToken);
+                string error = await process.StandardError.ReadToEndAsync(cancellationToken);
                 await process.WaitForExitAsync(cancellationToken);
                 
                 if (!string.IsNullOrWhiteSpace(output))
@@ -660,8 +660,8 @@ namespace Bot.Core.LDPlayer
                     return "Process failed to start.";
                 }
 
-                string output = await process.StandardOutput.ReadToEndAsync();
-                string error = await process.StandardError.ReadToEndAsync();
+                string output = await process.StandardOutput.ReadToEndAsync(cancellationToken);
+                string error = await process.StandardError.ReadToEndAsync(cancellationToken);
                 await process.WaitForExitAsync(cancellationToken);
 
                 // Removed verbose dnconsole output logging

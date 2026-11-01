@@ -349,7 +349,7 @@ namespace Bot.Core.LDPlayer
                 if (_adbServer != null)
                 {
                     var adbPath = LDPlayerHelper.GetADBPath();
-                    var result = await _adbServer.StartServerAsync(adbPath, restartServerIfNewer: true);
+                    var result = await _adbServer.StartServerAsync(adbPath, restartServerIfNewer: true, cancellationToken: cancellationToken);
                     logger.LogInfo($"[ADBv2] Server restart result: {result}");
                 }
                 

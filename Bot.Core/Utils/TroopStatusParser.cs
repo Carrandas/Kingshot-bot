@@ -185,7 +185,7 @@ namespace Bot.Core.Utils
 
             foreach (var pattern in timePatterns)
             {
-                var timeMatch = Regex.Match(statusText, pattern);
+                var timeMatch = Regex.Match(statusText, pattern, RegexOptions.None, Bot.Core.Utils.RegexTimeouts.Default);
                 if (timeMatch.Success)
                 {
                     status.Status = TroopCompletionStatus.Training;

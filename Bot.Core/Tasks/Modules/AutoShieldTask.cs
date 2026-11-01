@@ -232,7 +232,7 @@ namespace Bot.Core.Tasks.Modules
                 string timerText = timerOcr.ExtractTextFromScreenArea(screenshot, ShieldTimerRect);
                 logger.LogInfo($"[{account.AccountName}] Shield timer OCR text: '{timerText}'");
 
-                var match = Regex.Match(timerText, @"(\d{1,2}):(\d{2}):(\d{2})");
+                var match = Regex.Match(timerText, @"(\d{1,2}):(\d{2}):(\d{2})", RegexOptions.None, Bot.Core.Utils.RegexTimeouts.Default);
                 if (!match.Success)
                 {
                     logger.LogError($"[{account.AccountName}] Could not parse timer format from: {timerText}");
@@ -302,7 +302,7 @@ namespace Bot.Core.Tasks.Modules
                 string countText = countOcr.ExtractTextFromScreenArea(screenshot, RechargeableCountRect);
                 logger.LogInfo($"[{account.AccountName}] Rechargeable shield count text: '{countText}'");
 
-                var match = Regex.Match(countText, @"(\d+)/\d+");
+                var match = Regex.Match(countText, @"(\d+)/\d+", RegexOptions.None, Bot.Core.Utils.RegexTimeouts.Default);
                 if (!match.Success || !int.TryParse(match.Groups[1].Value, out int available) || available <= 0)
                 {
                     logger.LogInfo($"[{account.AccountName}] No rechargeable shields available.");

@@ -339,7 +339,7 @@ namespace Bot.Core.Tasks.Modules
                 var nameArea = new Rectangle(NameColumn.Left, label.Y + NameTopOffset, NameColumn.Width, NameHeight);
                 // Dark brown name on a beige (V ~220) or yellow (V 255) row: keep the dark pixels
                 var name = Regex.Replace(ReadMasked(image, nameOcr, nameArea,
-                    new OpenCvSharp.Scalar(0, 0, 0), new OpenCvSharp.Scalar(180, 255, 175)), @"\s+", " ").Trim();
+                    new OpenCvSharp.Scalar(0, 0, 0), new OpenCvSharp.Scalar(180, 255, 175)), @"\s+", " ", RegexOptions.None, Bot.Core.Utils.RegexTimeouts.Default).Trim();
                 name = FixAllianceTag(name);
                 int? kingdom = kingdoms.Where(k => k.Y < bounds.Y).OrderByDescending(k => k.Y).Select(k => k.Number).FirstOrDefault();
                 bool isActive = tickCenter.HasValue && bounds.Contains(tickCenter.Value);

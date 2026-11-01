@@ -165,7 +165,7 @@ namespace Bot.Core.Tasks.Modules
                     PageSegMode = PageSegMode.SingleWord // Better for short patterns
                 };
 
-                var regex = new Regex(@"\b\d+/\d+\b", RegexOptions.IgnoreCase);
+                var regex = new Regex(@"\b\d+/\d+\b", RegexOptions.IgnoreCase, Bot.Core.Utils.RegexTimeouts.Default);
                 Point? highestMatch = null;
                 int highestY = int.MaxValue;
 
@@ -236,7 +236,7 @@ namespace Bot.Core.Tasks.Modules
                                     
                                     foreach (var pattern in relaxedPatterns)
                                     {
-                                        if (Regex.IsMatch(ocrText, pattern))
+                                        if (Regex.IsMatch(ocrText, pattern, RegexOptions.None, Bot.Core.Utils.RegexTimeouts.Default))
                                         {
                                             logger.LogInfo($"🔍 Alternative pattern '{pattern}' matches: {ocrText}");
                                         }

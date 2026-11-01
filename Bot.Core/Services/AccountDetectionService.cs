@@ -225,7 +225,7 @@ namespace Bot.Core.Services
                 string cleanedText = rawText.Trim();
                 
                 // Try to extract account ID pattern - look for sequences of alphanumeric characters
-                var match = Regex.Match(cleanedText, @"[A-Za-z0-9_-]+");
+                var match = Regex.Match(cleanedText, @"[A-Za-z0-9_-]+", RegexOptions.None, Bot.Core.Utils.RegexTimeouts.Default);
                 if (match.Success && match.Value.Length >= 3) // Minimum 3 characters for valid ID
                 {
                     string accountId = match.Value;

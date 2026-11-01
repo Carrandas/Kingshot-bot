@@ -258,7 +258,7 @@ namespace Bot.Core.Tasks.Modules
         }
 
         private static HashSet<string> Words(string text) =>
-            Regex.Matches(text.ToLowerInvariant().Replace('’', '\''), "[a-z']{4,}").Select(m => m.Value.Trim('\'')).Where(w => w.Length >= 4).ToHashSet();
+            Regex.Matches(text.ToLowerInvariant().Replace('’', '\''), "[a-z']{4,}", RegexOptions.None, Bot.Core.Utils.RegexTimeouts.Default).Select(m => m.Value.Trim('\'')).Where(w => w.Length >= 4).ToHashSet();
 
         /// <summary>
         /// OCR of white (answers, opinion) or dark (letter) text: the text colour is masked into white-on-black first.
@@ -282,7 +282,7 @@ namespace Bot.Core.Tasks.Modules
             var ocrConfig = new OCRConfiguration { ScaleFactor = white ? 1.5f : 2, PageSegMode = Tesseract.PageSegMode.SingleBlock };
             using var ocr = new OCRService(logger, ocrConfig);
             string text = ocr.ExtractTextFromScreenArea(masked, new Rectangle(0, 0, area.Width, area.Height)) ?? "";
-            return Regex.Replace(text, @"\s+", " ").Trim();
+            return Regex.Replace(text, @"\s+", " ", RegexOptions.None, Bot.Core.Utils.RegexTimeouts.Default).Trim();
         }
 
         private static List<AnswerEntry> LoadAnswers(LogService logger)

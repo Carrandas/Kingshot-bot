@@ -31,8 +31,8 @@ namespace Bot.Core.Services
         private static readonly Rectangle TimerTextArea = new Rectangle(50, 50, 200, 30);   // Area around timer text
         
         // Timer detection patterns
-        private static readonly Regex TimePattern = new Regex(@"(\d{1,2}):(\d{2}):(\d{2})", RegexOptions.Compiled);
-        private static readonly Regex ShortTimePattern = new Regex(@"(\d{1,2}):(\d{2})", RegexOptions.Compiled);
+        private static readonly Regex TimePattern = new Regex(@"(\d{1,2}):(\d{2}):(\d{2})", RegexOptions.Compiled, Bot.Core.Utils.RegexTimeouts.Default);
+        private static readonly Regex ShortTimePattern = new Regex(@"(\d{1,2}):(\d{2})", RegexOptions.Compiled, Bot.Core.Utils.RegexTimeouts.Default);
         
         public MarchTimerService(LogService logger)
         {
