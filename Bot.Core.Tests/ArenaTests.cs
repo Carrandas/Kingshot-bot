@@ -48,7 +48,7 @@ namespace Bot.Core.Tests
             var settings = new ArenaSettings();
 
             Assert.That(settings.RunAfterEnabled, Is.False);
-            Assert.That(settings.RunAfterUtc, Is.EqualTo("22:00"));
+            Assert.That(settings.RunAfterUtc, Is.EqualTo("21:30"));
             Assert.That(settings.RunAfterTime(), Is.Null);
         }
 

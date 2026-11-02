@@ -9,7 +9,7 @@ namespace Bot.Core.Models
     public class ArenaSettings : INotifyPropertyChanged
     {
         private bool _runAfterEnabled;
-        private string _runAfterUtc = "22:00";
+        private string _runAfterUtc = "21:30";
 
         /// <summary>
         /// Off: Arena runs in the first cycle of the day. On: only in cycles from <see cref="RunAfterUtc"/> on,
@@ -29,7 +29,7 @@ namespace Bot.Core.Models
             }
         }
 
-        /// <summary>UTC time of day ("HH:mm"), default 22:00: two hours before the reset.</summary>
+        /// <summary>UTC time of day ("HH:mm"), default 21:30: two and a half hours before the reset.</summary>
         [JsonPropertyName("runAfterUtc")]
         public string RunAfterUtc
         {

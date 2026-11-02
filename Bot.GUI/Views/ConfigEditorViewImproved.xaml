@@ -1047,7 +1047,7 @@
                                                     <TextBox Text="{Binding SelectedAccount.ArenaSettings.RunAfterUtc, UpdateSourceTrigger=PropertyChanged}"
                                                              Grid.Column="1"
                                                              IsEnabled="{Binding SelectedAccount.ArenaSettings.RunAfterEnabled}"
-                                                             ToolTip="UTC time of day (HH:mm). Default 22:00, two hours before the daily reset."/>
+                                                             ToolTip="UTC time of day (HH:mm). Default 21:30, two and a half hours before the daily reset."/>
                                                     <TextBlock Text="UTC (HH:mm)" Grid.Column="2"
                                                                VerticalAlignment="Center"
                                                                Margin="5,0,0,0"
