@@ -615,12 +615,14 @@ namespace Bot.Core.Tasks
             }, false);
         }
 
-        // Side panel Daily list: rows show between y 290 and 800. A 340 px swipe is shorter than that window
-        // minus a row, so every row is fully on screen at some point of a scan.
+        // Side panel Daily list: rows show between y 290 and 800. A 250 px drag is shorter than that window
+        // minus a row, so every row is fully on screen at some point of a scan. The drag is slow so the
+        // list doesn't fling further than that.
         private static readonly OpenCvSharp.Rect DailyListArea = new OpenCvSharp.Rect(10, 290, 430, 510);
-        private static readonly Point DailyListUpper = new Point(220, 420);
-        private static readonly Point DailyListLower = new Point(220, 760);
-        private const int MaxDailyListSwipes = 8;
+        private static readonly Point DailyListUpper = new Point(220, 460);
+        private static readonly Point DailyListLower = new Point(220, 710);
+        private const int DailyListSwipeMs = 1500;
+        private const int MaxDailyListSwipes = 12;
         private const double DailyListMovedDiff = 3.0; // mean gray difference; a scroll gives 20+, a static list ~0
 
         /// <summary>
@@ -661,7 +663,7 @@ namespace Bot.Core.Tasks
         private async Task<bool> SwipeDailyListAsync(int instanceNumber, LogService logger, Point from, Point to, CancellationToken cancellationToken)
         {
             var before = await TakeScreenshotAsync(instanceNumber, logger);
-            await SwipeAsync(instanceNumber, logger, from, to, 800);
+            await SwipeAsync(instanceNumber, logger, from, to, DailyListSwipeMs);
             await Task.Delay(1000, cancellationToken);
             var after = await TakeScreenshotAsync(instanceNumber, logger);
             if (before == null || after == null) return false;

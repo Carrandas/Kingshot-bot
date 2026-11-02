@@ -41,7 +41,8 @@ namespace Bot.Core.Models
         AllianceMobilization,
         PetSkill,
         MysticTrial,
-        AutoJoinRally
+        AutoJoinRally,
+        Arena
     }
 
     public class AccountSettings : INotifyPropertyChanged
@@ -64,12 +65,14 @@ namespace Bot.Core.Models
             FarmingBoostSettings = new FarmingBoostSettings();
             AllianceTechnologySettings = new AllianceTechnologySettings();
             ConquestCollectSettings = new ConquestCollectSettings();
+            ArenaSettings = new ArenaSettings();
 
             // Subscribe to nested settings PropertyChanged events to propagate changes
             TroopTrainingSettings.PropertyChanged += (sender, e) => OnPropertyChanged($"TroopTrainingSettings.{e.PropertyName}");
             FarmingBoostSettings.PropertyChanged += (sender, e) => OnPropertyChanged($"FarmingBoostSettings.{e.PropertyName}");
             AllianceTechnologySettings.PropertyChanged += (sender, e) => OnPropertyChanged($"AllianceTechnologySettings.{e.PropertyName}");
             ConquestCollectSettings.PropertyChanged += (sender, e) => OnPropertyChanged($"ConquestCollectSettings.{e.PropertyName}");
+            ArenaSettings.PropertyChanged += (sender, e) => OnPropertyChanged($"ArenaSettings.{e.PropertyName}");
         }
         
         private string _accountName = string.Empty;
@@ -177,6 +180,9 @@ namespace Bot.Core.Models
 
         [JsonPropertyName("conquestCollectSettings")]
         public ConquestCollectSettings ConquestCollectSettings { get; set; }
+
+        [JsonPropertyName("arenaSettings")]
+        public ArenaSettings ArenaSettings { get; set; }
 
         private bool _doNotShutdown = false;
         [JsonPropertyName("doNotShutdown")]

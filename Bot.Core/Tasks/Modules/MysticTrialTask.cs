@@ -37,6 +37,7 @@ namespace Bot.Core.Tasks.Modules
         private const string BalanceFullTemplate = "balance-full.png";    // "100%/100%"; a dropped digit shows e.g. 82%
         private const string CapacityPopupTemplate = "capacity-popup.png"; // "Confirmation": squads not full, continue anyway?
         private const string DeployButtonTemplate = "deploy-button.png";
+        private const string SquadConfigTitleTemplate = "squad-config-title.png";  // Coliseum: 1.00 there, <= 0.55 on the map/battle/result
         private const string VictoryTemplate = "victory-title.png";
         private const string FailedTemplate = "failed-title.png";
 
@@ -65,6 +66,11 @@ namespace Bot.Core.Tasks.Modules
         private static readonly System.Drawing.Point ConfirmBalancePoint = new System.Drawing.Point(360, 980);
         private static readonly System.Drawing.Point NumberOkPoint = new System.Drawing.Point(640, 1217);   // OK of the number input bar
         private static readonly System.Drawing.Point CloseCapacityPopupPoint = new System.Drawing.Point(637, 447);
+        // Squad Config buttons; Deploy is grey (0 teal pixels) until Quick Deploy fills the squads (~16,800)
+        private static readonly System.Drawing.Point QuickDeployPoint = new System.Drawing.Point(197, 1193);
+        private static readonly System.Drawing.Point SquadDeployPoint = new System.Drawing.Point(522, 1193);
+        private static readonly Rectangle SquadDeployColourArea = new Rectangle(378, 1160, 290, 70);
+        private const int DeployScreenChecks = 5;        // one a second after the Challenge wait
         private const int RatioAttempts = 3;
         // Balance popup percentage boxes; lowered first so the total never goes over 100%
         private static readonly (string Name, System.Drawing.Point Box, int Percent)[] Ratio =
@@ -116,19 +122,9 @@ namespace Bot.Core.Tasks.Modules
                 var buildings = await FindOpenBuildingsAsync(instance, logger);
                 logger.LogInfo($"[{account.AccountName}] Mystic Trial: {buildings.Count} open building(s)");
 
-                int raids = 0, battles = 0;
-                foreach (var building in buildings)
-                {
-                    var (raided, fought) = await RunBuildingAsync(account, logger, instance, building, cancellationToken);
-                    if (raided) raids++;
-                    battles += fought;
-                    if (!await BackToMapAsync(logger, instance, cancellationToken))
-                    {
-                        logger.LogWarning($"[{account.AccountName}] Mystic Trial: lost the map, stopping");
-                        break;
-                    }
-                }
-                DailyGate.MarkDone(TaskType, accountKey);
+                var (raids, battles, unknownScreen) = await RunBuildingsAsync(account, logger, instance, buildings, cancellationToken);
+                // an unknown deploy screen leaves the attempts unused: try again next cycle
+                if (!unknownScreen) DailyGate.MarkDone(TaskType, accountKey);
 
                 if ((await MatchAsync(MapTitleTemplate, TitleArea, Threshold, instance, logger)).found)
                 {
@@ -139,7 +135,9 @@ namespace Bot.Core.Tasks.Modules
 
                 string result = $"{buildings.Count} building(s), {raids} raid(s) claimed, {battles} battle(s)";
                 logger.LogInfo($"[{account.AccountName}] Mystic Trial done: {result}");
-                return TaskExecutionDetails.Succeeded(result);
+                return unknownScreen
+                    ? TaskExecutionDetails.Failed($"Deploy screen not shown ({result})")
+                    : TaskExecutionDetails.Succeeded(result);
             }
             catch (OperationCanceledException)
             {
@@ -150,6 +148,26 @@ namespace Bot.Core.Tasks.Modules
                 logger.LogError($"[{account.AccountName}] Error in Mystic Trial: {ex.Message}");
                 return TaskExecutionDetails.Failed(ex.Message);
             }
+        }
+
+        private async Task<(int raids, int battles, bool unknownScreen)> RunBuildingsAsync(
+            AccountSettings account, LogService logger, int instance, List<System.Drawing.Point> buildings, CancellationToken cancellationToken)
+        {
+            int raids = 0, battles = 0;
+            bool unknownScreen = false;
+            foreach (var building in buildings)
+            {
+                var (raided, fought, unknown) = await RunBuildingAsync(account, logger, instance, building, cancellationToken);
+                if (raided) raids++;
+                battles += fought;
+                unknownScreen |= unknown;
+                if (!await BackToMapAsync(logger, instance, cancellationToken))
+                {
+                    logger.LogWarning($"[{account.AccountName}] Mystic Trial: lost the map, stopping");
+                    break;
+                }
+            }
+            return (raids, battles, unknownScreen);
         }
 
         /// <summary>
@@ -225,21 +243,23 @@ namespace Bot.Core.Tasks.Modules
         }
 
         /// <summary>
-        /// One building: claim the Raid rewards, then Challenge until the attempts are gone. Returns (raid claimed, battles).
+        /// One building: claim the Raid rewards, then Challenge until the attempts are gone.
+        /// unknownScreen: Challenge opened no known deploy screen, so the attempts are still there.
         /// </summary>
-        private async Task<(bool raided, int battles)> RunBuildingAsync(AccountSettings account, LogService logger, int instance, System.Drawing.Point building, CancellationToken cancellationToken)
+        private async Task<(bool raided, int battles, bool unknownScreen)> RunBuildingAsync(AccountSettings account, LogService logger, int instance, System.Drawing.Point building, CancellationToken cancellationToken)
         {
             await ClickAsync(instance, logger, building);
             await Task.Delay(2500, cancellationToken);
             if ((await MatchAsync(MapTitleTemplate, TitleArea, Threshold, instance, logger)).found)
             {
                 logger.LogWarning($"[{account.AccountName}] Mystic Trial: building at ({building.X}, {building.Y}) did not open");
-                return (false, 0);
+                return (false, 0, false);
             }
 
             bool raided = await ClaimRaidRewardsAsync(account, logger, instance, cancellationToken);
 
             int battles = 0, won = 0;
+            bool unknownScreen = false;
             for (int round = 0; round < MaxRounds && battles < MaxBattles; round++)
             {
                 var challenge = await MatchAsync(ChallengeButtonTemplate, BottomButtonArea, Threshold, instance, logger);
@@ -250,7 +270,9 @@ namespace Bot.Core.Tasks.Modules
                 }
                 await ClickCenterInRectAsync(instance, logger, challenge.rect);
                 await Task.Delay(2500, cancellationToken);
-                if (!await DeployAsync(account, logger, instance, cancellationToken)) break;
+                var deployed = await DeployAsync(account, logger, instance, cancellationToken);
+                if (deployed == null) unknownScreen = true;
+                if (deployed != true) break;
 
                 var fought = await FightStagesAsync(account, logger, instance, battles, cancellationToken);
                 battles += fought.battles;
@@ -262,7 +284,7 @@ namespace Bot.Core.Tasks.Modules
                 }
             }
             logger.LogInfo($"[{account.AccountName}] Mystic Trial: {battles} battle(s), {won} won");
-            return (raided, battles);
+            return (raided, battles, unknownScreen);
         }
 
         private async Task<bool> ClaimRaidRewardsAsync(AccountSettings account, LogService logger, int instance, CancellationToken cancellationToken)
@@ -315,20 +337,39 @@ namespace Bot.Core.Tasks.Modules
             return (battles, won, false);
         }
 
+        private enum DeployScreen { None, TroopRatio, SquadConfig }
+
         /// <summary>
-        /// Deploy screen: set the ratio and Deploy. False when the squads are not full or a screen is missing.
+        /// Deploy screen after Challenge: the troop ratio one (Balance button) or Squad Config (Coliseum: three hero squads).
         /// </summary>
-        private async Task<bool> DeployAsync(AccountSettings account, LogService logger, int instance, CancellationToken cancellationToken)
+        private async Task<DeployScreen> WaitForDeployScreenAsync(int instance, LogService logger, CancellationToken cancellationToken)
         {
-            if (!await SetTroopRatioAsync(account, logger, instance, cancellationToken)) return false;
-            var deploy = await MatchAsync(DeployButtonTemplate, DeployButtonArea, Threshold, instance, logger);
-            if (!deploy.found)
+            for (int i = 0; i < DeployScreenChecks; i++)
             {
-                logger.LogWarning($"[{account.AccountName}] Mystic Trial: Deploy button not found");
-                return false;
+                if (i > 0) await Task.Delay(1000, cancellationToken);
+                if ((await MatchAsync(BalanceButtonTemplate, BalanceButtonArea, Threshold, instance, logger)).found) return DeployScreen.TroopRatio;
+                if ((await MatchAsync(SquadConfigTitleTemplate, TitleArea, Threshold, instance, logger)).found) return DeployScreen.SquadConfig;
             }
-            await ClickCenterInRectAsync(instance, logger, deploy.rect);
-            await Task.Delay(1500, cancellationToken);
+            return DeployScreen.None;
+        }
+
+        /// <summary>
+        /// Deploy screen: set the ratio (or Quick Deploy the squads) and Deploy.
+        /// Result null when no deploy screen showed, false when the squads are not full or a button is missing.
+        /// </summary>
+        private async Task<bool?> DeployAsync(AccountSettings account, LogService logger, int instance, CancellationToken cancellationToken)
+        {
+            var screen = await WaitForDeployScreenAsync(instance, logger, cancellationToken);
+            if (screen == DeployScreen.None)
+            {
+                logger.LogWarning($"[{account.AccountName}] Mystic Trial: deploy screen not shown");
+                return null;
+            }
+            bool deployed = screen == DeployScreen.SquadConfig
+                ? await QuickDeployAsync(account, logger, instance, cancellationToken)
+                : await RatioDeployAsync(account, logger, instance, cancellationToken);
+            if (!deployed) return false;
+
             if ((await MatchAsync(CapacityPopupTemplate, CapacityPopupArea, Threshold, instance, logger)).found)
             {
                 // squads not full: don't fight short of troops
@@ -340,6 +381,38 @@ namespace Bot.Core.Tasks.Modules
             return true;
         }
 
+        private async Task<bool> RatioDeployAsync(AccountSettings account, LogService logger, int instance, CancellationToken cancellationToken)
+        {
+            if (!await SetTroopRatioAsync(account, logger, instance, cancellationToken)) return false;
+            var deploy = await MatchAsync(DeployButtonTemplate, DeployButtonArea, Threshold, instance, logger);
+            if (!deploy.found)
+            {
+                logger.LogWarning($"[{account.AccountName}] Mystic Trial: Deploy button not found");
+                return false;
+            }
+            await ClickCenterInRectAsync(instance, logger, deploy.rect);
+            await Task.Delay(1500, cancellationToken);
+            return true;
+        }
+
+        /// <summary>
+        /// Squad Config: Quick Deploy fills the three squads, then Deploy (grey while the squads are empty).
+        /// </summary>
+        private async Task<bool> QuickDeployAsync(AccountSettings account, LogService logger, int instance, CancellationToken cancellationToken)
+        {
+            await ClickAsync(instance, logger, QuickDeployPoint);
+            await Task.Delay(2000, cancellationToken);
+            if (await CountTealAsync(SquadDeployColourArea, instance, logger) < ActiveMinTealPixels)
+            {
+                logger.LogWarning($"[{account.AccountName}] Mystic Trial: Deploy still grey after Quick Deploy");
+                return false;
+            }
+            logger.LogInfo($"[{account.AccountName}] Mystic Trial: squads quick-deployed");
+            await ClickAsync(instance, logger, SquadDeployPoint);
+            await Task.Delay(1500, cancellationToken);
+            return true;
+        }
+
         /// <summary>
         /// Balance > 50% infantry, 20% cavalry, 30% archers (typed into the boxes) > Confirm.
         /// </summary>
@@ -348,7 +421,7 @@ namespace Bot.Core.Tasks.Modules
             var balance = await MatchAsync(BalanceButtonTemplate, BalanceButtonArea, Threshold, instance, logger);
             if (!balance.found)
             {
-                logger.LogWarning($"[{account.AccountName}] Mystic Trial: deploy screen not shown");
+                logger.LogWarning($"[{account.AccountName}] Mystic Trial: Balance button not found");
                 return false;
             }
             await ClickCenterInRectAsync(instance, logger, balance.rect);

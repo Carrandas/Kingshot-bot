@@ -162,6 +162,7 @@ namespace Bot.GUI.ViewModels
         public ICommand ApplyTroopTrainingSettingsToAllCommand { get; }
         public ICommand ApplyAllianceTechnologySettingsToAllCommand { get; }
         public ICommand ApplyConquestCollectSettingsToAllCommand { get; }
+        public ICommand ApplyArenaSettingsToAllCommand { get; }
         public ICommand SaveCharactersCommand { get; }
 
         private AccountSettings? _selectedAccount;
@@ -239,6 +240,7 @@ namespace Bot.GUI.ViewModels
             ((RelayCommand)ApplyTroopTrainingSettingsToAllCommand).RaiseCanExecuteChanged();
             ((RelayCommand)ApplyAllianceTechnologySettingsToAllCommand).RaiseCanExecuteChanged();
             ((RelayCommand)ApplyConquestCollectSettingsToAllCommand).RaiseCanExecuteChanged();
+            ((RelayCommand)ApplyArenaSettingsToAllCommand).RaiseCanExecuteChanged();
         }
 
         private static void NotifyAccountSettingsChanged(AccountSettings? account)
@@ -277,7 +279,8 @@ namespace Bot.GUI.ViewModels
         {
             return propertyName is nameof(AccountSettings.AccountName) or nameof(AccountSettings.InstanceNumber) or nameof(AccountSettings.DoNotShutdown)
                 || propertyName?.StartsWith("TroopTrainingSettings.") == true
-                || propertyName?.StartsWith("FarmingBoostSettings.") == true;
+                || propertyName?.StartsWith("FarmingBoostSettings.") == true
+                || propertyName?.StartsWith("ArenaSettings.") == true;
         }
 
         private void SelectedAccount_PropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -502,6 +505,7 @@ namespace Bot.GUI.ViewModels
             ApplyTroopTrainingSettingsToAllCommand = new RelayCommand(_ => ApplyTroopTrainingSettingsToAll(), _ => SelectedAccount != null);
             ApplyAllianceTechnologySettingsToAllCommand = new RelayCommand(_ => ApplyAllianceTechnologySettingsToAll(), _ => SelectedAccount != null);
             ApplyConquestCollectSettingsToAllCommand = new RelayCommand(_ => ApplyConquestCollectSettingsToAll(), _ => SelectedAccount != null);
+            ApplyArenaSettingsToAllCommand = new RelayCommand(_ => ApplyArenaSettingsToAll(), _ => SelectedAccount != null);
             SaveCharactersCommand = new RelayCommand(_ => SaveConfigIfNotApplying());
 
             LoadConfigOrDefault();
@@ -822,6 +826,7 @@ namespace Bot.GUI.ViewModels
                     ((RelayCommand)ApplyTroopTrainingSettingsToAllCommand).RaiseCanExecuteChanged();
                     ((RelayCommand)ApplyAllianceTechnologySettingsToAllCommand).RaiseCanExecuteChanged();
                     ((RelayCommand)ApplyConquestCollectSettingsToAllCommand).RaiseCanExecuteChanged();
+                    ((RelayCommand)ApplyArenaSettingsToAllCommand).RaiseCanExecuteChanged();
 
                     // Force CommandManager to re-query all commands
                     CommandManager.InvalidateRequerySuggested();
@@ -1071,6 +1076,22 @@ namespace Bot.GUI.ViewModels
 
             SaveConfig();
             _logger.LogInfo($"Applied Conquest Collect settings from {SelectedAccount.AccountName} to all other accounts");
+        }
+
+        private void ApplyArenaSettingsToAll()
+        {
+            if (SelectedAccount == null) return;
+
+            var sourceSettings = SelectedAccount.ArenaSettings;
+
+            foreach (var settings in Accounts.Where(a => a != SelectedAccount).Select(a => a.ArenaSettings))
+            {
+                settings.RunAfterEnabled = sourceSettings.RunAfterEnabled;
+                settings.RunAfterUtc = sourceSettings.RunAfterUtc;
+            }
+
+            SaveConfig();
+            _logger.LogInfo($"Applied Arena settings from {SelectedAccount.AccountName} to all other accounts");
         }
 
         public void RefreshTaskList()
