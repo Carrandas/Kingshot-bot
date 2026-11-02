@@ -9,16 +9,14 @@ namespace Bot.GUI.Views
     {
         public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
         {
-            if (value is string taskTypeString && parameter != null)
+            if (value is string taskTypeString && parameter != null
+                && Enum.TryParse<TaskType>(taskTypeString, out var taskType))
             {
-                if (Enum.TryParse<TaskType>(taskTypeString, out var taskType))
-                {
-                    var enabledTasks = parameter is AccountSettings account 
-                        ? account.EnabledTasks 
-                        : (parameter?.GetType().GetProperty("EnabledTasks")?.GetValue(parameter) as System.Collections.Generic.ICollection<TaskType>);
+                var enabledTasks = parameter is AccountSettings account 
+                    ? account.EnabledTasks 
+                    : (parameter.GetType().GetProperty("EnabledTasks")?.GetValue(parameter) as System.Collections.Generic.ICollection<TaskType>);
 
-                    return enabledTasks != null && enabledTasks.Contains(taskType);
-                }
+                return enabledTasks != null && enabledTasks.Contains(taskType);
             }
             return false;
         }

@@ -26,7 +26,7 @@ namespace Bot.GUI.Views
         
         private void OnConfigurationChanged()
         {
-            if (DataContext is ConfigViewModel viewModel)
+            if (DataContext is ConfigViewModel)
             {
                 // Force the view to refresh all bindings by re-setting the DataContext
                 Dispatcher.BeginInvoke(new System.Action(() =>

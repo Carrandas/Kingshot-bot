@@ -167,6 +167,12 @@ namespace Bot.Core.LDPlayer
         /// </summary>
         public async Task<byte[]> TakeScreenshotAsync(CancellationToken cancellationToken = default)
         {
+            var raw = await CaptureRawScreencapAsync(cancellationToken);
+            return ConvertRawToPng(raw);
+        }
+
+        private async Task<byte[]> CaptureRawScreencapAsync(CancellationToken cancellationToken)
+        {
             // Use adb exec-out to get raw framebuffer data (much faster than PNG)
             var psi = new ProcessStartInfo(_adbPath, $"-s {_deviceSerial} exec-out screencap")
             {
@@ -195,19 +201,26 @@ namespace Bot.Core.LDPlayer
                 try { process.Kill(); } catch { /* Ignore kill errors */ }
                 throw new TimeoutException("Screenshot operation timed out");
             }
-            var raw = ms.ToArray();
+            return ms.ToArray();
+        }
 
+        // Format codes from Android's HAL_PIXEL_FORMAT_*
+        private const int HAL_PIXEL_FORMAT_RGBA_8888 = 0x1;  // RGBA
+        private const int HAL_PIXEL_FORMAT_RGBX_8888 = 0x2;  // RGB
+        private const int HAL_PIXEL_FORMAT_BGRA_8888 = 0x3;  // BGRA
+        private const int HAL_PIXEL_FORMAT_BGRX_8888 = 0x4;  // BGR
+
+        private static int ReadInt32LittleEndian(byte[] raw, int offset)
+        {
+            return (raw[offset] & 0xFF) | ((raw[offset + 1] & 0xFF) << 8) | ((raw[offset + 2] & 0xFF) << 16) | ((raw[offset + 3] & 0xFF) << 24);
+        }
+
+        private static byte[] ConvertRawToPng(byte[] raw)
+        {
             // Parse header to get width, height, and format
-            int width = (raw[0] & 0xFF) | ((raw[1] & 0xFF) << 8) | ((raw[2] & 0xFF) << 16) | ((raw[3] & 0xFF) << 24);
-            int height = (raw[4] & 0xFF) | ((raw[5] & 0xFF) << 8) | ((raw[6] & 0xFF) << 16) | ((raw[7] & 0xFF) << 24);
-            var format = (raw[8] & 0xFF) | ((raw[9] & 0xFF) << 8) | ((raw[10] & 0xFF) << 16) | ((raw[11] & 0xFF) << 24);
-            
-            // Format codes from Android's HAL_PIXEL_FORMAT_*
-            const int HAL_PIXEL_FORMAT_RGBA_8888 = 0x1;  // RGBA
-            const int HAL_PIXEL_FORMAT_RGBX_8888 = 0x2;  // RGB
-            const int HAL_PIXEL_FORMAT_BGRA_8888 = 0x3;  // BGRA
-            const int HAL_PIXEL_FORMAT_BGRX_8888 = 0x4;  // BGR
-
+            int width = ReadInt32LittleEndian(raw, 0);
+            int height = ReadInt32LittleEndian(raw, 4);
+            int format = ReadInt32LittleEndian(raw, 8);
 
             // Determine pixel size based on format
             int pixelSize = format switch
@@ -237,34 +250,7 @@ namespace Bot.Core.LDPlayer
                 {
                     for (int x = 0; x < width; x++)
                     {
-                        byte r, g, b, a;
-                        switch (format)
-                        {
-                            default: // RGBA (HAL_PIXEL_FORMAT_RGBA_8888, also the fallback)
-                                r = raw[srcIdx];
-                                g = raw[srcIdx + 1];
-                                b = raw[srcIdx + 2];
-                                a = raw[srcIdx + 3];
-                                break;
-                            case HAL_PIXEL_FORMAT_BGRA_8888: // BGRA
-                                b = raw[srcIdx];
-                                g = raw[srcIdx + 1];
-                                r = raw[srcIdx + 2];
-                                a = raw[srcIdx + 3];
-                                break;
-                            case HAL_PIXEL_FORMAT_RGBX_8888: // RGB
-                                r = raw[srcIdx];
-                                g = raw[srcIdx + 1];
-                                b = raw[srcIdx + 2];
-                                a = 255;
-                                break;
-                            case HAL_PIXEL_FORMAT_BGRX_8888: // BGR
-                                b = raw[srcIdx];
-                                g = raw[srcIdx + 1];
-                                r = raw[srcIdx + 2];
-                                a = 255;
-                                break;
-                        }
+                        ReadPixel(raw, srcIdx, format, out byte r, out byte g, out byte b, out byte a);
                         // ARGB in memory: [b, g, r, a]
                         dst[0] = b;
                         dst[1] = g;
@@ -280,6 +266,38 @@ namespace Bot.Core.LDPlayer
             using var outStream = new MemoryStream();
             bmp.Save(outStream, System.Drawing.Imaging.ImageFormat.Png);
             return outStream.ToArray();
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+        private static void ReadPixel(byte[] raw, int srcIdx, int format, out byte r, out byte g, out byte b, out byte a)
+        {
+            switch (format)
+            {
+                default: // RGBA (HAL_PIXEL_FORMAT_RGBA_8888, also the fallback)
+                    r = raw[srcIdx];
+                    g = raw[srcIdx + 1];
+                    b = raw[srcIdx + 2];
+                    a = raw[srcIdx + 3];
+                    break;
+                case HAL_PIXEL_FORMAT_BGRA_8888: // BGRA
+                    b = raw[srcIdx];
+                    g = raw[srcIdx + 1];
+                    r = raw[srcIdx + 2];
+                    a = raw[srcIdx + 3];
+                    break;
+                case HAL_PIXEL_FORMAT_RGBX_8888: // RGB
+                    r = raw[srcIdx];
+                    g = raw[srcIdx + 1];
+                    b = raw[srcIdx + 2];
+                    a = 255;
+                    break;
+                case HAL_PIXEL_FORMAT_BGRX_8888: // BGR
+                    b = raw[srcIdx];
+                    g = raw[srcIdx + 1];
+                    r = raw[srcIdx + 2];
+                    a = 255;
+                    break;
+            }
         }
 
         /// <summary>

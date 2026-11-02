@@ -60,6 +60,32 @@ namespace Bot.Core.Tasks.Modules
             await Task.Delay(delay, cancellationToken);
         }
 
+        private void LogUpgradeButtonDetection(LogService logger, bool found, double confidence, Rectangle matchRect)
+        {
+            logger.LogInfo($"[{Name}] Upgrade button detection - Found: {found}, Confidence: {confidence:F3}, Location: {matchRect}");
+            if (found)
+            {
+                var clickPoint = new Point(matchRect.X + matchRect.Width / 2, matchRect.Y + matchRect.Height / 2);
+                logger.LogInfo($"[{Name}] Will click upgrade button at center point: ({clickPoint.X}, {clickPoint.Y})");
+            }
+        }
+
+        private void LogLowConfidenceMatch(byte[] screenshot, string templatePath, string imageName, int instanceNumber, Rectangle? searchArea, LogService logger)
+        {
+            var (_, lowMatchRect, lowConfidence) = _templateMatcher.MatchTemplate(
+                screenshot,
+                templatePath,
+                instanceNumber,
+                threshold: 0.4,
+                searchArea: searchArea
+            );
+
+            if (lowConfidence > 0.4)
+            {
+                logger.LogInfo($"[{Name}] Found potential {imageName} match with lower confidence {lowConfidence:F3} at {lowMatchRect}");
+            }
+        }
+
         /// <summary>
         /// Enhanced version of FindAndClickImageAsync with debug logging and visualization
         /// </summary>
@@ -87,9 +113,6 @@ namespace Bot.Core.Tasks.Modules
                     return false;
                 }
 
-                // Track all detections with confidence > 0.4 for debugging
-                var detections = new List<(Rectangle rect, double confidence)>();
-
                 // First try with high threshold
                 var (found, matchRect, confidence) = _templateMatcher.MatchTemplate(
                     screenshot,
@@ -102,30 +125,13 @@ namespace Bot.Core.Tasks.Modules
                 // Special debug for upgrade button
                 if (imageName == "upgrade-button.png")
                 {
-                    logger.LogInfo($"[{Name}] Upgrade button detection - Found: {found}, Confidence: {confidence:F3}, Location: {matchRect}");
-                    if (found)
-                    {
-                        var clickPoint = new Point(matchRect.X + matchRect.Width / 2, matchRect.Y + matchRect.Height / 2);
-                        logger.LogInfo($"[{Name}] Will click upgrade button at center point: ({clickPoint.X}, {clickPoint.Y})");
-                    }
+                    LogUpgradeButtonDetection(logger, found, confidence, matchRect);
                 }
 
                 // If high threshold fails, try with lower threshold for debugging
                 if (!found && saveFailedMatches)
                 {
-                    var (_, lowMatchRect, lowConfidence) = _templateMatcher.MatchTemplate(
-                        screenshot,
-                        templatePath,
-                        instanceNumber,
-                        threshold: 0.4,
-                        searchArea: searchArea
-                    );
-
-                    if (lowConfidence > 0.4)
-                    {
-                        detections.Add((lowMatchRect, lowConfidence));
-                        logger.LogInfo($"[{Name}] Found potential {imageName} match with lower confidence {lowConfidence:F3} at {lowMatchRect}");
-                    }
+                    LogLowConfidenceMatch(screenshot, templatePath, imageName, instanceNumber, searchArea, logger);
                 }
 
                 if (found)
@@ -372,7 +378,7 @@ namespace Bot.Core.Tasks.Modules
             await RandomDelay(cancellationToken);
 
             logger.LogInfo($"[{account.AccountName}] Checking for red X in area: {redXSearchArea}");
-            
+
             // Check for red X (use lower threshold since red X can vary in appearance)
             var redXFound = await WaitForImageWithDebugAsync("red-x.png", account.InstanceNumber, logger, cancellationToken, searchArea: redXSearchArea, threshold: 0.6);
 
@@ -384,65 +390,18 @@ namespace Bot.Core.Tasks.Modules
             }
             else
             {
-                logger.LogInfo($"[{account.AccountName}] Red X found, searching for go button in area: {goButtonSearchArea}");
-                // Red X found - look for go button
-                if (!await FindAndClickImageWithDebugAsync("go-button.png", account.InstanceNumber, logger, searchArea: goButtonSearchArea, threshold: 0.8))
-                {
-                    logger.LogWarning($"[{account.AccountName}] Go button not found in area {goButtonSearchArea}, checking for obtain.png fallback...");
-                    
-                    // Fallback: Look for and click obtain.png
-                    if (await FindAndClickImageWithDebugAsync("obtain.png", account.InstanceNumber, logger, searchArea: goButtonSearchArea, threshold: 0.8, timeoutMs: 2000))
-                    {
-                        logger.LogInfo($"[{account.AccountName}] Found and clicked obtain.png, clicking again after 0.5s delay and skipping module");
-                        await Task.Delay(500, cancellationToken); // 0.5 second delay
-                        await FindAndClickImageWithDebugAsync("obtain.png", account.InstanceNumber, logger, searchArea: goButtonSearchArea, threshold: 0.8, timeoutMs: 1000);
-                        await RandomDelay(cancellationToken);
-                        return true; // Skip the rest of the module
-                    }
-                    
-                    logger.LogError($"[{account.AccountName}] Neither go button nor obtain.png found");
-                    return false;
-                }
-                await RandomDelay(cancellationToken);
-
-                // Click the specified point twice
-                var clickPoint = new Point(347, 595);
-                logger.LogInfo($"[{account.AccountName}] Clicking additional point after go button {clickPoint} (first click)");
-                await ClickAsync(account.InstanceNumber, logger, clickPoint);
-                await RandomDelay(cancellationToken);
-                
-                logger.LogInfo($"[{account.AccountName}] Clicking additional point after go button {clickPoint} (second click)");
-                await ClickAsync(account.InstanceNumber, logger, clickPoint);
-                await RandomDelay(cancellationToken);
+                // Red X found - look for go button; a result means the module ends here
+                var goResult = await FollowGoButtonAsync(account, logger, cancellationToken);
+                if (goResult.HasValue) return goResult.Value;
             }
 
             // Wait longer before looking for upgrade icon
             logger.LogInfo($"[{account.AccountName}] Waiting 1.5-2 seconds before looking for upgrade icon...");
             await LongerRandomDelay(cancellationToken);
 
-            // Look for upgrade icon in the new search area
-            if (!await FindAndClickImageWithDebugAsync("upgrade-icon.png", account.InstanceNumber, logger, searchArea: upgradeIconArea))
+            if (!await ClickUpgradeIconAsync(account, logger, cancellationToken))
             {
-                logger.LogInfo($"[{account.AccountName}] Upgrade icon not found, checking if troops are training...");
-                
-                // Try the train icon fallback path
-                if (await HandleTrainIconFallback(account, logger, cancellationToken))
-                {
-                    // After handling train icon, try to find upgrade icon again
-                    logger.LogInfo($"[{account.AccountName}] Retrying upgrade icon search after handling training...");
-                    await RandomDelay(cancellationToken);
-                    
-                    if (!await FindAndClickImageWithDebugAsync("upgrade-icon.png", account.InstanceNumber, logger, searchArea: upgradeIconArea))
-                    {
-                        logger.LogError($"[{account.AccountName}] Upgrade icon still not found after handling training");
-                        return false;
-                    }
-                }
-                else
-                {
-                    logger.LogError($"[{account.AccountName}] Upgrade icon not found in area {upgradeIconArea}");
-                    return false;
-                }
+                return false;
             }
             await RandomDelay(cancellationToken);
 
@@ -455,45 +414,114 @@ namespace Bot.Core.Tasks.Modules
             }
             await RandomDelay(cancellationToken);
 
-            // Look for alliance help button
-            logger.LogInfo($"[{account.AccountName}] Looking for alliance help button...");
-            var allianceHelpImagePath = Path.Combine(Path.GetDirectoryName(ImageTemplateFolder) ?? "", "alliance", "alliance-help.png");
-            if (File.Exists(allianceHelpImagePath))
-            {
-                var screenshot = await TakeScreenshotAsync(account.InstanceNumber, logger);
-                if (screenshot != null)
-                {
-                    var (found, matchRect, confidence) = _templateMatcher.MatchTemplate(
-                        screenshot,
-                        allianceHelpImagePath,
-                        account.InstanceNumber,
-                        threshold: 0.7,
-                        searchArea: null // Search entire screen
-                    );
-                    
-                    if (found)
-                    {
-                        logger.LogInfo($"[{account.AccountName}] Found alliance help button at {matchRect} with confidence {confidence:F3}, clicking...");
-                        await ClickRandomInRectAsync(account.InstanceNumber, logger, matchRect);
-                        await RandomDelay(cancellationToken);
-                    }
-                    else
-                    {
-                        logger.LogInfo($"[{account.AccountName}] Couldn't find alliance help button after 2 seconds, moving on");
-                    }
-                }
-                else
-                {
-                    logger.LogInfo($"[{account.AccountName}] Couldn't find alliance help button after 2 seconds, moving on");
-                }
-            }
-            else
-            {
-                logger.LogInfo($"[{account.AccountName}] Alliance help template not found at: {allianceHelpImagePath}");
-            }
+            await ClickAllianceHelpAsync(account, logger, cancellationToken);
 
             // Success - no need to look for back button or check upgrade icon again
             return true;
+        }
+
+        /// <summary>
+        /// After the red X: the go button (or the obtain.png fallback). Returns the module's result when it ends here, null to carry on.
+        /// </summary>
+        private async Task<bool?> FollowGoButtonAsync(AccountSettings account, LogService logger, CancellationToken cancellationToken)
+        {
+            logger.LogInfo($"[{account.AccountName}] Red X found, searching for go button in area: {goButtonSearchArea}");
+            if (!await FindAndClickImageWithDebugAsync("go-button.png", account.InstanceNumber, logger, searchArea: goButtonSearchArea, threshold: 0.8))
+            {
+                logger.LogWarning($"[{account.AccountName}] Go button not found in area {goButtonSearchArea}, checking for obtain.png fallback...");
+
+                // Fallback: Look for and click obtain.png
+                if (await FindAndClickImageWithDebugAsync("obtain.png", account.InstanceNumber, logger, searchArea: goButtonSearchArea, threshold: 0.8, timeoutMs: 2000))
+                {
+                    logger.LogInfo($"[{account.AccountName}] Found and clicked obtain.png, clicking again after 0.5s delay and skipping module");
+                    await Task.Delay(500, cancellationToken); // 0.5 second delay
+                    await FindAndClickImageWithDebugAsync("obtain.png", account.InstanceNumber, logger, searchArea: goButtonSearchArea, threshold: 0.8, timeoutMs: 1000);
+                    await RandomDelay(cancellationToken);
+                    return true; // Skip the rest of the module
+                }
+
+                logger.LogError($"[{account.AccountName}] Neither go button nor obtain.png found");
+                return false;
+            }
+            await RandomDelay(cancellationToken);
+
+            // Click the specified point twice
+            var clickPoint = new Point(347, 595);
+            logger.LogInfo($"[{account.AccountName}] Clicking additional point after go button {clickPoint} (first click)");
+            await ClickAsync(account.InstanceNumber, logger, clickPoint);
+            await RandomDelay(cancellationToken);
+
+            logger.LogInfo($"[{account.AccountName}] Clicking additional point after go button {clickPoint} (second click)");
+            await ClickAsync(account.InstanceNumber, logger, clickPoint);
+            await RandomDelay(cancellationToken);
+            return null;
+        }
+
+        /// <summary>Look for the upgrade icon in the search area; when troops are training, clear that first and look again.</summary>
+        private async Task<bool> ClickUpgradeIconAsync(AccountSettings account, LogService logger, CancellationToken cancellationToken)
+        {
+            if (await FindAndClickImageWithDebugAsync("upgrade-icon.png", account.InstanceNumber, logger, searchArea: upgradeIconArea))
+            {
+                return true;
+            }
+
+            logger.LogInfo($"[{account.AccountName}] Upgrade icon not found, checking if troops are training...");
+
+            // Try the train icon fallback path
+            if (!await HandleTrainIconFallback(account, logger, cancellationToken))
+            {
+                logger.LogError($"[{account.AccountName}] Upgrade icon not found in area {upgradeIconArea}");
+                return false;
+            }
+
+            // After handling train icon, try to find upgrade icon again
+            logger.LogInfo($"[{account.AccountName}] Retrying upgrade icon search after handling training...");
+            await RandomDelay(cancellationToken);
+
+            if (!await FindAndClickImageWithDebugAsync("upgrade-icon.png", account.InstanceNumber, logger, searchArea: upgradeIconArea))
+            {
+                logger.LogError($"[{account.AccountName}] Upgrade icon still not found after handling training");
+                return false;
+            }
+            return true;
+        }
+
+        private string SiblingTemplatePath(string folder, string file)
+        {
+            return Path.Combine(Path.GetDirectoryName(ImageTemplateFolder) ?? "", folder, file);
+        }
+
+        private async Task ClickAllianceHelpAsync(AccountSettings account, LogService logger, CancellationToken cancellationToken)
+        {
+            // Look for alliance help button
+            logger.LogInfo($"[{account.AccountName}] Looking for alliance help button...");
+            var allianceHelpImagePath = SiblingTemplatePath("alliance", "alliance-help.png");
+            if (!File.Exists(allianceHelpImagePath))
+            {
+                logger.LogInfo($"[{account.AccountName}] Alliance help template not found at: {allianceHelpImagePath}");
+                return;
+            }
+
+            var screenshot = await TakeScreenshotAsync(account.InstanceNumber, logger);
+            if (screenshot != null)
+            {
+                var (found, matchRect, confidence) = _templateMatcher.MatchTemplate(
+                    screenshot,
+                    allianceHelpImagePath,
+                    account.InstanceNumber,
+                    threshold: 0.7,
+                    searchArea: null // Search entire screen
+                );
+
+                if (found)
+                {
+                    logger.LogInfo($"[{account.AccountName}] Found alliance help button at {matchRect} with confidence {confidence:F3}, clicking...");
+                    await ClickRandomInRectAsync(account.InstanceNumber, logger, matchRect);
+                    await RandomDelay(cancellationToken);
+                    return;
+                }
+            }
+            logger.LogInfo($"[{account.AccountName}] Couldn't find alliance help button after 2 seconds, moving on");
         }
 
         private async Task<bool> HandleTrainIconFallback(AccountSettings account, LogService logger, CancellationToken cancellationToken)
@@ -501,7 +529,7 @@ namespace Bot.Core.Tasks.Modules
             try
             {
                 logger.LogInfo($"[{account.AccountName}] Looking for train icon...");
-                
+
                 // Look for and click train icon
                 if (!await FindAndClickImageWithDebugAsync("train-icon.png", account.InstanceNumber, logger))
                 {
@@ -509,133 +537,133 @@ namespace Bot.Core.Tasks.Modules
                     return false;
                 }
                 await RandomDelay(cancellationToken);
-                
+
                 // Look for speedup button
                 logger.LogInfo($"[{account.AccountName}] Looking for speedup button...");
                 if (await WaitForImageWithDebugAsync("speedup-button.png", account.InstanceNumber, logger, cancellationToken, timeoutMs: 3000))
                 {
-                    logger.LogInfo($"[{account.AccountName}] Speedup button found, looking for troop training cancel button...");
-                    
-                    // Look for and click the cancel button from trooptraining folder
-                    var cancelImagePath = Path.Combine(Path.GetDirectoryName(ImageTemplateFolder) ?? "", "trooptraining", "cancel.png");
-                    if (File.Exists(cancelImagePath))
-                    {
-                        var screenshot = await TakeScreenshotAsync(account.InstanceNumber, logger);
-                        if (screenshot != null)
-                        {
-                            var (found, matchRect, _) = _templateMatcher.MatchTemplate(
-                                screenshot,
-                                cancelImagePath,
-                                account.InstanceNumber,
-                                threshold: 0.7
-                            );
-                            
-                            if (found)
-                            {
-                                logger.LogInfo($"[{account.AccountName}] Found cancel button, clicking...");
-                                await ClickRandomInRectAsync(account.InstanceNumber, logger, matchRect);
-                                await RandomDelay(cancellationToken);
-                                
-                                // Look for confirm button from ChangeAccount folder
-                                var confirmImagePath = Path.Combine(Path.GetDirectoryName(ImageTemplateFolder) ?? "", "ChangeAccount", "confirm.png");
-                                if (File.Exists(confirmImagePath))
-                                {
-                                    screenshot = await TakeScreenshotAsync(account.InstanceNumber, logger);
-                                    if (screenshot != null)
-                                    {
-                                        var (confirmFound, confirmRect, _) = _templateMatcher.MatchTemplate(
-                                            screenshot,
-                                            confirmImagePath,
-                                            account.InstanceNumber,
-                                            threshold: 0.7
-                                        );
-                                        
-                                        if (confirmFound)
-                                        {
-                                            logger.LogInfo($"[{account.AccountName}] Found confirm button, clicking...");
-                                            await ClickRandomInRectAsync(account.InstanceNumber, logger, confirmRect);
-                                            await RandomDelay(cancellationToken);
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
+                    await CancelTrainingAsync(account, logger, cancellationToken);
                 }
-                
+
                 // Look for and click back button
                 logger.LogInfo($"[{account.AccountName}] Looking for back button...");
-                if (await FindAndClickImageWithDebugAsync("back-button.png", account.InstanceNumber, logger))
+                if (!await FindAndClickImageWithDebugAsync("back-button.png", account.InstanceNumber, logger))
                 {
-                    logger.LogInfo($"[{account.AccountName}] Back button clicked, waiting for base view...");
-                    await RandomDelay(cancellationToken);
-                    
-                    // Wait for base-view.png from locator folder
-                    var baseViewImagePath = Path.Combine(Path.GetDirectoryName(ImageTemplateFolder) ?? "", "locator", "base-view.png");
-                    if (File.Exists(baseViewImagePath))
-                    {
-                        logger.LogInfo($"[{account.AccountName}] Waiting for base view to appear...");
-                        var baseViewFound = false;
-                        var waitStartTime = DateTime.UtcNow;
-                        var maxWaitTime = TimeSpan.FromSeconds(10);
-                        
-                        while (!baseViewFound && (DateTime.UtcNow - waitStartTime) < maxWaitTime)
-                        {
-                            var screenshot = await TakeScreenshotAsync(account.InstanceNumber, logger);
-                            if (screenshot != null)
-                            {
-                                var (found, _, confidence) = _templateMatcher.MatchTemplate(
-                                    screenshot,
-                                    baseViewImagePath,
-                                    account.InstanceNumber,
-                                    threshold: 0.7
-                                );
-                                
-                                if (found)
-                                {
-                                    logger.LogInfo($"[{account.AccountName}] Base view detected (confidence: {confidence:F3})");
-                                    baseViewFound = true;
-                                    break;
-                                }
-                            }
-                            
-                            await Task.Delay(500, cancellationToken);
-                        }
-                        
-                        if (baseViewFound)
-                        {
-                            // Perform the two clicks at the upgrade location
-                            var clickPoint = new Point(347, 595);
-                            logger.LogInfo($"[{account.AccountName}] Performing first click at {clickPoint}");
-                            await ClickAsync(account.InstanceNumber, logger, clickPoint);
-                            await RandomDelay(cancellationToken);
-                            
-                            logger.LogInfo($"[{account.AccountName}] Performing second click at {clickPoint}");
-                            await ClickAsync(account.InstanceNumber, logger, clickPoint);
-                            await RandomDelay(cancellationToken);
-                            
-                            return true;
-                        }
-                        else
-                        {
-                            logger.LogWarning($"[{account.AccountName}] Base view not found after {maxWaitTime.TotalSeconds} seconds");
-                        }
-                    }
-                    else
-                    {
-                        logger.LogWarning($"[{account.AccountName}] base-view.png not found at: {baseViewImagePath}");
-                    }
-                    
-                    return true;
+                    return false;
                 }
-                
-                return false;
+
+                logger.LogInfo($"[{account.AccountName}] Back button clicked, waiting for base view...");
+                await RandomDelay(cancellationToken);
+                await ClickUpgradeAfterBaseViewAsync(account, logger, cancellationToken);
+                return true;
             }
             catch (Exception ex)
             {
                 logger.LogError($"[{account.AccountName}] Error in train icon fallback: {ex.Message}");
                 return false;
             }
+        }
+
+        /// <summary>Speedup button is open: cancel the troop training and confirm.</summary>
+        private async Task CancelTrainingAsync(AccountSettings account, LogService logger, CancellationToken cancellationToken)
+        {
+            logger.LogInfo($"[{account.AccountName}] Speedup button found, looking for troop training cancel button...");
+
+            // Look for and click the cancel button from trooptraining folder
+            if (!await ClickTemplateIfFoundAsync(account, logger, SiblingTemplatePath("trooptraining", "cancel.png"), "cancel", cancellationToken))
+            {
+                return;
+            }
+
+            // Look for confirm button from ChangeAccount folder
+            await ClickTemplateIfFoundAsync(account, logger, SiblingTemplatePath("ChangeAccount", "confirm.png"), "confirm", cancellationToken);
+        }
+
+        private async Task<bool> ClickTemplateIfFoundAsync(AccountSettings account, LogService logger, string imagePath, string buttonName, CancellationToken cancellationToken)
+        {
+            if (!File.Exists(imagePath))
+            {
+                return false;
+            }
+
+            var screenshot = await TakeScreenshotAsync(account.InstanceNumber, logger);
+            if (screenshot == null)
+            {
+                return false;
+            }
+
+            var (found, matchRect, _) = _templateMatcher.MatchTemplate(
+                screenshot,
+                imagePath,
+                account.InstanceNumber,
+                threshold: 0.7
+            );
+            if (!found)
+            {
+                return false;
+            }
+
+            logger.LogInfo($"[{account.AccountName}] Found {buttonName} button, clicking...");
+            await ClickRandomInRectAsync(account.InstanceNumber, logger, matchRect);
+            await RandomDelay(cancellationToken);
+            return true;
+        }
+
+        /// <summary>After the back button: wait for the base view, then tap the upgrade location twice.</summary>
+        private async Task ClickUpgradeAfterBaseViewAsync(AccountSettings account, LogService logger, CancellationToken cancellationToken)
+        {
+            // Wait for base-view.png from locator folder
+            var baseViewImagePath = SiblingTemplatePath("locator", "base-view.png");
+            if (!File.Exists(baseViewImagePath))
+            {
+                logger.LogWarning($"[{account.AccountName}] base-view.png not found at: {baseViewImagePath}");
+                return;
+            }
+
+            logger.LogInfo($"[{account.AccountName}] Waiting for base view to appear...");
+            var maxWaitTime = TimeSpan.FromSeconds(10);
+            if (!await WaitForBaseViewAsync(account, logger, baseViewImagePath, maxWaitTime, cancellationToken))
+            {
+                logger.LogWarning($"[{account.AccountName}] Base view not found after {maxWaitTime.TotalSeconds} seconds");
+                return;
+            }
+
+            // Perform the two clicks at the upgrade location
+            var clickPoint = new Point(347, 595);
+            logger.LogInfo($"[{account.AccountName}] Performing first click at {clickPoint}");
+            await ClickAsync(account.InstanceNumber, logger, clickPoint);
+            await RandomDelay(cancellationToken);
+
+            logger.LogInfo($"[{account.AccountName}] Performing second click at {clickPoint}");
+            await ClickAsync(account.InstanceNumber, logger, clickPoint);
+            await RandomDelay(cancellationToken);
+        }
+
+        private async Task<bool> WaitForBaseViewAsync(AccountSettings account, LogService logger, string baseViewImagePath, TimeSpan maxWaitTime, CancellationToken cancellationToken)
+        {
+            var waitStartTime = DateTime.UtcNow;
+            while ((DateTime.UtcNow - waitStartTime) < maxWaitTime)
+            {
+                var screenshot = await TakeScreenshotAsync(account.InstanceNumber, logger);
+                if (screenshot != null)
+                {
+                    var (found, _, confidence) = _templateMatcher.MatchTemplate(
+                        screenshot,
+                        baseViewImagePath,
+                        account.InstanceNumber,
+                        threshold: 0.7
+                    );
+
+                    if (found)
+                    {
+                        logger.LogInfo($"[{account.AccountName}] Base view detected (confidence: {confidence:F3})");
+                        return true;
+                    }
+                }
+
+                await Task.Delay(500, cancellationToken);
+            }
+            return false;
         }
 
         protected override async Task OnInitializeAsync(LogService logger, CancellationToken cancellationToken)

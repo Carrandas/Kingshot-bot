@@ -81,6 +81,27 @@ namespace Bot.Core.Utils
             ClearPathCache();
         }
 
+        // Common registry keys for different LDPlayer versions and localizations
+        private static readonly string[] RegistryKeys = {
+            @"SOFTWARE\XuanZhi\LDPlayer9",
+            @"SOFTWARE\LDPlayer9",
+            @"SOFTWARE\ChangZhi\LDPlayer9",
+            @"SOFTWARE\雷电模拟器9",  // Chinese
+            @"SOFTWARE\雷電模擬器9",  // Traditional Chinese
+            @"SOFTWARE\LDプレーヤー9", // Japanese
+            @"SOFTWARE\LDエミュレータ9" // Japanese alternative
+        };
+
+        // Only look for LDPlayer 9 subfolders
+        private static readonly string[] InstallSubfolders = {
+            @"LDPlayer\LDPlayer9",
+            "LDPlayer9",
+            @"雷电模拟器\LDPlayer9",    // Chinese
+            @"雷電模擬器\LDPlayer9",    // Traditional Chinese
+            @"LDプレーヤー9",          // Japanese
+            @"LDエミュレータ9"         // Japanese alternative
+        };
+
         private static string GetLDPlayerInstallPath()
         {
             // Allow overriding the install location (e.g. LDPlayer 14) before the UI is available
@@ -88,48 +109,20 @@ namespace Bot.Core.Utils
             if (string.IsNullOrEmpty(_manualInstallPath) && IsValidLDPlayerPath(envPath ?? string.Empty))
                 _manualInstallPath = envPath;
 
-            // If manual path is set and valid, use it
-            if (!string.IsNullOrEmpty(_manualInstallPath) &&
-                Directory.Exists(_manualInstallPath) && 
-                File.Exists(Path.Combine(_manualInstallPath, "ldconsole.exe")))
+            var knownPath = GetManualOrCachedInstallPath();
+            if (knownPath != null)
             {
-                _logger?.LogInfo($"LDPlayer detected via manual path: {_manualInstallPath}");
-                return GetSafePathString(_manualInstallPath);
-            }
-
-            // If we have a cached path that's still valid, use it
-            if (!string.IsNullOrEmpty(_cachedInstallPath) && 
-                Directory.Exists(_cachedInstallPath) && 
-                File.Exists(Path.Combine(_cachedInstallPath, "ldconsole.exe")))
-            {
-                _logger?.LogInfo($"LDPlayer detected via cached path: {_cachedInstallPath}");
-                return GetSafePathString(_cachedInstallPath);
+                return knownPath;
             }
 
             var errors = new List<string>();
 
             try
             {
-                // Common registry keys for different LDPlayer versions and localizations
-                string[] registryKeys = {
-                    @"SOFTWARE\XuanZhi\LDPlayer9",
-                    @"SOFTWARE\LDPlayer9",
-                    @"SOFTWARE\ChangZhi\LDPlayer9",
-                    @"SOFTWARE\雷电模拟器9",  // Chinese
-                    @"SOFTWARE\雷電模擬器9",  // Traditional Chinese
-                    @"SOFTWARE\LDプレーヤー9", // Japanese
-                    @"SOFTWARE\LDエミュレータ9" // Japanese alternative
-                };
-
-                foreach (var key in registryKeys)
+                var registryPath = FindInstallPathInRegistry();
+                if (registryPath != null)
                 {
-                    var path = GetPathFromRegistry(key);
-                    if (!string.IsNullOrEmpty(path) && IsValidLDPlayerPath(path))
-                    {
-                        _cachedInstallPath = path;
-                        _logger?.LogInfo($"LDPlayer 9 detected via registry: {key} -> {path}");
-                        return GetSafePathString(path);
-                    }
+                    return registryPath;
                 }
 
                 // Get all possible program files paths
@@ -142,29 +135,10 @@ namespace Bot.Core.Utils
 #pragma warning restore S1075
                 }.Distinct().Where(p => Directory.Exists(p));
 
-                // Only look for LDPlayer 9 subfolders
-                var subfolders = new[] {
-                    @"LDPlayer\LDPlayer9",
-                    "LDPlayer9",
-                    @"雷电模拟器\LDPlayer9",    // Chinese
-                    @"雷電模擬器\LDPlayer9",    // Traditional Chinese
-                    @"LDプレーヤー9",          // Japanese
-                    @"LDエミュレータ9"         // Japanese alternative
-                };
-
-                // Check all program files locations
-                foreach (var programPath in programPaths)
+                var programFilesPath = FindInstallPathInProgramFiles(programPaths);
+                if (programFilesPath != null)
                 {
-                    foreach (var subfolder in subfolders)
-                    {
-                        var fullPath = GetSafePathString(Path.Combine(programPath, subfolder));
-                        if (IsValidLDPlayerPath(fullPath))
-                        {
-                            _cachedInstallPath = fullPath;
-                            _logger?.LogInfo($"LDPlayer 9 detected via Program Files search: {fullPath}");
-                            return fullPath;
-                        }
-                    }
+                    return programFilesPath;
                 }
 
                 // Check direct drive paths with parallel processing
@@ -173,53 +147,17 @@ namespace Bot.Core.Utils
                     .Select(d => d.Name.TrimEnd('\\'))
                     .ToList();
 
-                string? foundPath = null;
-                var lockObj = new object();
-
-                Parallel.ForEach(drives, (drive, loopState) =>
+                var drivePath = FindInstallPathOnDrives(drives);
+                if (drivePath != null)
                 {
-                    if (loopState.ShouldExitCurrentIteration) return;
-
-                    foreach (var subfolder in subfolders)
-                    {
-                        if (loopState.ShouldExitCurrentIteration) return;
-
-                        try
-                        {
-                            var fullPath = GetSafePathString(Path.Combine(drive, subfolder));
-                            if (IsValidLDPlayerPath(fullPath))
-                            {
-                                lock (lockObj)
-                                {
-                                    if (foundPath == null) // First thread to find a valid path
-                                    {
-                                        foundPath = fullPath;
-                                        _cachedInstallPath = fullPath;
-                                        _logger?.LogInfo($"LDPlayer 9 detected via parallel drive search: {fullPath}");
-                                    }
-                                }
-                                loopState.Stop(); // Signal other threads to stop
-                                return;
-                            }
-                        }
-                        catch (Exception ex)
-                        {
-                            // Silently continue if we can't access a path during parallel search
-                            _logger?.LogWarning($"Error checking path {Path.Combine(drive, subfolder)}: {ex.Message}");
-                        }
-                    }
-                });
-
-                if (foundPath != null)
-                {
-                    return foundPath;
+                    return drivePath;
                 }
 
                 // If we get here, we couldn't find LDPlayer 9
                 var searchedPaths = new List<string>();
-                searchedPaths.AddRange(registryKeys.Select(k => $"Registry: {k}"));
-                searchedPaths.AddRange(programPaths.SelectMany(p => subfolders.Select(s => Path.Combine(p, s))));
-                searchedPaths.AddRange(drives.SelectMany(d => subfolders.Select(s => Path.Combine(d, s))));
+                searchedPaths.AddRange(RegistryKeys.Select(k => $"Registry: {k}"));
+                searchedPaths.AddRange(programPaths.SelectMany(p => InstallSubfolders.Select(s => Path.Combine(p, s))));
+                searchedPaths.AddRange(drives.SelectMany(d => InstallSubfolders.Select(s => Path.Combine(d, s))));
 
                 var errorMsg = "LDPlayer 9 installation not found. Searched in:\n" +
                              string.Join("\n", searchedPaths.Distinct().Take(5)) +
@@ -236,6 +174,111 @@ namespace Bot.Core.Utils
                     "or use SetManualInstallPath() to specify the location manually.\n\n" +
                     "Errors encountered:\n" + string.Join("\n", errors), ex);
             }
+        }
+
+        private static string? GetManualOrCachedInstallPath()
+        {
+            // If manual path is set and valid, use it
+            if (!string.IsNullOrEmpty(_manualInstallPath) &&
+                Directory.Exists(_manualInstallPath) &&
+                File.Exists(Path.Combine(_manualInstallPath, "ldconsole.exe")))
+            {
+                _logger?.LogInfo($"LDPlayer detected via manual path: {_manualInstallPath}");
+                return GetSafePathString(_manualInstallPath);
+            }
+
+            // If we have a cached path that's still valid, use it
+            if (!string.IsNullOrEmpty(_cachedInstallPath) &&
+                Directory.Exists(_cachedInstallPath) &&
+                File.Exists(Path.Combine(_cachedInstallPath, "ldconsole.exe")))
+            {
+                _logger?.LogInfo($"LDPlayer detected via cached path: {_cachedInstallPath}");
+                return GetSafePathString(_cachedInstallPath);
+            }
+
+            return null;
+        }
+
+        private static string? FindInstallPathInRegistry()
+        {
+            foreach (var key in RegistryKeys)
+            {
+                var path = GetPathFromRegistry(key);
+                if (!string.IsNullOrEmpty(path) && IsValidLDPlayerPath(path))
+                {
+                    _cachedInstallPath = path;
+                    _logger?.LogInfo($"LDPlayer 9 detected via registry: {key} -> {path}");
+                    return GetSafePathString(path);
+                }
+            }
+            return null;
+        }
+
+        private static string? FindInstallPathInProgramFiles(IEnumerable<string> programPaths)
+        {
+            // Check all program files locations
+            foreach (var programPath in programPaths)
+            {
+                foreach (var subfolder in InstallSubfolders)
+                {
+                    var fullPath = GetSafePathString(Path.Combine(programPath, subfolder));
+                    if (IsValidLDPlayerPath(fullPath))
+                    {
+                        _cachedInstallPath = fullPath;
+                        _logger?.LogInfo($"LDPlayer 9 detected via Program Files search: {fullPath}");
+                        return fullPath;
+                    }
+                }
+            }
+            return null;
+        }
+
+        private static string? FindInstallPathOnDrives(List<string> drives)
+        {
+            string? foundPath = null;
+            var lockObj = new object();
+
+            Parallel.ForEach(drives, (drive, loopState) =>
+            {
+                var fullPath = FindInstallPathOnDrive(drive, loopState);
+                if (fullPath == null) return;
+
+                lock (lockObj)
+                {
+                    if (foundPath == null) // First thread to find a valid path
+                    {
+                        foundPath = fullPath;
+                        _cachedInstallPath = fullPath;
+                        _logger?.LogInfo($"LDPlayer 9 detected via parallel drive search: {fullPath}");
+                    }
+                }
+                loopState.Stop(); // Signal other threads to stop
+            });
+
+            return foundPath;
+        }
+
+        private static string? FindInstallPathOnDrive(string drive, ParallelLoopState loopState)
+        {
+            foreach (var subfolder in InstallSubfolders)
+            {
+                if (loopState.ShouldExitCurrentIteration) return null;
+
+                try
+                {
+                    var fullPath = GetSafePathString(Path.Combine(drive, subfolder));
+                    if (IsValidLDPlayerPath(fullPath))
+                    {
+                        return fullPath;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    // Silently continue if we can't access a path during parallel search
+                    _logger?.LogWarning($"Error checking path {Path.Combine(drive, subfolder)}: {ex.Message}");
+                }
+            }
+            return null;
         }
 
         private static bool IsValidLDPlayerPath(string path)
@@ -337,24 +380,11 @@ namespace Bot.Core.Utils
                     var error = await process.StandardError.ReadToEndAsync();
                     await process.WaitForExitAsync();
 
-                    if (!string.IsNullOrWhiteSpace(output))
+                    var title = FindInstanceTitle(output, instanceNumber);
+                    if (title != null)
                     {
-                        var lines = output.Split('\n', StringSplitOptions.RemoveEmptyEntries);
-                        foreach (var line in lines)
-                        {
-                            var parts = line.Split(',');
-                            if (parts.Length >= 2 && 
-                                int.TryParse(parts[0].Trim(), out var index) && 
-                                index == instanceNumber)
-                            {
-                                var title = parts[1].Trim();
-                                if (!string.IsNullOrWhiteSpace(title))
-                                {
-                                    _logger?.LogInfo($"Found instance name: {instanceNumber} -> {title}");
-                                    return title;
-                                }
-                            }
-                        }
+                        _logger?.LogInfo($"Found instance name: {instanceNumber} -> {title}");
+                        return title;
                     }
 
                     if (!string.IsNullOrWhiteSpace(error))
@@ -372,6 +402,30 @@ namespace Bot.Core.Utils
             var fallbackName = $"Instance{instanceNumber}";
             _logger?.LogWarning($"Could not get instance name for {instanceNumber}, using fallback: {fallbackName}");
             return fallbackName;
+        }
+
+        private static string? FindInstanceTitle(string output, int instanceNumber)
+        {
+            if (string.IsNullOrWhiteSpace(output))
+            {
+                return null;
+            }
+
+            foreach (var line in output.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+            {
+                var parts = line.Split(',');
+                if (parts.Length >= 2 &&
+                    int.TryParse(parts[0].Trim(), out var index) &&
+                    index == instanceNumber)
+                {
+                    var title = parts[1].Trim();
+                    if (!string.IsNullOrWhiteSpace(title))
+                    {
+                        return title;
+                    }
+                }
+            }
+            return null;
         }
 
         public static void ClearPathCache()

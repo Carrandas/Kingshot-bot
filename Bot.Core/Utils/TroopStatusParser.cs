@@ -125,23 +125,13 @@ namespace Bot.Core.Utils
             _logger.LogInfo($"Cleaning troop type: '{troopText}' -> '{clean}'");
 
             // Direct prefix matching for common patterns
-            if (clean.StartsWith("infan") || clean.StartsWith("infant"))
-                return "Infantry";
-            if (clean.StartsWith("caval") || clean.StartsWith("cavai") || clean.StartsWith("cavalry"))
-                return "Cavalry";
-            if (clean.StartsWith("arch") || clean.StartsWith("arcl") || clean.StartsWith("arche") || clean.StartsWith("archer"))
-                return "Archers";
+            var prefixMatch = MatchTroopPrefix(clean);
+            if (prefixMatch != null)
+                return prefixMatch;
 
-            // Fuzzy matching using Levenshtein distance
-            foreach (var knownType in _config.KnownTroopTypes)
-            {
-                if (LevenshteinDistance(clean, knownType) <= _config.MaxLevenshteinDistance) // Allow up to 2 character differences
-                {
-                    var result = CultureInfo.InvariantCulture.TextInfo.ToTitleCase(knownType);
-                    _logger.LogInfo($"Fuzzy matched '{clean}' to '{result}' (distance: {LevenshteinDistance(clean, knownType)})");
-                    return result;
-                }
-            }
+            var fuzzyMatch = FuzzyMatchKnownTroopType(clean);
+            if (fuzzyMatch != null)
+                return fuzzyMatch;
 
             // Special case handling for common OCR misreads
             if (_config.SpecialCaseMappings.ContainsKey(clean))
@@ -152,6 +142,39 @@ namespace Bot.Core.Utils
 
             _logger.LogError($"Could not normalize troop type: '{troopText}' (cleaned: '{clean}')");
             return string.Empty;
+        }
+
+        private static readonly (string[] Prefixes, string TroopType)[] TroopPrefixes =
+        {
+            (new[] { "infan", "infant" }, "Infantry"),
+            (new[] { "caval", "cavai", "cavalry" }, "Cavalry"),
+            (new[] { "arch", "arcl", "arche", "archer" }, "Archers"),
+        };
+
+        private static string? MatchTroopPrefix(string clean)
+        {
+            foreach (var (prefixes, troopType) in TroopPrefixes)
+            {
+                if (prefixes.Any(prefix => clean.StartsWith(prefix)))
+                    return troopType;
+            }
+            return null;
+        }
+
+        // Fuzzy matching using Levenshtein distance
+        private string? FuzzyMatchKnownTroopType(string clean)
+        {
+            foreach (var knownType in _config.KnownTroopTypes)
+            {
+                var distance = LevenshteinDistance(clean, knownType);
+                if (distance <= _config.MaxLevenshteinDistance) // Allow up to 2 character differences
+                {
+                    var result = CultureInfo.InvariantCulture.TextInfo.ToTitleCase(knownType);
+                    _logger.LogInfo($"Fuzzy matched '{clean}' to '{result}' (distance: {distance})");
+                    return result;
+                }
+            }
+            return null;
         }
 
         public SingleTroopStatus ParseSingleTroopStatus(string troopType, string statusText)
@@ -214,41 +237,19 @@ namespace Bot.Core.Utils
             {
                 if (pattern.Contains("h") && pattern.Contains("m")) // 1h 30m format
                 {
-                    if (int.TryParse(timeMatch.Groups[1].Value, out int hours) &&
-                        int.TryParse(timeMatch.Groups[2].Value, out int minutes))
-                    {
-                        return new TimeSpan(hours, minutes, 0);
-                    }
+                    return ParseHoursMinutes(timeMatch);
                 }
-                else if (pattern.Contains("min")) // 30min format
+                if (pattern.Contains("min")) // 30min format
                 {
-                    if (int.TryParse(timeMatch.Groups[1].Value, out int minutes))
-                    {
-                        return new TimeSpan(0, minutes, 0);
-                    }
+                    return int.TryParse(timeMatch.Groups[1].Value, out int minutes) ? new TimeSpan(0, minutes, 0) : null;
                 }
-                else if (timeMatch.Groups.Count == 4) // HH:MM:SS
+                if (timeMatch.Groups.Count == 4) // HH:MM:SS
                 {
-                    if (int.TryParse(timeMatch.Groups[1].Value, out int hours) &&
-                        int.TryParse(timeMatch.Groups[2].Value, out int minutes) &&
-                        int.TryParse(timeMatch.Groups[3].Value, out int seconds))
-                    {
-                        return new TimeSpan(hours, minutes, seconds);
-                    }
+                    return ParseHoursMinutesSeconds(timeMatch);
                 }
-                else if (timeMatch.Groups.Count == 3 &&
-                    int.TryParse(timeMatch.Groups[1].Value, out int first) &&
-                    int.TryParse(timeMatch.Groups[2].Value, out int second)) // MM:SS or HH:MM
+                if (timeMatch.Groups.Count == 3) // MM:SS or HH:MM
                 {
-                    // If first number > 59, assume HH:MM format, otherwise MM:SS
-                    if (first > 59)
-                    {
-                        return new TimeSpan(first, second, 0); // Hours:Minutes
-                    }
-                    else
-                    {
-                        return new TimeSpan(0, first, second); // Minutes:Seconds
-                    }
+                    return ParseMinutesSecondsOrHoursMinutes(timeMatch);
                 }
             }
             catch (Exception ex)
@@ -257,6 +258,41 @@ namespace Bot.Core.Utils
             }
 
             return null;
+        }
+
+        private static TimeSpan? ParseHoursMinutes(Match timeMatch)
+        {
+            if (int.TryParse(timeMatch.Groups[1].Value, out int hours) &&
+                int.TryParse(timeMatch.Groups[2].Value, out int minutes))
+            {
+                return new TimeSpan(hours, minutes, 0);
+            }
+            return null;
+        }
+
+        private static TimeSpan? ParseHoursMinutesSeconds(Match timeMatch)
+        {
+            if (int.TryParse(timeMatch.Groups[1].Value, out int hours) &&
+                int.TryParse(timeMatch.Groups[2].Value, out int minutes) &&
+                int.TryParse(timeMatch.Groups[3].Value, out int seconds))
+            {
+                return new TimeSpan(hours, minutes, seconds);
+            }
+            return null;
+        }
+
+        private static TimeSpan? ParseMinutesSecondsOrHoursMinutes(Match timeMatch)
+        {
+            if (!int.TryParse(timeMatch.Groups[1].Value, out int first) ||
+                !int.TryParse(timeMatch.Groups[2].Value, out int second))
+            {
+                return null;
+            }
+
+            // If first number > 59, assume HH:MM format, otherwise MM:SS
+            return first > 59
+                ? new TimeSpan(first, second, 0) // Hours:Minutes
+                : new TimeSpan(0, first, second); // Minutes:Seconds
         }
 
         private static int LevenshteinDistance(string s1, string s2)

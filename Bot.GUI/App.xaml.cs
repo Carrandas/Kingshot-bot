@@ -82,7 +82,7 @@ public partial class App : WPFApplication
         _logger.LogInfo("ConfigurationManager initialized with logger.");
     }
 
-    private void ShowMainWindow()
+    private static void ShowMainWindow()
     {
         var mainWindow = new MainWindow();
         mainWindow.Show();

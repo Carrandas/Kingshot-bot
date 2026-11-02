@@ -362,6 +362,57 @@ namespace Bot.Core.Tasks.Modules
             }
         }
 
+        /// <summary>Clicks the confirm button, or the buy-use button and its confirmation point. False: neither was found.</summary>
+        private async Task<bool> ConfirmBackupShieldAsync(AccountSettings account, LogService logger, string baseDir, CancellationToken cancellationToken)
+        {
+            var confirmPath = Path.Combine(baseDir, "templates", "images", "ChangeAccount", "confirm.png");
+            var buyUsePath = Path.Combine(_templateFolder, "buy-use.png");
+
+            logger.LogInfo($"[{account.AccountName}] Attempting to find confirmation buttons for backup shield...");
+            logger.LogInfo($"[{account.AccountName}] Looking for confirm button at: {confirmPath}");
+            bool confirmFound = await ClickTemplateInAreaAsync(account.InstanceNumber, confirmPath, ConfirmButtonRect, logger, threshold: 0.5);
+            logger.LogInfo($"[{account.AccountName}] Confirm button found: {confirmFound}");
+            if (confirmFound)
+            {
+                return true;
+            }
+
+            logger.LogInfo($"[{account.AccountName}] Looking for buy-use button at: {buyUsePath}");
+            bool buyUseFound = await ClickTemplateInAreaAsync(account.InstanceNumber, buyUsePath, BuyUseButtonRect, logger, threshold: 0.65);
+            logger.LogInfo($"[{account.AccountName}] Buy-use button found: {buyUseFound}");
+
+            if (buyUseFound)
+            {
+                logger.LogInfo($"[{account.AccountName}] Buy-use button clicked, waiting 1 second then clicking confirmation at 357,781");
+                await Task.Delay(1000, cancellationToken);
+                await ClickAsync(account.InstanceNumber, logger, new Point(357, 781));
+                logger.LogInfo($"[{account.AccountName}] Clicked confirmation point at 357,781");
+            }
+            return buyUseFound;
+        }
+
+        /// <summary>Uses OCR to check whether a shield timer is showing; if so, closes the shield menu. True: the shield is on.</summary>
+        private async Task<bool> ExitIfShieldAppliedAsync(AccountSettings account, LogService logger, string baseDir, CancellationToken cancellationToken)
+        {
+            var verificationShieldTime = await ReadShieldTimerAsync(account, logger);
+            if (verificationShieldTime == null || verificationShieldTime.Value <= TimeSpan.Zero)
+            {
+                return false;
+            }
+
+            logger.LogInfo($"[{account.AccountName}] Shield was successfully applied without confirmation. Timer shows: {verificationShieldTime.Value.TotalHours:F1}h");
+
+            // Click back button to exit shield menu
+            var backButtonPath = Path.Combine(baseDir, "templates", "images", "recovery", "deploy-back.png");
+            bool backButtonClicked = await ClickTemplateAsync(account.InstanceNumber, backButtonPath, logger);
+            if (!backButtonClicked)
+            {
+                logger.LogWarning($"[{account.AccountName}] Could not find back button, shield menu may still be open.");
+            }
+            await Task.Delay(1000, cancellationToken); // Wait for navigation
+            return true;
+        }
+
         private async Task<bool> ApplyBackupShieldAsync(AccountSettings account, AutoShieldSettings settings, LogService logger, CancellationToken cancellationToken)
         {
             try
@@ -394,56 +445,18 @@ namespace Bot.Core.Tasks.Modules
 
                 // Try both confirmation buttons
                 string baseDir = AppContext.BaseDirectory;
-                var confirmPath = Path.Combine(baseDir, "templates", "images", "ChangeAccount", "confirm.png");
-                var buyUsePath = Path.Combine(_templateFolder, "buy-use.png");
-
-                logger.LogInfo($"[{account.AccountName}] Attempting to find confirmation buttons for backup shield...");
-                logger.LogInfo($"[{account.AccountName}] Looking for confirm button at: {confirmPath}");
-                bool confirmFound = await ClickTemplateInAreaAsync(account.InstanceNumber, confirmPath, ConfirmButtonRect, logger, threshold: 0.5);
-                logger.LogInfo($"[{account.AccountName}] Confirm button found: {confirmFound}");
-                
-                bool buyUseFound = false;
-                
-                if (!confirmFound)
-                {
-                    logger.LogInfo($"[{account.AccountName}] Looking for buy-use button at: {buyUsePath}");
-                    buyUseFound = await ClickTemplateInAreaAsync(account.InstanceNumber, buyUsePath, BuyUseButtonRect, logger, threshold: 0.65);
-                    logger.LogInfo($"[{account.AccountName}] Buy-use button found: {buyUseFound}");
-                    
-                    if (buyUseFound)
-                    {
-                        logger.LogInfo($"[{account.AccountName}] Buy-use button clicked, waiting 1 second then clicking confirmation at 357,781");
-                        await Task.Delay(1000, cancellationToken);
-                        await ClickAsync(account.InstanceNumber, logger, new Point(357, 781));
-                        logger.LogInfo($"[{account.AccountName}] Clicked confirmation point at 357,781");
-                    }
-                }
-                
-                bool confirmed = confirmFound || buyUseFound;
+                bool confirmed = await ConfirmBackupShieldAsync(account, logger, baseDir, cancellationToken);
 
                 if (!confirmed)
                 {
                     logger.LogInfo($"[{account.AccountName}] Could not find confirmation button - checking if shield was applied anyway...");
-                    
+
                     // Sometimes the shield is applied without needing confirmation
-                    // Use OCR to check if a shield timer is now showing
-                    var verificationShieldTime = await ReadShieldTimerAsync(account, logger);
-                    if (verificationShieldTime != null && verificationShieldTime.Value > TimeSpan.Zero)
+                    if (await ExitIfShieldAppliedAsync(account, logger, baseDir, cancellationToken))
                     {
-                        logger.LogInfo($"[{account.AccountName}] Shield was successfully applied without confirmation. Timer shows: {verificationShieldTime.Value.TotalHours:F1}h");
-                        
-                        // Click back button to exit shield menu
-                        var backButtonPath = Path.Combine(baseDir, "templates", "images", "recovery", "deploy-back.png");
-                        bool backButtonClicked = await ClickTemplateAsync(account.InstanceNumber, backButtonPath, logger);
-                        if (!backButtonClicked)
-                        {
-                            logger.LogWarning($"[{account.AccountName}] Could not find back button, shield menu may still be open.");
-                        }
-                        await Task.Delay(1000, cancellationToken); // Wait for navigation
-                        
                         return true; // Shield was applied successfully
                     }
-                    
+
                     logger.LogError($"[{account.AccountName}] No confirmation button found and no shield timer detected");
                     _metrics.ConfirmationFailedErrors++;
                     return false;

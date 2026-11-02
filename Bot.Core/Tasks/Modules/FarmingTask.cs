@@ -74,39 +74,26 @@ namespace Bot.Core.Tasks.Modules
             {
                 logger.LogInfo($"[{account.AccountName}] Starting Farming task...");
 
-                // Get AutoHunt settings to check for cooldown
-                var autoHuntSettings = GetAutoHuntSettings(account);
-                if (autoHuntSettings.LastMarchSentTime.HasValue)
-                {
-                    var timeSinceLastHunt = DateTime.UtcNow - autoHuntSettings.LastMarchSentTime.Value;
-                    var huntCooldown = TimeSpan.FromMinutes(5); // 5 minute cooldown for AutoHunt
-                    if (timeSinceLastHunt < huntCooldown)
-                    {
-                        var waitTime = huntCooldown - timeSinceLastHunt;
-                        logger.LogInfo($"[{account.AccountName}] AutoHunt is on cooldown. Waiting for {waitTime.TotalSeconds:F1} seconds before starting farming.");
-                        userNotifications?.ShowStatus($"Waiting for AutoHunt cooldown ({waitTime.TotalSeconds:F0}s)", NotificationType.Info);
-                        await Task.Delay(waitTime, cancellationToken);
-                    }
-                }
+                await WaitForAutoHuntCooldownAsync(account, logger, userNotifications, cancellationToken);
 
                 // Enhanced march timer checking using the new MarchTimerService
                 var timerService = new MarchTimerService(logger);
                 var timerResult = await timerService.CheckActiveMarchTimersAsync(account.InstanceNumber, logger, cancellationToken, userNotifications);
-                
+
                 if (timerResult.HasActiveTimers)
                 {
                     var statusMessage = timerResult.GetStatusMessage();
                     logger.LogInfo($"[{account.AccountName}] 🕒 {statusMessage}");
                     userNotifications?.ShowStatus($"Farming delayed: {statusMessage}", NotificationType.Warning);
-                    
+
                     // Return special result to indicate we should skip this task and retry later
                     return new TaskExecutionDetails(
-                        success: false, 
-                        message: "SKIP_AND_RETRY_LATER", 
+                        success: false,
+                        message: "SKIP_AND_RETRY_LATER",
                         recoveryNeeded: false
                     );
                 }
-                
+
                 logger.LogInfo($"[{account.AccountName}] ✅ No active march timers detected, proceeding with farming");
                 userNotifications?.ShowStatus($"All marches returned - starting farming for {account.AccountName}", NotificationType.Info);
 
@@ -114,7 +101,7 @@ namespace Bot.Core.Tasks.Modules
                 // allowing for custom configurations for different OCR tasks.
 
                 userNotifications?.ShowStatus("Starting farming task...", NotificationType.Info);
-                
+
                 logger.LogInfo($"[{account.AccountName}] 🧭 Ensuring bot is in MapView for farming...");
                 var locator = new LocatorService(logger, account);
                 await locator.EnsureViewAsync(ViewType.MapView, account.InstanceNumber, cancellationToken);
@@ -127,110 +114,10 @@ namespace Bot.Core.Tasks.Modules
                 // Check and activate gathering boost if enabled
                 await CheckAndActivateGatheringBoostAsync(account, logger, cancellationToken);
 
-                // Initialize marches count
-                // Rallies and returning marches also use slots, so the total is not capped here:
-                // each resource is sent at most once and skipped while its icon shows in the Marching panel
-                int currentMarches = await GetAvailableMarchesAsync(account, logger);
-                if (currentMarches <= 0)
-                {
-                    logger.LogInfo($"[{account.AccountName}] No marches available after map view check.");
-                    return new TaskExecutionDetails(true, message: "No marches available.");
-                }
+                var notReady = await CheckFarmingPreconditionsAsync(account, logger, userNotifications, cancellationToken);
+                if (notReady != null) return notReady;
 
-                if (cancellationToken.IsCancellationRequested)
-                {
-                    return TaskExecutionDetails.Failed("Farming task cancelled during view location.");
-                }
-
-                await WaitIfPausedAsync(cancellationToken);
-                if (cancellationToken.IsCancellationRequested) return TaskExecutionDetails.Failed("Task was cancelled");
-                await Task.Delay(POLL_INTERVAL_MS, cancellationToken);
-
-                if (account.FarmingTargets == null || !account.FarmingTargets.Any())
-                {
-                    logger.LogWarning($"[{account.AccountName}] No farming targets configured. Skipping farming task.");
-                    return new TaskExecutionDetails(true, message: "No farming targets configured.");
-                }
-
-                // Check march limit before starting farming loop
-                if (account.FarmingSettings.HasReachedMarchLimit(account.InstanceNumber))
-                {
-                    var marchesSent = FarmingSettings.GetMarchesSent(account.InstanceNumber);
-                    var maxMarches = account.FarmingSettings.MaxFarmingMarches;
-                    logger.LogInfo($"[{account.AccountName}] 🛑 March limit reached: {marchesSent}/{maxMarches} marches already sent this session");
-                    userNotifications?.ShowStatus($"March limit reached: {marchesSent}/{maxMarches} marches sent", NotificationType.Warning);
-                    return new TaskExecutionDetails(true, message: $"March limit reached: {marchesSent}/{maxMarches} marches sent this session");
-                }
-
-                // Main farming loop
-                int marchesSentSuccessfully = 0;
-                
-                try
-                {
-                    // Each target is considered once per run: one bread, one wood, one stone, one iron
-                    for (int attempt = 0; attempt < account.FarmingTargets.Count; attempt++)
-                    {
-                        if (cancellationToken.IsCancellationRequested) break;
-                        
-                        // Check for pause at the beginning of each loop iteration
-                        await WaitIfPausedAsync(cancellationToken);
-                        if (cancellationToken.IsCancellationRequested) break;
-
-                        // Check march limit before sending each march
-                        if (account.FarmingSettings.HasReachedMarchLimit(account.InstanceNumber))
-                        {
-                            logger.LogInfo($"[{account.AccountName}] 🛑 March limit reached during farming loop");
-                            userNotifications?.ShowStatus($"March limit reached: {account.FarmingSettings.MaxFarmingMarches} marches sent", NotificationType.Warning);
-                            break;
-                        }
-                        
-                        currentMarches = await GetAvailableMarchesAsync(account, logger);
-                        if (currentMarches <= 0)
-                        {
-                            logger.LogInfo($"[{account.AccountName}] No more marches available.");
-                            break;
-                        }
-
-                        // Get and increment the rotation index for this instance
-                        int currentIndex = _farmingRotationIndexes.GetOrAdd(account.InstanceNumber, 0);
-                        FarmingTarget currentTarget = account.FarmingTargets[currentIndex % account.FarmingTargets.Count];
-                        _farmingRotationIndexes[account.InstanceNumber] = currentIndex + 1;
-
-                        if (await IsResourceAlreadyGatheringAsync(account, logger, currentTarget.ResourceType))
-                        {
-                            logger.LogInfo($"[{account.AccountName}] ⏭️ {currentTarget.ResourceType} is already being gathered, skipping it");
-                            continue;
-                        }
-
-                        logger.LogInfo($"[{account.AccountName}] 🎯 Attempting to send march for {currentTarget.ResourceType} Level {currentTarget.Level}");
-
-                        bool marchSent = await ProcessSingleMarchAsync(account, logger, cancellationToken, currentTarget);
-                        if (marchSent)
-                        {
-                            marchesSentSuccessfully++;
-                            FarmingSettings.IncrementMarchesSent(account.InstanceNumber);
-                            
-                            var totalMarchesSent = FarmingSettings.GetMarchesSent(account.InstanceNumber);
-                            var marchLimitText = account.FarmingSettings.MaxFarmingMarches > 0 
-                                ? $" ({totalMarchesSent}/{account.FarmingSettings.MaxFarmingMarches})" 
-                                : "";
-                            
-                            userNotifications?.ShowSuccess($"Successfully sent troops to {currentTarget.ResourceType} Level {currentTarget.Level}{marchLimitText}");
-                            logger.LogInfo($"[{account.AccountName}] 🎯 March sent successfully. Total marches sent this session: {totalMarchesSent}{(account.FarmingSettings.MaxFarmingMarches > 0 ? $"/{account.FarmingSettings.MaxFarmingMarches}" : "")}");
-                            await Task.Delay(POLL_INTERVAL_MS, cancellationToken);
-                        }
-                        else
-                        {
-                            logger.LogWarning($"[{account.AccountName}] Failed to send march for {currentTarget.ResourceType}. Stopping farming for this cycle.");
-                            break;
-                        }
-                        await Task.Delay(POLL_INTERVAL_MS, cancellationToken);
-                    }
-                }
-                catch (NoTroopsAvailableException)
-                {
-                    logger.LogInfo($"[{account.AccountName}] 🚫 No troops available for farming. Exiting farming module.");
-                }
+                int marchesSentSuccessfully = await RunFarmingLoopAsync(account, logger, userNotifications, cancellationToken);
 
                 logger.LogInfo($"[{account.AccountName}] 🏠 Returning to base view...");
                 await locator.EnsureViewAsync(ViewType.BaseView, account.InstanceNumber, cancellationToken);
@@ -252,6 +139,154 @@ namespace Bot.Core.Tasks.Modules
                 logger.LogError($"[{account.AccountName}] Error during farming: {ex.Message}");
                 return TaskExecutionDetails.Failed($"Error during farming: {ex.Message}");
             }
+        }
+
+        private static async Task WaitForAutoHuntCooldownAsync(AccountSettings account, LogService logger, IUserNotificationService? userNotifications, CancellationToken cancellationToken)
+        {
+            // Get AutoHunt settings to check for cooldown
+            var autoHuntSettings = GetAutoHuntSettings(account);
+            if (!autoHuntSettings.LastMarchSentTime.HasValue)
+            {
+                return;
+            }
+
+            var timeSinceLastHunt = DateTime.UtcNow - autoHuntSettings.LastMarchSentTime.Value;
+            var huntCooldown = TimeSpan.FromMinutes(5); // 5 minute cooldown for AutoHunt
+            if (timeSinceLastHunt < huntCooldown)
+            {
+                var waitTime = huntCooldown - timeSinceLastHunt;
+                logger.LogInfo($"[{account.AccountName}] AutoHunt is on cooldown. Waiting for {waitTime.TotalSeconds:F1} seconds before starting farming.");
+                userNotifications?.ShowStatus($"Waiting for AutoHunt cooldown ({waitTime.TotalSeconds:F0}s)", NotificationType.Info);
+                await Task.Delay(waitTime, cancellationToken);
+            }
+        }
+
+        /// <summary>Marches, targets and the march limit. Returns the result when there is nothing to farm, otherwise null.</summary>
+        private async Task<TaskExecutionDetails?> CheckFarmingPreconditionsAsync(
+            AccountSettings account, LogService logger, IUserNotificationService? userNotifications, CancellationToken cancellationToken)
+        {
+            // Initialize marches count
+            // Rallies and returning marches also use slots, so the total is not capped here:
+            // each resource is sent at most once and skipped while its icon shows in the Marching panel
+            int currentMarches = await GetAvailableMarchesAsync(account, logger);
+            if (currentMarches <= 0)
+            {
+                logger.LogInfo($"[{account.AccountName}] No marches available after map view check.");
+                return new TaskExecutionDetails(true, message: "No marches available.");
+            }
+
+            if (cancellationToken.IsCancellationRequested)
+            {
+                return TaskExecutionDetails.Failed("Farming task cancelled during view location.");
+            }
+
+            await WaitIfPausedAsync(cancellationToken);
+            if (cancellationToken.IsCancellationRequested) return TaskExecutionDetails.Failed("Task was cancelled");
+            await Task.Delay(POLL_INTERVAL_MS, cancellationToken);
+
+            if (account.FarmingTargets == null || !account.FarmingTargets.Any())
+            {
+                logger.LogWarning($"[{account.AccountName}] No farming targets configured. Skipping farming task.");
+                return new TaskExecutionDetails(true, message: "No farming targets configured.");
+            }
+
+            // Check march limit before starting farming loop
+            if (account.FarmingSettings.HasReachedMarchLimit(account.InstanceNumber))
+            {
+                var marchesSent = FarmingSettings.GetMarchesSent(account.InstanceNumber);
+                var maxMarches = account.FarmingSettings.MaxFarmingMarches;
+                logger.LogInfo($"[{account.AccountName}] 🛑 March limit reached: {marchesSent}/{maxMarches} marches already sent this session");
+                userNotifications?.ShowStatus($"March limit reached: {marchesSent}/{maxMarches} marches sent", NotificationType.Warning);
+                return new TaskExecutionDetails(true, message: $"March limit reached: {marchesSent}/{maxMarches} marches sent this session");
+            }
+            return null;
+        }
+
+        private enum FarmStep { Skipped, Sent, Stop }
+
+        /// <summary>Sends a march to each target once and returns how many went out.</summary>
+        private async Task<int> RunFarmingLoopAsync(AccountSettings account, LogService logger, IUserNotificationService? userNotifications, CancellationToken cancellationToken)
+        {
+            int marchesSentSuccessfully = 0;
+
+            try
+            {
+                // Each target is considered once per run: one bread, one wood, one stone, one iron
+                for (int attempt = 0; attempt < account.FarmingTargets.Count; attempt++)
+                {
+                    var step = await FarmNextTargetAsync(account, logger, userNotifications, cancellationToken);
+                    if (step == FarmStep.Stop) break;
+                    if (step == FarmStep.Sent) marchesSentSuccessfully++;
+                }
+            }
+            catch (NoTroopsAvailableException)
+            {
+                logger.LogInfo($"[{account.AccountName}] 🚫 No troops available for farming. Exiting farming module.");
+            }
+            return marchesSentSuccessfully;
+        }
+
+        /// <summary>Cancellation, pause, the march limit and the free march slots. False: stop farming.</summary>
+        private async Task<bool> CanSendNextMarchAsync(AccountSettings account, LogService logger, IUserNotificationService? userNotifications, CancellationToken cancellationToken)
+        {
+            if (cancellationToken.IsCancellationRequested) return false;
+
+            // Check for pause at the beginning of each loop iteration
+            await WaitIfPausedAsync(cancellationToken);
+            if (cancellationToken.IsCancellationRequested) return false;
+
+            // Check march limit before sending each march
+            if (account.FarmingSettings.HasReachedMarchLimit(account.InstanceNumber))
+            {
+                logger.LogInfo($"[{account.AccountName}] 🛑 March limit reached during farming loop");
+                userNotifications?.ShowStatus($"March limit reached: {account.FarmingSettings.MaxFarmingMarches} marches sent", NotificationType.Warning);
+                return false;
+            }
+
+            int currentMarches = await GetAvailableMarchesAsync(account, logger);
+            if (currentMarches <= 0)
+            {
+                logger.LogInfo($"[{account.AccountName}] No more marches available.");
+                return false;
+            }
+            return true;
+        }
+
+        private async Task<FarmStep> FarmNextTargetAsync(AccountSettings account, LogService logger, IUserNotificationService? userNotifications, CancellationToken cancellationToken)
+        {
+            if (!await CanSendNextMarchAsync(account, logger, userNotifications, cancellationToken)) return FarmStep.Stop;
+
+            // Get and increment the rotation index for this instance
+            int currentIndex = _farmingRotationIndexes.GetOrAdd(account.InstanceNumber, 0);
+            FarmingTarget currentTarget = account.FarmingTargets[currentIndex % account.FarmingTargets.Count];
+            _farmingRotationIndexes[account.InstanceNumber] = currentIndex + 1;
+
+            if (await IsResourceAlreadyGatheringAsync(account, logger, currentTarget.ResourceType))
+            {
+                logger.LogInfo($"[{account.AccountName}] ⏭️ {currentTarget.ResourceType} is already being gathered, skipping it");
+                return FarmStep.Skipped;
+            }
+
+            logger.LogInfo($"[{account.AccountName}] 🎯 Attempting to send march for {currentTarget.ResourceType} Level {currentTarget.Level}");
+
+            if (!await ProcessSingleMarchAsync(account, logger, cancellationToken, currentTarget))
+            {
+                logger.LogWarning($"[{account.AccountName}] Failed to send march for {currentTarget.ResourceType}. Stopping farming for this cycle.");
+                return FarmStep.Stop;
+            }
+
+            FarmingSettings.IncrementMarchesSent(account.InstanceNumber);
+
+            var totalMarchesSent = FarmingSettings.GetMarchesSent(account.InstanceNumber);
+            var marchLimitText = account.FarmingSettings.MaxFarmingMarches > 0
+                ? $" ({totalMarchesSent}/{account.FarmingSettings.MaxFarmingMarches})"
+                : "";
+
+            userNotifications?.ShowSuccess($"Successfully sent troops to {currentTarget.ResourceType} Level {currentTarget.Level}{marchLimitText}");
+            logger.LogInfo($"[{account.AccountName}] 🎯 March sent successfully. Total marches sent this session: {totalMarchesSent}{(account.FarmingSettings.MaxFarmingMarches > 0 ? $"/{account.FarmingSettings.MaxFarmingMarches}" : "")}");
+            await Task.Delay(POLL_INTERVAL_MS, cancellationToken);
+            await Task.Delay(POLL_INTERVAL_MS, cancellationToken);
+            return FarmStep.Sent;
         }
 
         /// <summary>
@@ -383,215 +418,13 @@ namespace Bot.Core.Tasks.Modules
                 logger.LogInfo($"[{account.AccountName}] 🖱️ Clicking search button for Lvl {currentLevel} {target.ResourceType}...");
                 if (!await ClickRandomInRectAsync(account.InstanceNumber, logger, SearchButtonArea)) return false;
 
-                // Poll for gather button with improved detection
-                bool gatherClicked = false;
-                DateTime gatherStartTime = DateTime.UtcNow;
-
-                while ((DateTime.UtcNow - gatherStartTime).TotalMilliseconds < MAX_WAIT_TIME_MS && !cancellationToken.IsCancellationRequested)
-                {
-                    logger.LogInfo($"[{account.AccountName}] 👀 Looking for 'gather-button.png' for Lvl {currentLevel}...");
-                    
-                    var screenshot = await TakeScreenshotAsync(account.InstanceNumber, logger);
-                    if (screenshot == null)
-                    {
-                        await Task.Delay(POLL_INTERVAL_MS, cancellationToken);
-                        continue;
-                    }
-
-                    if (_templateMatcher == null) _templateMatcher = new UnifiedTemplateMatchingService(logger);
-                    
-                    var templatePath = Path.Combine(ImageTemplateFolder, "gather-button.png");
-                    var (found, matchRect, confidence) = _templateMatcher.MatchTemplate(
-                        screenshot,
-                        templatePath,
-                        account.InstanceNumber,
-                        threshold: TEMPLATE_MATCH_THRESHOLD,
-                        scales: UnifiedTemplateMatchingService.StandardScales,
-                        verboseLogging: true,
-                        searchArea: GatherButtonArea  // Use the refined search area
-                    );
-
-                    if (found)
-                    {
-                        logger.LogInfo($"[{account.AccountName}] ✅ Found gather button at {matchRect} with confidence {confidence:F3}");
-                        if (await ClickRandomInRectAsync(account.InstanceNumber, logger, matchRect))
-                        {
-                            logger.LogInfo($"[{account.AccountName}] ✅ Clicked 'gather-button.png' for Lvl {currentLevel} after {(DateTime.UtcNow - gatherStartTime).TotalMilliseconds:F0}ms.");
-                            gatherClicked = true;
-                            break;
-                        }
-                    }
-
-                    await Task.Delay(POLL_INTERVAL_MS, cancellationToken);
-                }
+                bool gatherClicked = await ClickGatherButtonAsync(account, logger, cancellationToken, currentLevel);
 
                 if (gatherClicked)
                 {
-                    // Poll for both deploy button and max march
-                    DateTime startTime = DateTime.UtcNow;
-                    bool deployClicked = false;
-                    string deployButtonPath = Path.Combine(ImageTemplateFolder, "deploy-button.png");
-                    string maxMarchPath = Path.Combine(ImageTemplateFolder, "max-march.png");
-                    string noTroopsPath = Path.Combine(ImageTemplateFolder, "no-troops.png");
-                    string backButtonPath = Path.Combine(_templateFolder, "..", "buttons", "deploy-back.png");
-                    var maxMarchArea = new Rectangle(249, 314, 217, 49); // 249,314 to 466,363
-
-                    // Log template details before starting detection
-                    if (File.Exists(deployButtonPath))
-                    {
-                        using var templateBmp = new Bitmap(deployButtonPath);
-                        logger.LogInfo($"[{account.AccountName}] 🔍 Deploy button template details: Size={templateBmp.Width}x{templateBmp.Height}, PixelFormat={templateBmp.PixelFormat}");
-                        logger.LogInfo($"[{account.AccountName}] 🔍 Deploy button search area: {DeployButtonArea}");
-                    }
-
-                    // First wait 3 seconds for deploy button
-                    while ((DateTime.UtcNow - startTime).TotalMilliseconds < 3000 && !cancellationToken.IsCancellationRequested)
-                    {
-                        var screenshot = await TakeScreenshotAsync(account.InstanceNumber, logger);
-                        if (screenshot == null)
-                        {
-                            await Task.Delay(POLL_INTERVAL_MS, cancellationToken);
-                            continue;
-                        }
-
-                        if (_templateMatcher == null) _templateMatcher = new UnifiedTemplateMatchingService(logger);
-
-                        // Check for deploy button
-                        var (deployFound, deployRect, _) = _templateMatcher.MatchTemplate(
-                            screenshot,
-                            deployButtonPath,
-                            account.InstanceNumber,
-                            threshold: TEMPLATE_MATCH_THRESHOLD,
-                            scales: UnifiedTemplateMatchingService.StandardScales,
-                            verboseLogging: true,
-                            searchArea: DeployButtonArea
-                        );
-
-                        // Deploy button has priority
-                        if (deployFound)
-                        {
-                            await RemoveNonBlueHeroesAsync(account, logger, cancellationToken);
-                            if (await ClickRandomInRectAsync(account.InstanceNumber, logger, deployRect))
-                            {
-                                logger.LogInfo($"[{account.AccountName}] ✅ Clicked deploy button");
-                                deployClicked = true;
-                                break;
-                            }
-                        }
-
-                        await Task.Delay(POLL_INTERVAL_MS, cancellationToken);
-                    }
-
-                    // If deploy button not found after 3 seconds, check for no-troops
-                    if (!deployClicked)
-                    {
-                        logger.LogInfo($"[{account.AccountName}] 🔍 Deploy button not found after 3 seconds, checking for no-troops indicator...");
-                        
-                        var screenshot = await TakeScreenshotAsync(account.InstanceNumber, logger);
-                        if (screenshot != null)
-                        {
-                            var (noTroopsFound, noTroopsRect, noTroopsConfidence) = _templateMatcher.MatchTemplate(
-                                screenshot,
-                                noTroopsPath,
-                                account.InstanceNumber,
-                                threshold: TEMPLATE_MATCH_THRESHOLD,
-                                scales: UnifiedTemplateMatchingService.StandardScales,
-                                verboseLogging: true
-                            );
-
-                            if (noTroopsFound)
-                            {
-                                logger.LogInfo($"[{account.AccountName}] ⚠️ No troops available detected at {noTroopsRect} with confidence {noTroopsConfidence:F3}. Looking for back button...");
-                                
-                                // Look for and click the back button
-                                var (backFound, backRect, _) = _templateMatcher.MatchTemplate(
-                                    screenshot,
-                                    backButtonPath,
-                                    account.InstanceNumber,
-                                    threshold: TEMPLATE_MATCH_THRESHOLD,
-                                    scales: UnifiedTemplateMatchingService.StandardScales,
-                                    verboseLogging: true
-                                );
-
-                                if (backFound)
-                                {
-                                    if (await ClickRandomInRectAsync(account.InstanceNumber, logger, backRect))
-                                    {
-                                        logger.LogInfo($"[{account.AccountName}] ✅ Clicked back button. No troops available, ending farming.");
-                                        await Task.Delay(GameCoordinates.Delays.AfterClick, cancellationToken);
-                                        
-                                        // Return a special value to indicate we should exit the farming module completely
-                                        throw new NoTroopsAvailableException();
-                                    }
-                                }
-                                else
-                                {
-                                    logger.LogWarning($"[{account.AccountName}] ❌ Back button not found. Attempting to continue...");
-                                    return false;
-                                }
-                            }
-                            else
-                            {
-                                logger.LogInfo($"[{account.AccountName}] ℹ️ No-troops indicator not found. Will now check for max-march indicator...");
-                            }
-                        }
-
-                        // Continue checking for max march or other indicators for remaining time
-                        logger.LogInfo($"[{account.AccountName}] 🔍 Starting max-march detection loop (will check for up to 2 more seconds)...");
-                        int maxMarchCheckCount = 0;
-                        while ((DateTime.UtcNow - startTime).TotalMilliseconds < 5000 && !cancellationToken.IsCancellationRequested)
-                        {
-                            screenshot = await TakeScreenshotAsync(account.InstanceNumber, logger);
-                            if (screenshot == null)
-                            {
-                                logger.LogWarning($"[{account.AccountName}] ⚠️ Screenshot failed during max-march check");
-                                await Task.Delay(POLL_INTERVAL_MS, cancellationToken);
-                                continue;
-                            }
-
-                            maxMarchCheckCount++;
-                            logger.LogInfo($"[{account.AccountName}] 🔍 Checking for max-march.png (attempt {maxMarchCheckCount}) in area {maxMarchArea}...");
-                            
-                            // Check for max march
-                            var (maxMarchFound, maxMarchRect, maxMarchConfidence) = _templateMatcher.MatchTemplate(
-                                screenshot,
-                                maxMarchPath,
-                                account.InstanceNumber,
-                                threshold: TEMPLATE_MATCH_THRESHOLD,
-                                scales: UnifiedTemplateMatchingService.StandardScales,
-                                verboseLogging: true,
-                                searchArea: maxMarchArea
-                            );
-
-                            // If max march is found but no deploy button, handle max march case
-                            if (maxMarchFound)
-                            {
-                                logger.LogInfo($"[{account.AccountName}] ⚠️ Found max march indicator at {maxMarchRect} with confidence {maxMarchConfidence:F3}");
-                                // Click the specific coordinate for max march using a small rectangle around the point
-                                var maxMarchClickRect = new Rectangle(642 - 5, 338 - 5, 10, 10);
-                                if (await ClickRandomInRectAsync(account.InstanceNumber, logger, maxMarchClickRect))
-                                {
-                                    logger.LogInfo($"[{account.AccountName}] ✅ Clicked max march coordinate (642,338). All marches are full!");
-                                    return false; // No more marches available
-                                }
-                            }
-                            else
-                            {
-                                var elapsedMs = (DateTime.UtcNow - startTime).TotalMilliseconds;
-                                logger.LogInfo($"[{account.AccountName}] ℹ️ Max-march not found yet (elapsed: {elapsedMs:F0}ms of 5000ms)");
-                            }
-
-                            await Task.Delay(POLL_INTERVAL_MS, cancellationToken);
-                        }
-                        
-                        logger.LogInfo($"[{account.AccountName}] ⏱️ Max-march detection timeout reached (5 seconds total). Neither deploy button nor max-march indicator found.");
-                    }
-
-                    if (deployClicked)
-                    {
-                        await Task.Delay(GameCoordinates.Delays.AfterConfirm, cancellationToken);
-                        return true;
-                    }
+                    // A result means the march attempt ends here
+                    var deployResult = await DeployAfterGatherAsync(account, logger, cancellationToken);
+                    if (deployResult.HasValue) return deployResult.Value;
                 }
 
                 if (currentLevel > 1)
@@ -601,6 +434,249 @@ namespace Bot.Core.Tasks.Modules
             }
 
             logger.LogWarning($"[{account.AccountName}] ⚠️ Could not find any gatherable resources from level {target.Level} down to {lowestLevel}.");
+            return false;
+        }
+
+        /// <summary>Poll for gather button with improved detection</summary>
+        private async Task<bool> ClickGatherButtonAsync(AccountSettings account, LogService logger, CancellationToken cancellationToken, int currentLevel)
+        {
+            DateTime gatherStartTime = DateTime.UtcNow;
+
+            while ((DateTime.UtcNow - gatherStartTime).TotalMilliseconds < MAX_WAIT_TIME_MS && !cancellationToken.IsCancellationRequested)
+            {
+                logger.LogInfo($"[{account.AccountName}] 👀 Looking for 'gather-button.png' for Lvl {currentLevel}...");
+
+                var screenshot = await TakeScreenshotAsync(account.InstanceNumber, logger);
+                if (screenshot == null)
+                {
+                    await Task.Delay(POLL_INTERVAL_MS, cancellationToken);
+                    continue;
+                }
+
+                if (_templateMatcher == null) _templateMatcher = new UnifiedTemplateMatchingService(logger);
+
+                var templatePath = Path.Combine(ImageTemplateFolder, "gather-button.png");
+                var (found, matchRect, confidence) = _templateMatcher.MatchTemplate(
+                    screenshot,
+                    templatePath,
+                    account.InstanceNumber,
+                    threshold: TEMPLATE_MATCH_THRESHOLD,
+                    scales: UnifiedTemplateMatchingService.StandardScales,
+                    verboseLogging: true,
+                    searchArea: GatherButtonArea  // Use the refined search area
+                );
+
+                if (found)
+                {
+                    logger.LogInfo($"[{account.AccountName}] ✅ Found gather button at {matchRect} with confidence {confidence:F3}");
+                    if (await ClickRandomInRectAsync(account.InstanceNumber, logger, matchRect))
+                    {
+                        logger.LogInfo($"[{account.AccountName}] ✅ Clicked 'gather-button.png' for Lvl {currentLevel} after {(DateTime.UtcNow - gatherStartTime).TotalMilliseconds:F0}ms.");
+                        return true;
+                    }
+                }
+
+                await Task.Delay(POLL_INTERVAL_MS, cancellationToken);
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// The deploy screen is open. Returns true once deployed, false when the march attempt has to end,
+        /// null when neither deploy nor an end condition was seen (the next level is tried).
+        /// </summary>
+        private async Task<bool?> DeployAfterGatherAsync(AccountSettings account, LogService logger, CancellationToken cancellationToken)
+        {
+            // Poll for both deploy button and max march
+            DateTime startTime = DateTime.UtcNow;
+            string deployButtonPath = Path.Combine(ImageTemplateFolder, "deploy-button.png");
+
+            // Log template details before starting detection
+            if (File.Exists(deployButtonPath))
+            {
+                using var templateBmp = new Bitmap(deployButtonPath);
+                logger.LogInfo($"[{account.AccountName}] 🔍 Deploy button template details: Size={templateBmp.Width}x{templateBmp.Height}, PixelFormat={templateBmp.PixelFormat}");
+                logger.LogInfo($"[{account.AccountName}] 🔍 Deploy button search area: {DeployButtonArea}");
+            }
+
+            // First wait 3 seconds for deploy button
+            if (await ClickDeployButtonAsync(account, logger, cancellationToken, deployButtonPath, startTime))
+            {
+                await Task.Delay(GameCoordinates.Delays.AfterConfirm, cancellationToken);
+                return true;
+            }
+
+            // If deploy button not found after 3 seconds, check for no-troops
+            logger.LogInfo($"[{account.AccountName}] 🔍 Deploy button not found after 3 seconds, checking for no-troops indicator...");
+            if (await IsBackButtonMissingWithoutTroopsAsync(account, logger, cancellationToken))
+            {
+                return false;
+            }
+
+            // Continue checking for max march or other indicators for remaining time
+            if (await ClickMaxMarchAsync(account, logger, cancellationToken, startTime))
+            {
+                return false; // No more marches available
+            }
+
+            logger.LogInfo($"[{account.AccountName}] ⏱️ Max-march detection timeout reached (5 seconds total). Neither deploy button nor max-march indicator found.");
+            return null;
+        }
+
+        private async Task<bool> ClickDeployButtonAsync(AccountSettings account, LogService logger, CancellationToken cancellationToken, string deployButtonPath, DateTime startTime)
+        {
+            while ((DateTime.UtcNow - startTime).TotalMilliseconds < 3000 && !cancellationToken.IsCancellationRequested)
+            {
+                var screenshot = await TakeScreenshotAsync(account.InstanceNumber, logger);
+                if (screenshot == null)
+                {
+                    await Task.Delay(POLL_INTERVAL_MS, cancellationToken);
+                    continue;
+                }
+
+                if (_templateMatcher == null) _templateMatcher = new UnifiedTemplateMatchingService(logger);
+
+                // Check for deploy button
+                var (deployFound, deployRect, _) = _templateMatcher.MatchTemplate(
+                    screenshot,
+                    deployButtonPath,
+                    account.InstanceNumber,
+                    threshold: TEMPLATE_MATCH_THRESHOLD,
+                    scales: UnifiedTemplateMatchingService.StandardScales,
+                    verboseLogging: true,
+                    searchArea: DeployButtonArea
+                );
+
+                // Deploy button has priority
+                if (deployFound)
+                {
+                    await RemoveNonBlueHeroesAsync(account, logger, cancellationToken);
+                    if (await ClickRandomInRectAsync(account.InstanceNumber, logger, deployRect))
+                    {
+                        logger.LogInfo($"[{account.AccountName}] ✅ Clicked deploy button");
+                        return true;
+                    }
+                }
+
+                await Task.Delay(POLL_INTERVAL_MS, cancellationToken);
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Looks for the no-troops indicator; when it is there, backs out and ends the farming module (exception).
+        /// True when the indicator was seen but the back button was not, so the march attempt has to end.
+        /// </summary>
+        private async Task<bool> IsBackButtonMissingWithoutTroopsAsync(AccountSettings account, LogService logger, CancellationToken cancellationToken)
+        {
+            string noTroopsPath = Path.Combine(ImageTemplateFolder, "no-troops.png");
+            string backButtonPath = Path.Combine(_templateFolder, "..", "buttons", "deploy-back.png");
+
+            var screenshot = await TakeScreenshotAsync(account.InstanceNumber, logger);
+            if (screenshot != null)
+            {
+                if (_templateMatcher == null) _templateMatcher = new UnifiedTemplateMatchingService(logger);
+
+                var (noTroopsFound, noTroopsRect, noTroopsConfidence) = _templateMatcher.MatchTemplate(
+                    screenshot,
+                    noTroopsPath,
+                    account.InstanceNumber,
+                    threshold: TEMPLATE_MATCH_THRESHOLD,
+                    scales: UnifiedTemplateMatchingService.StandardScales,
+                    verboseLogging: true
+                );
+
+                if (noTroopsFound)
+                {
+                    logger.LogInfo($"[{account.AccountName}] ⚠️ No troops available detected at {noTroopsRect} with confidence {noTroopsConfidence:F3}. Looking for back button...");
+
+                    // Look for and click the back button
+                    var (backFound, backRect, _) = _templateMatcher.MatchTemplate(
+                        screenshot,
+                        backButtonPath,
+                        account.InstanceNumber,
+                        threshold: TEMPLATE_MATCH_THRESHOLD,
+                        scales: UnifiedTemplateMatchingService.StandardScales,
+                        verboseLogging: true
+                    );
+
+                    if (!backFound)
+                    {
+                        logger.LogWarning($"[{account.AccountName}] ❌ Back button not found. Attempting to continue...");
+                        return true;
+                    }
+
+                    if (await ClickRandomInRectAsync(account.InstanceNumber, logger, backRect))
+                    {
+                        logger.LogInfo($"[{account.AccountName}] ✅ Clicked back button. No troops available, ending farming.");
+                        await Task.Delay(GameCoordinates.Delays.AfterClick, cancellationToken);
+
+                        // Return a special value to indicate we should exit the farming module completely
+                        throw new NoTroopsAvailableException();
+                    }
+                }
+                else
+                {
+                    logger.LogInfo($"[{account.AccountName}] ℹ️ No-troops indicator not found. Will now check for max-march indicator...");
+                }
+            }
+            return false;
+        }
+
+        /// <summary>Looks for the max-march notice until 5 seconds after startTime and dismisses it. True when it was dismissed (all marches are full).</summary>
+        private async Task<bool> ClickMaxMarchAsync(AccountSettings account, LogService logger, CancellationToken cancellationToken, DateTime startTime)
+        {
+            string maxMarchPath = Path.Combine(ImageTemplateFolder, "max-march.png");
+            var maxMarchArea = new Rectangle(249, 314, 217, 49); // 249,314 to 466,363
+
+            logger.LogInfo($"[{account.AccountName}] 🔍 Starting max-march detection loop (will check for up to 2 more seconds)...");
+            int maxMarchCheckCount = 0;
+            while ((DateTime.UtcNow - startTime).TotalMilliseconds < 5000 && !cancellationToken.IsCancellationRequested)
+            {
+                var screenshot = await TakeScreenshotAsync(account.InstanceNumber, logger);
+                if (screenshot == null)
+                {
+                    logger.LogWarning($"[{account.AccountName}] ⚠️ Screenshot failed during max-march check");
+                    await Task.Delay(POLL_INTERVAL_MS, cancellationToken);
+                    continue;
+                }
+
+                if (_templateMatcher == null) _templateMatcher = new UnifiedTemplateMatchingService(logger);
+
+                maxMarchCheckCount++;
+                logger.LogInfo($"[{account.AccountName}] 🔍 Checking for max-march.png (attempt {maxMarchCheckCount}) in area {maxMarchArea}...");
+
+                // Check for max march
+                var (maxMarchFound, maxMarchRect, maxMarchConfidence) = _templateMatcher.MatchTemplate(
+                    screenshot,
+                    maxMarchPath,
+                    account.InstanceNumber,
+                    threshold: TEMPLATE_MATCH_THRESHOLD,
+                    scales: UnifiedTemplateMatchingService.StandardScales,
+                    verboseLogging: true,
+                    searchArea: maxMarchArea
+                );
+
+                // If max march is found but no deploy button, handle max march case
+                if (maxMarchFound)
+                {
+                    logger.LogInfo($"[{account.AccountName}] ⚠️ Found max march indicator at {maxMarchRect} with confidence {maxMarchConfidence:F3}");
+                    // Click the specific coordinate for max march using a small rectangle around the point
+                    var maxMarchClickRect = new Rectangle(642 - 5, 338 - 5, 10, 10);
+                    if (await ClickRandomInRectAsync(account.InstanceNumber, logger, maxMarchClickRect))
+                    {
+                        logger.LogInfo($"[{account.AccountName}] ✅ Clicked max march coordinate (642,338). All marches are full!");
+                        return true;
+                    }
+                }
+                else
+                {
+                    var elapsedMs = (DateTime.UtcNow - startTime).TotalMilliseconds;
+                    logger.LogInfo($"[{account.AccountName}] ℹ️ Max-march not found yet (elapsed: {elapsedMs:F0}ms of 5000ms)");
+                }
+
+                await Task.Delay(POLL_INTERVAL_MS, cancellationToken);
+            }
             return false;
         }
 
@@ -649,50 +725,65 @@ namespace Bot.Core.Tasks.Modules
             int removed = 0;
             for (int slot = HeroSlotColumns.Length - 1; slot >= 0; slot--)
             {
-                var (left, right) = HeroSlotColumns[slot];
-                var area = new Rectangle(right - 40, HeroRemoveTop, 65, HeroRemoveHeight);
-                // The deploy screen may still be sliding in: look again a few times before giving up on a slot
-                for (int attempt = 0; attempt < 3; attempt++)
-                {
-                    var screenshot = await TakeScreenshotAsync(account.InstanceNumber, logger);
-                    if (screenshot == null) return;
-
-                    var (blue, orange, purple) = CountHeroCardColors(screenshot, left, right);
-                    bool nonBlue = Math.Max(orange, purple) >= HeroCardMinColorPixels && Math.Max(orange, purple) > blue;
-                    if (!nonBlue) break;
-
-                    var (found, rect, confidence) = _templateMatcher.MatchTemplate(
-                        screenshot, removePath, account.InstanceNumber,
-                        threshold: HeroRemoveThreshold,
-                        scales: new[] { 1.0 },
-                        verboseLogging: false,
-                        searchArea: area);
-                    if (found)
-                    {
-                        await ClickCenterInRectAsync(account.InstanceNumber, logger, rect);
-                        removed++;
-                        await Task.Delay(800, cancellationToken);
-                        break;
-                    }
-                    if (attempt < 2)
-                    {
-                        await Task.Delay(700, cancellationToken);
-                        continue;
-                    }
-                    logger.LogWarning($"[{account.AccountName}] Hero slot {slot + 1} is not blue but its remove button was not found ({confidence:F2})");
-                    try
-                    {
-                        string folder = Path.Combine(AppContext.BaseDirectory, "logs", "screenshots", "farming");
-                        Directory.CreateDirectory(folder);
-                        await File.WriteAllBytesAsync(Path.Combine(folder, $"hero-remove-missing-{DateTime.Now:yyyyMMdd-HHmmss}-slot{slot + 1}.png"), screenshot, cancellationToken);
-                    }
-                    catch (Exception ex)
-                    {
-                        logger.LogWarning($"[{account.AccountName}] Could not save the hero screenshot: {ex.Message}");
-                    }
-                }
+                var removedFromSlot = await RemoveNonBlueHeroFromSlotAsync(account, logger, cancellationToken, slot, removePath);
+                if (removedFromSlot == null) return; // no screenshot
+                removed += removedFromSlot.Value;
             }
             logger.LogInfo($"[{account.AccountName}] Removed {removed} non-blue hero(es) from the march");
+        }
+
+        /// <summary>Removes the hero of one slot when its card is not blue. Returns how many were removed, null when no screenshot could be taken.</summary>
+        private async Task<int?> RemoveNonBlueHeroFromSlotAsync(AccountSettings account, LogService logger, CancellationToken cancellationToken, int slot, string removePath)
+        {
+            var (left, right) = HeroSlotColumns[slot];
+            var area = new Rectangle(right - 40, HeroRemoveTop, 65, HeroRemoveHeight);
+            if (_templateMatcher == null) _templateMatcher = new UnifiedTemplateMatchingService(logger);
+
+            // The deploy screen may still be sliding in: look again a few times before giving up on a slot
+            for (int attempt = 0; attempt < 3; attempt++)
+            {
+                var screenshot = await TakeScreenshotAsync(account.InstanceNumber, logger);
+                if (screenshot == null) return null;
+
+                var (blue, orange, purple) = CountHeroCardColors(screenshot, left, right);
+                bool nonBlue = Math.Max(orange, purple) >= HeroCardMinColorPixels && Math.Max(orange, purple) > blue;
+                if (!nonBlue) break;
+
+                var (found, rect, confidence) = _templateMatcher.MatchTemplate(
+                    screenshot, removePath, account.InstanceNumber,
+                    threshold: HeroRemoveThreshold,
+                    scales: new[] { 1.0 },
+                    verboseLogging: false,
+                    searchArea: area);
+                if (found)
+                {
+                    await ClickCenterInRectAsync(account.InstanceNumber, logger, rect);
+                    await Task.Delay(800, cancellationToken);
+                    return 1;
+                }
+                if (attempt < 2)
+                {
+                    await Task.Delay(700, cancellationToken);
+                    continue;
+                }
+                logger.LogWarning($"[{account.AccountName}] Hero slot {slot + 1} is not blue but its remove button was not found ({confidence:F2})");
+                await SaveHeroScreenshotAsync(account, logger, screenshot, slot, cancellationToken);
+            }
+            return 0;
+        }
+
+        private static async Task SaveHeroScreenshotAsync(AccountSettings account, LogService logger, byte[] screenshot, int slot, CancellationToken cancellationToken)
+        {
+            try
+            {
+                string folder = Path.Combine(AppContext.BaseDirectory, "logs", "screenshots", "farming");
+                Directory.CreateDirectory(folder);
+                await File.WriteAllBytesAsync(Path.Combine(folder, $"hero-remove-missing-{DateTime.Now:yyyyMMdd-HHmmss}-slot{slot + 1}.png"), screenshot, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning($"[{account.AccountName}] Could not save the hero screenshot: {ex.Message}");
+            }
         }
 
         private static (int blue, int orange, int purple) CountHeroCardColors(byte[] screenshot, int left, int right)
@@ -731,68 +822,92 @@ namespace Bot.Core.Tasks.Modules
                 if (isLaterResource && scrollAttempt == 0)
                 {
                     logger.LogInfo($"[{account.AccountName}] 📜 Resource is {resourceImageName}, swiping first to reach later resources...");
-                    Point swipeStart = new Point(ResourceScrollArea.Right - 50, ResourceScrollArea.Y + ResourceScrollArea.Height / 2);
-                    Point swipeEnd = new Point(ResourceScrollArea.Left + 50, ResourceScrollArea.Y + ResourceScrollArea.Height / 2);
-                    await SwipeAsync(account.InstanceNumber, logger, swipeStart, swipeEnd, 300);
-                    await Task.Delay(POLL_INTERVAL_MS, cancellationToken);
+                    await SwipeResourceListAsync(account, logger, cancellationToken);
                 }
 
-                var startTime = DateTime.UtcNow;
                 logger.LogInfo($"[{account.AccountName}] 👀 Looking for '{resourceImageName}' (attempt {scrollAttempt + 1}/3)...");
 
-                while ((DateTime.UtcNow - startTime).TotalMilliseconds < MAX_WAIT_TIME_MS && !cancellationToken.IsCancellationRequested)
+                if (await PollAndClickResourceAsync(account, logger, cancellationToken, resourceImageName, resourceScales))
                 {
-                    var screenshot = await TakeScreenshotAsync(account.InstanceNumber, logger);
-                    if (screenshot == null)
-                    {
-                        await Task.Delay(POLL_INTERVAL_MS, cancellationToken);
-                        continue;
-                    }
-
-                    if (_templateMatcher == null) _templateMatcher = new UnifiedTemplateMatchingService(logger);
-                    
-                    var resourcePath = Path.Combine(ImageTemplateFolder, resourceImageName);
-                    var (found, matchRect, confidence) = _templateMatcher.MatchTemplate(
-                        screenshot,
-                        resourcePath,
-                        account.InstanceNumber,
-                        threshold: TEMPLATE_MATCH_THRESHOLD,
-                        scales: resourceScales,
-                        verboseLogging: true,
-                        searchArea: ResourceScrollArea
-                    );
-
-                    if (found)
-                    {
-                        logger.LogInfo($"[{account.AccountName}] ✅ Found '{resourceImageName}' at {matchRect} with confidence {confidence:F3}");
-                        // Try clicking multiple times with small delays
-                        for (int clickAttempt = 0; clickAttempt < 2; clickAttempt++)
-                        {
-                            if (await ClickRandomInRectAsync(account.InstanceNumber, logger, matchRect))
-                            {
-                                logger.LogInfo($"[{account.AccountName}] ✅ Clicked '{resourceImageName}' after {(DateTime.UtcNow - startTime).TotalMilliseconds:F0}ms.");
-                                logger.LogInfo($"[{account.AccountName}] ⏳ Waiting 500ms for UI to update before OCR...");
-                                await Task.Delay(500, cancellationToken); // Wait 0.5 seconds for OCR accuracy
-                                return true;
-                            }
-                            await Task.Delay(POLL_INTERVAL_MS, cancellationToken);
-                        }
-                    }
-
-                    await Task.Delay(POLL_INTERVAL_MS, cancellationToken);
+                    return true;
                 }
-                
+
                 // Don't swipe on first attempt for stone/iron since we already did
                 if (scrollAttempt < 2 && !(isLaterResource && scrollAttempt == 0))
                 {
                     logger.LogInfo($"[{account.AccountName}] 📜 Resource not found after {MAX_WAIT_TIME_MS}ms. Scrolling resource list...");
-                    Point swipeStart = new Point(ResourceScrollArea.Right - 50, ResourceScrollArea.Y + ResourceScrollArea.Height / 2);
-                    Point swipeEnd = new Point(ResourceScrollArea.Left + 50, ResourceScrollArea.Y + ResourceScrollArea.Height / 2);
-                    await SwipeAsync(account.InstanceNumber, logger, swipeStart, swipeEnd, 300);
-                    await Task.Delay(POLL_INTERVAL_MS, cancellationToken);
+                    await SwipeResourceListAsync(account, logger, cancellationToken);
                 }
             }
             logger.LogError($"[{account.AccountName}] ❌ Failed to find '{resourceImageName}' after all scroll attempts.");
+            return false;
+        }
+
+        private async Task SwipeResourceListAsync(AccountSettings account, LogService logger, CancellationToken cancellationToken)
+        {
+            Point swipeStart = new Point(ResourceScrollArea.Right - 50, ResourceScrollArea.Y + ResourceScrollArea.Height / 2);
+            Point swipeEnd = new Point(ResourceScrollArea.Left + 50, ResourceScrollArea.Y + ResourceScrollArea.Height / 2);
+            await SwipeAsync(account.InstanceNumber, logger, swipeStart, swipeEnd, 300);
+            await Task.Delay(POLL_INTERVAL_MS, cancellationToken);
+        }
+
+        /// <summary>Polls the resource list for the icon and clicks it. True once it was clicked.</summary>
+        private async Task<bool> PollAndClickResourceAsync(
+            AccountSettings account, LogService logger, CancellationToken cancellationToken, string resourceImageName, double[] resourceScales)
+        {
+            var startTime = DateTime.UtcNow;
+
+            while ((DateTime.UtcNow - startTime).TotalMilliseconds < MAX_WAIT_TIME_MS && !cancellationToken.IsCancellationRequested)
+            {
+                var screenshot = await TakeScreenshotAsync(account.InstanceNumber, logger);
+                if (screenshot == null)
+                {
+                    await Task.Delay(POLL_INTERVAL_MS, cancellationToken);
+                    continue;
+                }
+
+                if (_templateMatcher == null) _templateMatcher = new UnifiedTemplateMatchingService(logger);
+
+                var resourcePath = Path.Combine(ImageTemplateFolder, resourceImageName);
+                var (found, matchRect, confidence) = _templateMatcher.MatchTemplate(
+                    screenshot,
+                    resourcePath,
+                    account.InstanceNumber,
+                    threshold: TEMPLATE_MATCH_THRESHOLD,
+                    scales: resourceScales,
+                    verboseLogging: true,
+                    searchArea: ResourceScrollArea
+                );
+
+                if (found)
+                {
+                    logger.LogInfo($"[{account.AccountName}] ✅ Found '{resourceImageName}' at {matchRect} with confidence {confidence:F3}");
+                    if (await TryClickResourceAsync(account, logger, cancellationToken, resourceImageName, matchRect, startTime))
+                    {
+                        return true;
+                    }
+                }
+
+                await Task.Delay(POLL_INTERVAL_MS, cancellationToken);
+            }
+            return false;
+        }
+
+        private async Task<bool> TryClickResourceAsync(
+            AccountSettings account, LogService logger, CancellationToken cancellationToken, string resourceImageName, Rectangle matchRect, DateTime startTime)
+        {
+            // Try clicking multiple times with small delays
+            for (int clickAttempt = 0; clickAttempt < 2; clickAttempt++)
+            {
+                if (await ClickRandomInRectAsync(account.InstanceNumber, logger, matchRect))
+                {
+                    logger.LogInfo($"[{account.AccountName}] ✅ Clicked '{resourceImageName}' after {(DateTime.UtcNow - startTime).TotalMilliseconds:F0}ms.");
+                    logger.LogInfo($"[{account.AccountName}] ⏳ Waiting 500ms for UI to update before OCR...");
+                    await Task.Delay(500, cancellationToken); // Wait 0.5 seconds for OCR accuracy
+                    return true;
+                }
+                await Task.Delay(POLL_INTERVAL_MS, cancellationToken);
+            }
             return false;
         }
 
@@ -806,12 +921,43 @@ namespace Bot.Core.Tasks.Modules
                 return false;
             }
 
+            var (screenshotTaken, currentLevel) = await ReadCurrentResourceLevelAsync(account, logger);
+            if (!screenshotTaken) return false;
+
+            // Try to parse the level, but don't fail if OCR fails
+            if (currentLevel.HasValue)
+            {
+                return await ClickToResourceLevelAsync(account, logger, cancellationToken, currentLevel.Value, desiredLevel);
+            }
+
+            // --- Fallback if OCR fails ---
+            logger.LogInfo($"[{account.AccountName}] OCR detection failed. Using reliable click method to set level {desiredLevel}.");
+
+            // First reset to level 1 to ensure we start from a known state
+            for (int i = 0; i < 7; i++) {
+                if (!await ClickRandomInRectAsync(account.InstanceNumber, logger, LevelMinusButtonRect)) return false;
+                await Task.Delay(100, cancellationToken);
+            }
+
+            // Then click up to desired level
+            for (int i = 0; i < desiredLevel - 1; i++) {
+                if (!await ClickRandomInRectAsync(account.InstanceNumber, logger, LevelPlusButtonRect)) return false;
+                await Task.Delay(100, cancellationToken);
+            }
+
+            logger.LogInfo($"[{account.AccountName}] Successfully set level to {desiredLevel} using click method.");
+            return true;
+        }
+
+        /// <summary>Reads the current resource level from the search panel. screenshotTaken is false when no screenshot could be taken; level is null when the OCR found no digit.</summary>
+        private async Task<(bool screenshotTaken, int? level)> ReadCurrentResourceLevelAsync(AccountSettings account, LogService logger)
+        {
             // Define the OCR capture rectangle for the level number
             var numberOnlyRect = new Rectangle(589, 1034, 35, 34);
 
             // 2. Create an OCR config that ONLY looks for single digits.
             // Create a specialized OCR config for level detection
-            var levelOcrConfig = new OcrConfiguration { 
+            var levelOcrConfig = new OcrConfiguration {
                 ScaleFactor = 4,
                 AdaptiveC = 5,  // Reduced from 10 to match AutoHuntTask
                 MedianBlurKernelSize = 1,
@@ -819,9 +965,9 @@ namespace Bot.Core.Tasks.Modules
                 PageSegMode = Tesseract.PageSegMode.SingleChar  // We're only looking for one character
             };
             using var levelOcr = new OcrService(logger, levelOcrConfig);
-            
+
             var screenshot = await TakeScreenshotAsync(account.InstanceNumber, logger);
-            if (screenshot == null) return false;
+            if (screenshot == null) return (false, null);
 
             // 3. Use the new tight rectangle and specialized OCR service.
             logger.LogInfo($"[{account.AccountName}] Running OCR on rectangle: X={numberOnlyRect.X}, Y={numberOnlyRect.Y}, Width={numberOnlyRect.Width}, Height={numberOnlyRect.Height}");
@@ -829,50 +975,37 @@ namespace Bot.Core.Tasks.Modules
             string ocrText = levelOcr.ExtractTextFromScreenArea(screenshot, numberOnlyRect);
             logger.LogInfo($"[{account.AccountName}] OCR text for level: '{ocrText}' (Length: {ocrText?.Length ?? 0})");
 
-            // 4. Try to parse the level, but don't fail if OCR fails
             if (!string.IsNullOrEmpty(ocrText))
             {
                 var match = Regex.Match(ocrText, @"\d", RegexOptions.None, Bot.Core.Utils.RegexTimeouts.Default);
                 if (match.Success && int.TryParse(match.Value, out int currentLevel))
                 {
                     logger.LogInfo($"[{account.AccountName}] Detected current level: {currentLevel}");
-                    int clicksNeeded = desiredLevel - currentLevel;
-
-                    if (clicksNeeded == 0) {
-                        logger.LogInfo($"[{account.AccountName}] Already at desired level {desiredLevel}.");
-                        return true;
-                    }
-
-                    var buttonToClick = clicksNeeded > 0 ? LevelPlusButtonRect : LevelMinusButtonRect;
-                    string direction = clicksNeeded > 0 ? "Increasing" : "Decreasing";
-                    
-                    logger.LogInfo($"[{account.AccountName}] {direction} level from {currentLevel} to {desiredLevel}...");
-                    for (int i = 0; i < Math.Abs(clicksNeeded); i++)
-                    {
-                        if (cancellationToken.IsCancellationRequested) return false;
-                        if (!await ClickRandomInRectAsync(account.InstanceNumber, logger, buttonToClick)) return false;
-                        await Task.Delay(100, cancellationToken);
-                    }
-                    return true;
+                    return (true, currentLevel);
                 }
             }
+            return (true, null);
+        }
 
-            // --- Fallback if OCR fails ---
-            logger.LogInfo($"[{account.AccountName}] OCR detection failed. Using reliable click method to set level {desiredLevel}.");
-            
-            // First reset to level 1 to ensure we start from a known state
-            for (int i = 0; i < 7; i++) {
-                if (!await ClickRandomInRectAsync(account.InstanceNumber, logger, LevelMinusButtonRect)) return false;
+        private async Task<bool> ClickToResourceLevelAsync(AccountSettings account, LogService logger, CancellationToken cancellationToken, int currentLevel, int desiredLevel)
+        {
+            int clicksNeeded = desiredLevel - currentLevel;
+
+            if (clicksNeeded == 0) {
+                logger.LogInfo($"[{account.AccountName}] Already at desired level {desiredLevel}.");
+                return true;
+            }
+
+            var buttonToClick = clicksNeeded > 0 ? LevelPlusButtonRect : LevelMinusButtonRect;
+            string direction = clicksNeeded > 0 ? "Increasing" : "Decreasing";
+
+            logger.LogInfo($"[{account.AccountName}] {direction} level from {currentLevel} to {desiredLevel}...");
+            for (int i = 0; i < Math.Abs(clicksNeeded); i++)
+            {
+                if (cancellationToken.IsCancellationRequested) return false;
+                if (!await ClickRandomInRectAsync(account.InstanceNumber, logger, buttonToClick)) return false;
                 await Task.Delay(100, cancellationToken);
             }
-            
-            // Then click up to desired level
-            for (int i = 0; i < desiredLevel - 1; i++) {
-                if (!await ClickRandomInRectAsync(account.InstanceNumber, logger, LevelPlusButtonRect)) return false;
-                await Task.Delay(100, cancellationToken);
-            }
-            
-            logger.LogInfo($"[{account.AccountName}] Successfully set level to {desiredLevel} using click method.");
             return true;
         }
 

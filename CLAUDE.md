@@ -19,7 +19,9 @@ This file is committed: instructions for Claude Code working on this repo.
 | `.\Build.ps1 -Version "x.x.x" -SkipInstaller` | Portable zip only |
 
 - SDK pinned in `global.json` (10.0.100, rollForward latestMinor).
-- Code analysis: `SonarAnalyzer.CSharp` (in `Directory.Build.props`) reports SonarQube's C# rules as build warnings (`Sxxxx`). Don't add new ones; an intentionally empty `catch` gets its reason as a comment inside the braces.
+- Code analysis: `SonarAnalyzer.CSharp` (in `Directory.Build.props`) reports SonarQube's C# rules as build warnings (`Sxxxx`). **Keep Sonar issues and compiler warnings (including nullable `CS86xx`) at 0**: build before finishing a change and fix what it adds, in `Bot.Core`, `Bot.GUI` and the test projects. Don't add `NoWarn`s or `#pragma` suppressions without a comment giving the reason (e.g. WPF binds to an instance property, so S2325 stays). An intentionally empty `catch` gets its reason as a comment inside the braces.
+  - Cyclomatic (S1541, max 10) and cognitive (S3776, max 15) complexity are enabled in `.editorconfig`. Keep new methods under both limits by extracting helpers.
+  - Each warning shows twice in the build output (the WPF temp project repeats Bot.GUI's); count unique `file(line)` pairs.
 - The build fails while KingshotAuto.exe is running (locked DLLs): ask the user to close the GUI first. To only check that the GUI compiles while it runs, build into a scratch folder: `dotnet build Bot.GUI/Bot.GUI.csproj -c Debug -o <scratch>`.
 - Run the tests per project, not `dotnet test BotApp.sln`: the solution build includes Bot.GUI, whose output is locked while the GUI runs. The test projects reference only Bot.Core.
 

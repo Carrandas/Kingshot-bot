@@ -11,6 +11,7 @@ using System.Linq;
 using System.Windows;
 using WPFApplication = System.Windows.Application;
 using Bot.Core.Tasks.Modules;
+using System.Threading;
 using System.Threading.Tasks;
 using Bot.Core.Services;
 
@@ -32,7 +33,6 @@ namespace Bot.GUI.ViewModels
             }
         }
 
-        private readonly InstanceManager _instanceManager;
         private readonly MainViewModel _mainViewModel;
         private readonly AccountSettings _account;
         private string _currentPhase = string.Empty;
@@ -56,7 +56,6 @@ namespace Bot.GUI.ViewModels
 
         public InstanceViewModel(InstanceManager instanceManager, MainViewModel mainViewModel, AccountSettings account)
         {
-            _instanceManager = instanceManager ?? throw new ArgumentNullException(nameof(instanceManager));
             _mainViewModel = mainViewModel ?? throw new ArgumentNullException(nameof(mainViewModel));
             _account = account ?? throw new ArgumentNullException(nameof(account));
             
@@ -184,7 +183,7 @@ namespace Bot.GUI.ViewModels
             try {
                 _mainViewModel.AppendLog($"Starting instance {InstanceNumber}");
                 
-                var success = await _instanceManager.StartInstanceAsync(InstanceNumber).ConfigureAwait(false);
+                var success = await _instanceManager.StartInstanceAsync(InstanceNumber, CancellationToken.None).ConfigureAwait(false);
                 
                 if (success)
                 {
@@ -193,7 +192,7 @@ namespace Bot.GUI.ViewModels
                     _mainViewModel.AppendLog($"[Instance {InstanceNumber}] LDPlayer started successfully.");
                     
                     // Add a delay to let the instance fully initialize
-                    await Task.Delay(2000).ConfigureAwait(false);
+                    await Task.Delay(2000, CancellationToken.None).ConfigureAwait(false);
                     
                     // Start bot tasks for this instance
                     _mainViewModel.AppendLog($"[Instance {InstanceNumber}] Starting bot tasks...");
@@ -236,7 +235,7 @@ namespace Bot.GUI.ViewModels
                 {
                     System.Threading.Interlocked.Exchange(ref _runActive, 0);
                 }
-            });
+            }, CancellationToken.None);
         }
 
         private async Task StopInstanceAsync()
@@ -245,9 +244,9 @@ namespace Bot.GUI.ViewModels
                 _mainViewModel.AppendLog($"Stopping instance {InstanceNumber}");
 
                 // stop the running tasks first, otherwise they keep going against a closing emulator
-                RunCts?.Cancel();
+                if (RunCts != null) await RunCts.CancelAsync().ConfigureAwait(false);
 
-                var success = await _instanceManager.StopInstanceAsync(InstanceNumber).ConfigureAwait(false);
+                var success = await _instanceManager.StopInstanceAsync(InstanceNumber, CancellationToken.None).ConfigureAwait(false);
                 
                 if (success)
                 {
@@ -277,7 +276,7 @@ namespace Bot.GUI.ViewModels
                 {
                     _mainViewModel.AppendLog($"Unhandled error in StopInstance: {ex}");
                 }
-            });
+            }, CancellationToken.None);
         }
 
         private void OnShieldTimeUpdated(int instanceNumber, TimeSpan? remaining)

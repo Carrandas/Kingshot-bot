@@ -41,7 +41,7 @@ namespace Bot.Core.LDPlayer
         /// <summary>
         /// Get connection using the V2 ADB system (auto-initializes if needed)
         /// </summary>
-        public static async Task<object> GetConnectionAsync(int instanceNumber, LogService logger, CancellationToken cancellationToken = default)
+        public static async Task<object?> GetConnectionAsync(int instanceNumber, LogService logger, CancellationToken cancellationToken = default)
         {
             // Auto-initialize V2 system if not already done
             if (!_v2SystemInitialized)

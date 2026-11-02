@@ -118,14 +118,11 @@ namespace Bot.Core.Tasks.Modules
                 var botConfig = ConfigLoader.Load("configs/default_config.json");
                 var maxWaitTime = TimeSpan.FromMinutes(botConfig.CycleManagement.MaxTroopTrainWaitMinutes);
 
-                DateTime? overallLatestFinishTimeUtc = null;
-                bool anyTroopsProcessedSuccessfully = false;
-                
                 // Track which troops have been successfully trained in this session
-                var processedTroopsThisSession = new HashSet<string>();
+                var session = new TrainingSession();
                 logger.LogInfo($"[{account.AccountName}] 📝 Initialized progress tracking for this session");
 
-                for (int loopAttempt = 0; loopAttempt < 5; loopAttempt++) 
+                for (int loopAttempt = 0; loopAttempt < 5; loopAttempt++)
                 {
                     var troopStatuses = await GetCurrentTroopStatuses(account, logger, cancellationToken);
                     if (troopStatuses == null)
@@ -133,95 +130,16 @@ namespace Bot.Core.Tasks.Modules
                         return TaskExecutionDetails.Failed("Failed to get troop statuses.");
                     }
 
-                    var readyToCollectAndRetrain = troopStatuses.Where(s => s.IsReady).ToList();
-                    var stillTraining = troopStatuses.Where(s => !s.IsReady && s.RemainingTime > TimeSpan.Zero).ToList();
-
-                    // Filter out troops that have already been processed this session
-                    var unprocessedReadyTroops = readyToCollectAndRetrain.Where(t => !processedTroopsThisSession.Contains(t.TroopType)).ToList();
-                    
-                    if (readyToCollectAndRetrain.Any() && !unprocessedReadyTroops.Any())
+                    if (!await HandleTrainingRoundAsync(account, logger, cancellationToken, troopStatuses, session, maxWaitTime))
                     {
-                        logger.LogInfo($"[{account.AccountName}] ✅ Found {readyToCollectAndRetrain.Count} ready troops, but all have been processed this session: {string.Join(", ", readyToCollectAndRetrain.Select(t => t.TroopType))}");
-                        logger.LogInfo($"[{account.AccountName}] 📝 Already processed: {string.Join(", ", processedTroopsThisSession)}");
+                        break;
                     }
-
-                    if (unprocessedReadyTroops.Any())
-                    {
-                        logger.LogInfo($"[{account.AccountName}] ✅ Found {unprocessedReadyTroops.Count} unprocessed troop types ready: {string.Join(", ", unprocessedReadyTroops.Select(t => t.TroopType))}");
-                        if (processedTroopsThisSession.Any())
-                        {
-                            logger.LogInfo($"[{account.AccountName}] 📝 Already processed this session: {string.Join(", ", processedTroopsThisSession)}");
-                        }
-
-                        // Validate all ready troops before processing
-                        var validReadyTroops = new List<TroopStatusInfo>();
-                        var validTroopTypes = new[] { "Infantry", "Cavalry", "Archers" };
-                        
-                        foreach (var troop in unprocessedReadyTroops)
-                        {
-                            if (!troop.IsReady)
-                            {
-                                logger.LogError($"[{account.AccountName}] ❌ CRITICAL: Attempting to process {troop.TroopType} but it's not ready! Skipping.");
-                                continue;
-                            }
-                            
-                            if (!validTroopTypes.Contains(troop.TroopType))
-                            {
-                                logger.LogError($"[{account.AccountName}] ❌ CRITICAL: Invalid troop type '{troop.TroopType}'. Skipping.");
-                                continue;
-                            }
-                            
-                            validReadyTroops.Add(troop);
-                        }
-                        
-                        if (validReadyTroops.Any())
-                        {
-                            logger.LogInfo($"[{account.AccountName}] 🎯 PROCESSING ALL READY TROOPS IN ONE OPERATION: {string.Join(", ", validReadyTroops.Select(t => t.TroopType))}");
-                            
-                            // Process all ready troops in a single operation (pick the first one to enter the training interface)
-                            bool success = await ProcessAllReadyTroops(account, logger, cancellationToken, validReadyTroops);
-                            
-                            if (success)
-                            {
-                                anyTroopsProcessedSuccessfully = true;
-                                // Mark ALL valid ready troops as processed since we processed them all in one go
-                                foreach (var troopType in validReadyTroops.Select(troop => troop.TroopType))
-                                {
-                                    processedTroopsThisSession.Add(troopType);
-                                    logger.LogInfo($"[{account.AccountName}] ✅ {troopType} retrained successfully and marked as processed.");
-                                }
-                                logger.LogInfo($"[{account.AccountName}] 📝 Session progress: {string.Join(", ", processedTroopsThisSession)} completed");
-                            }
-                            else
-                            {
-                                logger.LogError($"[{account.AccountName}] ❌ Failed to process ready troops. None will be marked as processed.");
-                            }
-                        }
-                        continue; 
-                    }
-                    
-                    if (stillTraining.Any())
-                    {
-                        logger.LogInfo($"[{account.AccountName}] ⏳ Found {stillTraining.Count} troop types still training:");
-                        foreach (var troop in stillTraining)
-                        {
-                            logger.LogInfo($"[{account.AccountName}]   - {troop.TroopType}: {troop.RemainingTime} remaining (Finishes UTC: {troop.FinishTimeUtc:o})");
-                        }
-                        
-                        var troopToWaitFor = stillTraining.Where(t => t.RemainingTime <= maxWaitTime).OrderBy(t => t.RemainingTime).FirstOrDefault();
-                        if (troopToWaitFor != null)
-                        {
-                            logger.LogInfo($"[{account.AccountName}] ⏳ Waiting for {troopToWaitFor.TroopType}. Time remaining: {troopToWaitFor.RemainingTime}.");
-                            logger.LogInfo($"User Info: Waiting for {troopToWaitFor.TroopType}. Time remaining: {troopToWaitFor.RemainingTime}.", category: LogCategories.UserAction);
-                            await Task.Delay(troopToWaitFor.RemainingTime.Add(TimeSpan.FromSeconds(15)), cancellationToken);
-                            continue; 
-                        }
-                    }
-
-                    overallLatestFinishTimeUtc = stillTraining.Any() ? stillTraining.Max(t => t.FinishTimeUtc) : null;
-                    break;
                 }
-                
+
+                var overallLatestFinishTimeUtc = session.LatestFinishTimeUtc;
+                var processedTroopsThisSession = session.Processed;
+                var anyTroopsProcessedSuccessfully = session.AnyProcessedSuccessfully;
+
                 await PerformPostTaskActions(account, logger, cancellationToken);
                 
                 // Log session summary
@@ -248,79 +166,213 @@ namespace Bot.Core.Tasks.Modules
             }
         }
 
+        private sealed class TrainingSession
+        {
+            public HashSet<string> Processed { get; } = new();
+            public bool AnyProcessedSuccessfully;
+            public DateTime? LatestFinishTimeUtc;
+        }
+
+        /// <summary>One round of the training loop. True: look at the troops again; false: nothing more to do or wait for.</summary>
+        private async Task<bool> HandleTrainingRoundAsync(
+            AccountSettings account, LogService logger, CancellationToken cancellationToken,
+            List<TroopStatusInfo> troopStatuses, TrainingSession session, TimeSpan maxWaitTime)
+        {
+            var readyToCollectAndRetrain = troopStatuses.Where(s => s.IsReady).ToList();
+            var stillTraining = troopStatuses.Where(s => !s.IsReady && s.RemainingTime > TimeSpan.Zero).ToList();
+
+            // Filter out troops that have already been processed this session
+            var unprocessedReadyTroops = readyToCollectAndRetrain.Where(t => !session.Processed.Contains(t.TroopType)).ToList();
+
+            if (readyToCollectAndRetrain.Any() && !unprocessedReadyTroops.Any())
+            {
+                logger.LogInfo($"[{account.AccountName}] ✅ Found {readyToCollectAndRetrain.Count} ready troops, but all have been processed this session: {string.Join(", ", readyToCollectAndRetrain.Select(t => t.TroopType))}");
+                logger.LogInfo($"[{account.AccountName}] 📝 Already processed: {string.Join(", ", session.Processed)}");
+            }
+
+            if (unprocessedReadyTroops.Any())
+            {
+                await ProcessUnprocessedReadyTroopsAsync(account, logger, cancellationToken, unprocessedReadyTroops, session);
+                return true;
+            }
+
+            if (stillTraining.Any() && await WaitForNextTroopAsync(account, logger, cancellationToken, stillTraining, maxWaitTime))
+            {
+                return true;
+            }
+
+            session.LatestFinishTimeUtc = stillTraining.Any() ? stillTraining.Max(t => t.FinishTimeUtc) : null;
+            return false;
+        }
+
+        private async Task ProcessUnprocessedReadyTroopsAsync(
+            AccountSettings account, LogService logger, CancellationToken cancellationToken,
+            List<TroopStatusInfo> unprocessedReadyTroops, TrainingSession session)
+        {
+            logger.LogInfo($"[{account.AccountName}] ✅ Found {unprocessedReadyTroops.Count} unprocessed troop types ready: {string.Join(", ", unprocessedReadyTroops.Select(t => t.TroopType))}");
+            if (session.Processed.Any())
+            {
+                logger.LogInfo($"[{account.AccountName}] 📝 Already processed this session: {string.Join(", ", session.Processed)}");
+            }
+
+            // Validate all ready troops before processing
+            var validReadyTroops = new List<TroopStatusInfo>();
+            var validTroopTypes = new[] { "Infantry", "Cavalry", "Archers" };
+
+            foreach (var troop in unprocessedReadyTroops)
+            {
+                if (!troop.IsReady)
+                {
+                    logger.LogError($"[{account.AccountName}] ❌ CRITICAL: Attempting to process {troop.TroopType} but it's not ready! Skipping.");
+                    continue;
+                }
+
+                if (!validTroopTypes.Contains(troop.TroopType))
+                {
+                    logger.LogError($"[{account.AccountName}] ❌ CRITICAL: Invalid troop type '{troop.TroopType}'. Skipping.");
+                    continue;
+                }
+
+                validReadyTroops.Add(troop);
+            }
+
+            if (!validReadyTroops.Any())
+            {
+                return;
+            }
+
+            logger.LogInfo($"[{account.AccountName}] 🎯 PROCESSING ALL READY TROOPS IN ONE OPERATION: {string.Join(", ", validReadyTroops.Select(t => t.TroopType))}");
+
+            // Process all ready troops in a single operation (pick the first one to enter the training interface)
+            bool success = await ProcessAllReadyTroops(account, logger, cancellationToken, validReadyTroops);
+
+            if (!success)
+            {
+                logger.LogError($"[{account.AccountName}] ❌ Failed to process ready troops. None will be marked as processed.");
+                return;
+            }
+
+            session.AnyProcessedSuccessfully = true;
+            // Mark ALL valid ready troops as processed since we processed them all in one go
+            foreach (var troopType in validReadyTroops.Select(troop => troop.TroopType))
+            {
+                session.Processed.Add(troopType);
+                logger.LogInfo($"[{account.AccountName}] ✅ {troopType} retrained successfully and marked as processed.");
+            }
+            logger.LogInfo($"[{account.AccountName}] 📝 Session progress: {string.Join(", ", session.Processed)} completed");
+        }
+
+        /// <summary>Logs the troops still training and waits for the first one that finishes within the limit. False when none does.</summary>
+        private static async Task<bool> WaitForNextTroopAsync(
+            AccountSettings account, LogService logger, CancellationToken cancellationToken, List<TroopStatusInfo> stillTraining, TimeSpan maxWaitTime)
+        {
+            logger.LogInfo($"[{account.AccountName}] ⏳ Found {stillTraining.Count} troop types still training:");
+            foreach (var troop in stillTraining)
+            {
+                logger.LogInfo($"[{account.AccountName}]   - {troop.TroopType}: {troop.RemainingTime} remaining (Finishes UTC: {troop.FinishTimeUtc:o})");
+            }
+
+            var troopToWaitFor = stillTraining.Where(t => t.RemainingTime <= maxWaitTime).OrderBy(t => t.RemainingTime).FirstOrDefault();
+            if (troopToWaitFor == null)
+            {
+                return false;
+            }
+
+            logger.LogInfo($"[{account.AccountName}] ⏳ Waiting for {troopToWaitFor.TroopType}. Time remaining: {troopToWaitFor.RemainingTime}.");
+            logger.LogInfo($"User Info: Waiting for {troopToWaitFor.TroopType}. Time remaining: {troopToWaitFor.RemainingTime}.", category: LogCategories.UserAction);
+            await Task.Delay(troopToWaitFor.RemainingTime.Add(TimeSpan.FromSeconds(15)), cancellationToken);
+            return true;
+        }
+
         private async Task<List<TroopStatusInfo>?> GetCurrentTroopStatuses(AccountSettings account, LogService logger, CancellationToken cancellationToken)
         {
             const int maxAttempts = 3;
             for (int attempt = 1; attempt <= maxAttempts; attempt++)
             {
-                try
+                var statuses = await TryReadTroopStatusesAsync(account, logger, cancellationToken, attempt, maxAttempts);
+                if (statuses != null)
                 {
-                    logger.LogInfo($"[{account.AccountName}] 🖱️ Opening side menu for status check (Attempt {attempt}/{maxAttempts})");
-                    if (!await ClickRandomInRectAsync(account.InstanceNumber, logger, GameCoordinates.MenuTriggerArea))
-                    {
-                        if (attempt < maxAttempts) await Task.Delay(GameCoordinates.Delays.BetweenRetries, cancellationToken);
-                        continue;
-                    }
-                    await Task.Delay(GameCoordinates.Delays.AfterMenuClick, cancellationToken);
-
-                    var screenshot = await TakeScreenshotAsync(account.InstanceNumber, logger);
-                    if (screenshot == null || !CheckForSideMenu(account, logger, screenshot))
-                    {
-                        if (attempt < maxAttempts) await Task.Delay(GameCoordinates.Delays.BetweenRetries, cancellationToken);
-                        continue;
-                    }
-
-                    await Task.Delay(500, cancellationToken);
-
-                    // Simplified timer config
-                    var timerOcrConfig = new OcrConfiguration {
-                        CharacterWhitelist = "0123456789:",
-                        ScaleFactor = 4
-                    };
-                    using var timerOcrService = new OcrService(logger, timerOcrConfig);
-                    
-                    // Simplified word config - removed unused properties
-                    var wordOcrConfig = new OcrConfiguration {
-                        CharacterWhitelist = "ceidlmopt", 
-                        ScaleFactor = 4,
-                        PageSegMode = PageSegMode.SingleLine
-                    };
-                    using var wordOcrService = new OcrService(logger, wordOcrConfig);
-
-                    var statuses = new List<TroopStatusInfo>();
-                    var troopAreas = new Dictionary<string, Rectangle>
-                    {
-                        { "Infantry", InfantryStatusArea },
-                        { "Cavalry", CavalryStatusArea },
-                        { "Archers", ArchersStatusArea }
-                    };
-
-                    foreach (var troop in troopAreas)
-                    {
-                        string timerText = timerOcrService.ExtractTextFromScreenArea(screenshot, troop.Value);
-                        var status = ParseTroopStatus(timerText, troop.Key, logger, isTimerCheck: true);
-
-                        if (!status.IsReady && status.RemainingTime == TimeSpan.Zero)
-                        {
-                            logger.LogInfo($"[{troop.Key}] Not a timer, checking for words...");
-                            string wordText = wordOcrService.ExtractTextFromScreenArea(screenshot, troop.Value);
-                            status = ParseTroopStatus(wordText, troop.Key, logger, isTimerCheck: false);
-                        }
-                        
-                        statuses.Add(status);
-                    }
-                    
-                    logger.LogInfo($"[{account.AccountName}] 📊 Troop status check complete (Attempt {attempt}).");
                     return statuses;
                 }
-                catch (Exception ex)
-                {
-                    logger.LogError($"[{account.AccountName}] ❌ Error in GetCurrentTroopStatuses attempt {attempt}: {ex.Message}");
-                    if (attempt < maxAttempts) await Task.Delay(GameCoordinates.Delays.BetweenRetries, cancellationToken);
-                }
+                if (attempt < maxAttempts) await Task.Delay(GameCoordinates.Delays.BetweenRetries, cancellationToken);
             }
             logger.LogError($"[{account.AccountName}] ❌ Failed to get troop statuses after {maxAttempts} attempts.");
             return null;
+        }
+
+        /// <summary>One try: opens the side menu and reads the three troop statuses. Null when the menu did not open or the read failed.</summary>
+        private async Task<List<TroopStatusInfo>?> TryReadTroopStatusesAsync(
+            AccountSettings account, LogService logger, CancellationToken cancellationToken, int attempt, int maxAttempts)
+        {
+            try
+            {
+                logger.LogInfo($"[{account.AccountName}] 🖱️ Opening side menu for status check (Attempt {attempt}/{maxAttempts})");
+                if (!await ClickRandomInRectAsync(account.InstanceNumber, logger, GameCoordinates.MenuTriggerArea))
+                {
+                    return null;
+                }
+                await Task.Delay(GameCoordinates.Delays.AfterMenuClick, cancellationToken);
+
+                var screenshot = await TakeScreenshotAsync(account.InstanceNumber, logger);
+                if (screenshot == null || !CheckForSideMenu(account, logger, screenshot))
+                {
+                    return null;
+                }
+
+                await Task.Delay(500, cancellationToken);
+
+                var statuses = ReadAllTroopStatuses(logger, screenshot);
+
+                logger.LogInfo($"[{account.AccountName}] 📊 Troop status check complete (Attempt {attempt}).");
+                return statuses;
+            }
+            catch (Exception ex)
+            {
+                logger.LogError($"[{account.AccountName}] ❌ Error in GetCurrentTroopStatuses attempt {attempt}: {ex.Message}");
+                return null;
+            }
+        }
+
+        private List<TroopStatusInfo> ReadAllTroopStatuses(LogService logger, byte[] screenshot)
+        {
+            // Simplified timer config
+            var timerOcrConfig = new OcrConfiguration {
+                CharacterWhitelist = "0123456789:",
+                ScaleFactor = 4
+            };
+            using var timerOcrService = new OcrService(logger, timerOcrConfig);
+
+            // Simplified word config - removed unused properties
+            var wordOcrConfig = new OcrConfiguration {
+                CharacterWhitelist = "ceidlmopt",
+                ScaleFactor = 4,
+                PageSegMode = PageSegMode.SingleLine
+            };
+            using var wordOcrService = new OcrService(logger, wordOcrConfig);
+
+            var statuses = new List<TroopStatusInfo>();
+            var troopAreas = new Dictionary<string, Rectangle>
+            {
+                { "Infantry", InfantryStatusArea },
+                { "Cavalry", CavalryStatusArea },
+                { "Archers", ArchersStatusArea }
+            };
+
+            foreach (var troop in troopAreas)
+            {
+                string timerText = timerOcrService.ExtractTextFromScreenArea(screenshot, troop.Value);
+                var status = ParseTroopStatus(timerText, troop.Key, logger, isTimerCheck: true);
+
+                if (!status.IsReady && status.RemainingTime == TimeSpan.Zero)
+                {
+                    logger.LogInfo($"[{troop.Key}] Not a timer, checking for words...");
+                    string wordText = wordOcrService.ExtractTextFromScreenArea(screenshot, troop.Value);
+                    status = ParseTroopStatus(wordText, troop.Key, logger, isTimerCheck: false);
+                }
+
+                statuses.Add(status);
+            }
+            return statuses;
         }
 
         private TroopStatusInfo ParseTroopStatus(string ocrText, string troopType, LogService logger, bool isTimerCheck)
@@ -408,6 +460,8 @@ namespace Bot.Core.Tasks.Modules
         }
         
 
+        private enum PrimaryTrainingResult { Retry, Abort, Done }
+
         private async Task<bool> ProcessAllReadyTroops(AccountSettings account, LogService logger, CancellationToken cancellationToken, List<TroopStatusInfo> readyTroops)
         {
             if (!readyTroops.Any())
@@ -417,325 +471,21 @@ namespace Bot.Core.Tasks.Modules
             }
 
             const int maxRetries = 2;
-            
+
             for (int attempt = 1; attempt <= maxRetries; attempt++)
             {
                 try
                 {
                     logger.LogInfo($"[{account.AccountName}] 🔄 Processing ALL ready troops in one operation (Attempt {attempt}/{maxRetries})");
                     logger.LogInfo($"[{account.AccountName}] 🎯 Ready troops to process: {string.Join(", ", readyTroops.Select(t => t.TroopType))}");
-                    
+
                     // Use the first ready troop to enter the training interface
                     var primaryTroop = readyTroops[0];
-                    Rectangle troopArea = GetTroopCompletionArea(primaryTroop.TroopType);
-                    var centerPoint = troopArea.GetCenter();
-                    
-                    // Click the primary troop in side menu to enter training interface
-                    logger.LogInfo($"[{account.AccountName}] 🖱️ Clicking {primaryTroop.TroopType} in side menu to enter training interface at coordinates ({centerPoint.X}, {centerPoint.Y}) - Area: {troopArea}");
-                    if (!await ClickRandomInRectAsyncWithRetry(account.InstanceNumber, logger, troopArea, cancellationToken, 2))
-                    {
-                        if (attempt < maxRetries) { await Task.Delay(GameCoordinates.Delays.BetweenRetries, cancellationToken); continue; }
-                        return false;
-                    }
-                    await Task.Delay(GameCoordinates.Delays.AfterMenuClick, cancellationToken);
+                    var primaryResult = await TrainPrimaryTroopAsync(account, logger, cancellationToken, primaryTroop, attempt < maxRetries);
+                    if (primaryResult == PrimaryTrainingResult.Retry) continue;
+                    if (primaryResult == PrimaryTrainingResult.Abort) return false;
 
-                    // Step 1: Pre-train sequence - Wait 1 second, then double-click in the specified box
-                    logger.LogInfo($"[{account.AccountName}] ⏳ Waiting 1 second before train preparation...");
-                    await Task.Delay(1000, cancellationToken);
-                    
-                    // Double-click in box 326,550 373,586 (width=47, height=36)
-                    var preTrainClickArea = new Rectangle(326, 550, 47, 36);
-                    logger.LogInfo($"[{account.AccountName}] 🖱️ Pre-train setup: clicking in preparation area twice...");
-                    
-                    // First click
-                    if (!await ClickRandomInRectAsyncWithRetry(account.InstanceNumber, logger, preTrainClickArea, cancellationToken, 1))
-                    {
-                        logger.LogWarning($"[{account.AccountName}] ⚠️ Failed first pre-train click, continuing anyway...");
-                    }
-                    
-                    // 0.2 second delay
-                    await Task.Delay(200, cancellationToken);
-                    
-                    // Second click
-                    if (!await ClickRandomInRectAsyncWithRetry(account.InstanceNumber, logger, preTrainClickArea, cancellationToken, 1))
-                    {
-                        logger.LogWarning($"[{account.AccountName}] ⚠️ Failed second pre-train click, continuing anyway...");
-                    }
-                    
-                    // Step 2: Look for Train button FIRST with 2-second timeout and strict error handling
-                    logger.LogInfo($"[{account.AccountName}] 🔍 Looking for 'Train' button...");
-                    bool trainButtonFound = await FindAndClickImageWithTimeoutAsync("train.png", account.InstanceNumber, logger, 
-                        threshold: 0.7, 
-                        timeoutSeconds: 2,
-                        useEnhancedMatching: false,
-                        searchArea: null,
-                        cancellationToken: cancellationToken);
-
-                    if (!trainButtonFound)
-                    {
-                        logger.LogError($"[{account.AccountName}] ❌ CRITICAL ERROR: Failed to find 'train.png' - SKIPPING TROOP TRAINING MODULE");
-                        return false; // Immediately exit with error when train.png fails
-                    }
-
-                    // Train button found, proceeding to next step
-                    logger.LogInfo($"[{account.AccountName}] ✅ Found train.png, proceeding to next step");
-                    
-                    // Wait 0.5 seconds after clicking train button
-                    await Task.Delay(500, cancellationToken);
-
-                    // Step 3: Look for minus-button.png to verify we're in training interface
-                    logger.LogInfo($"[{account.AccountName}] 🔍 Looking for minus-button.png to verify training interface...");
-                    bool minusButtonFound = await FindAndClickImageWithTimeoutAsync("minus-button.png", account.InstanceNumber, logger,
-                        threshold: 0.6,
-                        timeoutSeconds: 2,
-                        useEnhancedMatching: false,
-                        searchArea: null,
-                        cancellationToken: cancellationToken);
-
-                    if (minusButtonFound)
-                    {
-                        logger.LogInfo($"[{account.AccountName}] ✅ Found minus-button.png, we're in the correct training area");
-                        await Task.Delay(500, cancellationToken);
-
-                        // Check for train level 1 only setting
-                        var troopSettings = GetTroopTrainingSettings(account);
-                        logger.LogInfo($"[{account.AccountName}] 🔧 Train Level 1 Only setting: {troopSettings.TrainLevel1Only}");
-                        if (troopSettings.TrainLevel1Only)
-                        {
-                            logger.LogInfo($"[{account.AccountName}] 🎯 Train Level 1 Only mode enabled, checking for Rookie Infantry...");
-
-                            // Step 3.1: Use OCR to check for "Rookie Infantry" in area 202,6 518,71
-                            var rookieCheckArea = new Rectangle(202, 6, 316, 65); // width = 518-202=316, height = 71-6=65
-
-                            var screenshot = await TakeScreenshotAsync(account.InstanceNumber, logger);
-                            if (screenshot != null)
-                            {
-                                // Create OCR config for text detection
-                                var textOcrConfig = new OcrConfiguration
-                                {
-                                    CharacterWhitelist = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz ",
-                                    ScaleFactor = 3,
-                                    PageSegMode = PageSegMode.SingleLine
-                                };
-
-                                using var ocrService = new OcrService(logger, textOcrConfig);
-                                string detectedText = ocrService.ExtractTextFromScreenArea(screenshot, rookieCheckArea);
-
-                                logger.LogInfo($"[{account.AccountName}] 📝 OCR detected text: '{detectedText}'");
-
-                                // Check if "Rookie Infantry" is detected (case insensitive, allowing for OCR errors)
-                                bool isRookieInfantry = detectedText.ToLowerInvariant().Contains("rookie") &&
-                                                       detectedText.ToLowerInvariant().Contains("infantry");
-
-                                if (!isRookieInfantry)
-                                {
-                                    logger.LogInfo($"[{account.AccountName}] 🔄 Rookie Infantry not detected, performing swipe to navigate to level 1 troops...");
-
-                                    // Step 3.2: Perform curved swipe from left to right in area 24,655 710,773
-                                    var swipeArea = new Rectangle(24, 655, 686, 118); // width = 710-24=686, height = 773-655=118
-                                    bool swipeSuccess = await PerformCurvedSwipeAsync(account.InstanceNumber, logger, swipeArea, cancellationToken);
-
-                                    if (swipeSuccess)
-                                    {
-                                        logger.LogInfo($"[{account.AccountName}] ✅ Swipe completed successfully");
-                                        await Task.Delay(1000, cancellationToken); // Wait for UI to settle
-
-                                        // Step 3.3: Click random location in area 77,678 119,732
-                                        var clickArea = new Rectangle(77, 678, 42, 54); // width = 119-77=42, height = 732-678=54
-                                        logger.LogInfo($"[{account.AccountName}] 🖱️ Clicking in level 1 selection area...");
-
-                                        if (await ClickRandomInRectAsyncWithRetry(account.InstanceNumber, logger, clickArea, cancellationToken, 1))
-                                        {
-                                            logger.LogInfo($"[{account.AccountName}] ✅ Successfully clicked level 1 selection area");
-                                            await Task.Delay(500, cancellationToken);
-                                        }
-                                        else
-                                        {
-                                            logger.LogWarning($"[{account.AccountName}] ⚠️ Failed to click level 1 selection area, continuing anyway...");
-                                        }
-                                    }
-                                    else
-                                    {
-                                        logger.LogWarning($"[{account.AccountName}] ⚠️ Swipe failed, continuing with current selection...");
-                                    }
-                                }
-                                else
-                                {
-                                    logger.LogInfo($"[{account.AccountName}] ✅ Rookie Infantry already selected, proceeding with training");
-                                }
-                            }
-                            else
-                            {
-                                logger.LogWarning($"[{account.AccountName}] ⚠️ Failed to take screenshot for rookie check, proceeding with training");
-                            }
-                        }
-
-                        // Step 4: Click in the train box (409,1078 586,1136)
-                        var trainBoxArea = new Rectangle(409, 1078, 177, 58); // width = 586-409=177, height = 1136-1078=58
-                        if (!await ClickRandomInRectAsyncWithRetry(account.InstanceNumber, logger, trainBoxArea, cancellationToken, 2))
-                        {
-                            logger.LogError($"[{account.AccountName}] ❌ Failed to click train box area");
-                            return false; // Stop processing on error
-                        }
-                        await Task.Delay(GameCoordinates.Delays.AfterSettingAmount, cancellationToken);
-                    }
-
-                    // Step 5: Process remaining ready troops (exclude the primary troop since it's already being trained)
-                    var remainingTroops = readyTroops.Where(t => !string.Equals(t.TroopType, primaryTroop.TroopType, StringComparison.OrdinalIgnoreCase)).ToList();
-                    
-                    if (remainingTroops.Any())
-                    {
-                        logger.LogInfo($"[{account.AccountName}] 🔄 Now processing remaining {remainingTroops.Count} ready troops (excluding {primaryTroop.TroopType} which is already being trained)...");
-                        
-                        foreach (var readyTroopType in remainingTroops.Select(readyTroop => readyTroop.TroopType))
-                        {
-                            logger.LogInfo($"[{account.AccountName}] 🔍 Processing ready {readyTroopType}...");
-                            
-                            Rectangle clickArea;
-                            switch (readyTroopType.ToLower())
-                            {
-                                case "cavalry":
-                                    clickArea = new Rectangle(365, 1235, 30, 30);
-                                    break;
-                                case "archers":
-                                    clickArea = new Rectangle(581, 1234, 30, 30);
-                                    break;
-                                case "infantry":
-                                    clickArea = new Rectangle(134, 1229, 30, 30);
-                                    break;
-                                default:
-                                    logger.LogWarning($"[{account.AccountName}] ⚠️ Unknown troop type: {readyTroopType}, skipping");
-                                    continue;
-                            }
-                            
-                            if (await ClickRandomInRectAsyncWithRetry(account.InstanceNumber, logger, clickArea, cancellationToken, 1))
-                            {
-                                logger.LogInfo($"[{account.AccountName}] ✅ Clicked ready {readyTroopType}, waiting 0.5 seconds...");
-                                await Task.Delay(500, cancellationToken);
-                                
-                                // For cavalry and archers, look for minus button before clicking train box
-                                if (readyTroopType.ToLower() == "cavalry" || readyTroopType.ToLower() == "archers")
-                                {
-                                    logger.LogInfo($"[{account.AccountName}] 🔍 Looking for minus-button.png after {readyTroopType} click...");
-                                    bool minusFound = await FindAndClickImageWithTimeoutAsync("minus-button.png", account.InstanceNumber, logger,
-                                        threshold: 0.6,
-                                        timeoutSeconds: 2,
-                                        useEnhancedMatching: false,
-                                        searchArea: null,
-                                        cancellationToken: cancellationToken);
-
-                                    if (minusFound)
-                                    {
-                                        logger.LogInfo($"[{account.AccountName}] ✅ Found minus-button after {readyTroopType}, checking for level 1...");
-
-                                        // Check for train level 1 only setting for this troop type as well
-                                        var troopSettings = GetTroopTrainingSettings(account);
-                                        logger.LogInfo($"[{account.AccountName}] 🔧 Train Level 1 Only setting for {readyTroopType}: {troopSettings.TrainLevel1Only}");
-                                        if (troopSettings.TrainLevel1Only)
-                                        {
-                                            logger.LogInfo($"[{account.AccountName}] 🎯 Train Level 1 Only mode enabled for {readyTroopType}, checking for Rookie Infantry...");
-
-                                            // Step: Use OCR to check for "Rookie Infantry" in area 202,6 518,71
-                                            var rookieCheckArea = new Rectangle(202, 6, 316, 65); // width = 518-202=316, height = 71-6=65
-
-                                            var screenshot = await TakeScreenshotAsync(account.InstanceNumber, logger);
-                                            if (screenshot != null)
-                                            {
-                                                // Create OCR config for text detection
-                                                var textOcrConfig = new OcrConfiguration
-                                                {
-                                                    CharacterWhitelist = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz ",
-                                                    ScaleFactor = 3,
-                                                    PageSegMode = PageSegMode.SingleLine
-                                                };
-
-                                                using var ocrService = new OcrService(logger, textOcrConfig);
-                                                string detectedText = ocrService.ExtractTextFromScreenArea(screenshot, rookieCheckArea);
-
-                                                logger.LogInfo($"[{account.AccountName}] 📝 OCR detected text for {readyTroopType}: '{detectedText}'");
-
-                                                // Check if "Rookie Infantry" is detected (case insensitive, allowing for OCR errors)
-                                                bool isRookieInfantry = detectedText.ToLowerInvariant().Contains("rookie") &&
-                                                                       detectedText.ToLowerInvariant().Contains("infantry");
-
-                                                if (!isRookieInfantry)
-                                                {
-                                                    logger.LogInfo($"[{account.AccountName}] 🔄 Rookie Infantry not detected for {readyTroopType}, performing swipe to navigate to level 1 troops...");
-
-                                                    // Perform curved swipe from left to right in area 24,655 710,773
-                                                    var swipeArea = new Rectangle(24, 655, 686, 118); // width = 710-24=686, height = 773-655=118
-                                                    bool swipeSuccess = await PerformCurvedSwipeAsync(account.InstanceNumber, logger, swipeArea, cancellationToken);
-
-                                                    if (swipeSuccess)
-                                                    {
-                                                        logger.LogInfo($"[{account.AccountName}] ✅ Swipe completed successfully for {readyTroopType}");
-                                                        await Task.Delay(1000, cancellationToken); // Wait for UI to settle
-
-                                                        // Click random location in area 77,678 119,732
-                                                        var level1ClickArea = new Rectangle(77, 678, 42, 54); // width = 119-77=42, height = 732-678=54
-                                                        logger.LogInfo($"[{account.AccountName}] 🖱️ Clicking in level 1 selection area for {readyTroopType}...");
-
-                                                        if (await ClickRandomInRectAsyncWithRetry(account.InstanceNumber, logger, level1ClickArea, cancellationToken, 1))
-                                                        {
-                                                            logger.LogInfo($"[{account.AccountName}] ✅ Successfully clicked level 1 selection area for {readyTroopType}");
-                                                            await Task.Delay(500, cancellationToken);
-                                                        }
-                                                        else
-                                                        {
-                                                            logger.LogWarning($"[{account.AccountName}] ⚠️ Failed to click level 1 selection area for {readyTroopType}, continuing anyway...");
-                                                        }
-                                                    }
-                                                    else
-                                                    {
-                                                        logger.LogWarning($"[{account.AccountName}] ⚠️ Swipe failed for {readyTroopType}, continuing with current selection...");
-                                                    }
-                                                }
-                                                else
-                                                {
-                                                    logger.LogInfo($"[{account.AccountName}] ✅ Rookie Infantry already selected for {readyTroopType}, proceeding with training");
-                                                }
-                                            }
-                                            else
-                                            {
-                                                logger.LogWarning($"[{account.AccountName}] ⚠️ Failed to take screenshot for rookie check on {readyTroopType}, proceeding with training");
-                                            }
-                                        }
-                                    }
-                                }
-                                
-                                // Click train box area for this troop
-                                var trainBoxAreaFinal = new Rectangle(409, 1078, 177, 58);
-                                if (await ClickRandomInRectAsyncWithRetry(account.InstanceNumber, logger, trainBoxAreaFinal, cancellationToken, 1))
-                                {
-                                    logger.LogInfo($"[{account.AccountName}] ✅ Successfully processed ready {readyTroopType}");
-                                    await Task.Delay(500, cancellationToken);
-                                }
-                                else
-                                {
-                                    logger.LogWarning($"[{account.AccountName}] ⚠️ Failed to click train box for {readyTroopType}");
-                                }
-                            }
-                            else
-                            {
-                                logger.LogWarning($"[{account.AccountName}] ⚠️ Failed to click {readyTroopType} icon");
-                            }
-                        }
-                    }
-                    else
-                    {
-                        logger.LogInfo($"[{account.AccountName}] ℹ️ Only {primaryTroop.TroopType} was ready, and it's already being trained by entering the training interface");
-                    }
-                    
-                    // After processing all ready troops, we're done
-                    logger.LogInfo($"[{account.AccountName}] ✅ Completed processing all {readyTroops.Count} ready troops, finishing up");
-                    
-                    // Click back button to return to base view
-                    var backButtonArea = new Rectangle(24, 25, 27, 21);
-                    logger.LogInfo($"[{account.AccountName}] 🖱️ Clicking back button to return to base view...");
-                    await ClickRandomInRectAsyncWithRetry(account.InstanceNumber, logger, backButtonArea, cancellationToken, 2);
-                    await Task.Delay(GameCoordinates.Delays.AfterMenuClick, cancellationToken);
-                    
-                    logger.LogInfo($"[{account.AccountName}] ✅ Successfully processed all ready troops: {string.Join(", ", readyTroops.Select(t => t.TroopType))}");
+                    await TrainRemainingAndReturnAsync(account, logger, cancellationToken, readyTroops, primaryTroop);
                     return true;
                 }
                 catch (Exception ex)
@@ -744,9 +494,282 @@ namespace Bot.Core.Tasks.Modules
                     if (attempt < maxRetries) await Task.Delay(GameCoordinates.Delays.BetweenErrorRetries, cancellationToken);
                 }
             }
-            
+
             logger.LogError($"[{account.AccountName}] ❌ Failed to process ready troops after {maxRetries} attempts");
             return false;
+        }
+
+        /// <summary>Step 5 and the way back: trains the other ready troops, then returns to the base view.</summary>
+        private async Task TrainRemainingAndReturnAsync(
+            AccountSettings account, LogService logger, CancellationToken cancellationToken, List<TroopStatusInfo> readyTroops, TroopStatusInfo primaryTroop)
+        {
+            // Step 5: Process remaining ready troops (exclude the primary troop since it's already being trained)
+            var remainingTroops = readyTroops.Where(t => !string.Equals(t.TroopType, primaryTroop.TroopType, StringComparison.OrdinalIgnoreCase)).ToList();
+
+            if (remainingTroops.Any())
+            {
+                logger.LogInfo($"[{account.AccountName}] 🔄 Now processing remaining {remainingTroops.Count} ready troops (excluding {primaryTroop.TroopType} which is already being trained)...");
+
+                foreach (var readyTroopType in remainingTroops.Select(readyTroop => readyTroop.TroopType))
+                {
+                    await TrainRemainingTroopAsync(account, logger, cancellationToken, readyTroopType);
+                }
+            }
+            else
+            {
+                logger.LogInfo($"[{account.AccountName}] ℹ️ Only {primaryTroop.TroopType} was ready, and it's already being trained by entering the training interface");
+            }
+
+            // After processing all ready troops, we're done
+            logger.LogInfo($"[{account.AccountName}] ✅ Completed processing all {readyTroops.Count} ready troops, finishing up");
+
+            // Click back button to return to base view
+            var backButtonArea = new Rectangle(24, 25, 27, 21);
+            logger.LogInfo($"[{account.AccountName}] 🖱️ Clicking back button to return to base view...");
+            await ClickRandomInRectAsyncWithRetry(account.InstanceNumber, logger, backButtonArea, cancellationToken, 2);
+            await Task.Delay(GameCoordinates.Delays.AfterMenuClick, cancellationToken);
+
+            logger.LogInfo($"[{account.AccountName}] ✅ Successfully processed all ready troops: {string.Join(", ", readyTroops.Select(t => t.TroopType))}");
+        }
+
+        /// <summary>Steps 0-4: opens the primary troop's training interface from the side menu and starts its training.</summary>
+        private async Task<PrimaryTrainingResult> TrainPrimaryTroopAsync(
+            AccountSettings account, LogService logger, CancellationToken cancellationToken, TroopStatusInfo primaryTroop, bool canRetry)
+        {
+            Rectangle troopArea = GetTroopCompletionArea(primaryTroop.TroopType);
+            var centerPoint = troopArea.GetCenter();
+
+            // Click the primary troop in side menu to enter training interface
+            logger.LogInfo($"[{account.AccountName}] 🖱️ Clicking {primaryTroop.TroopType} in side menu to enter training interface at coordinates ({centerPoint.X}, {centerPoint.Y}) - Area: {troopArea}");
+            if (!await ClickRandomInRectAsyncWithRetry(account.InstanceNumber, logger, troopArea, cancellationToken, 2))
+            {
+                if (!canRetry) return PrimaryTrainingResult.Abort;
+                await Task.Delay(GameCoordinates.Delays.BetweenRetries, cancellationToken);
+                return PrimaryTrainingResult.Retry;
+            }
+            await Task.Delay(GameCoordinates.Delays.AfterMenuClick, cancellationToken);
+
+            // Step 1: Pre-train sequence - Wait 1 second, then double-click in the specified box
+            logger.LogInfo($"[{account.AccountName}] ⏳ Waiting 1 second before train preparation...");
+            await Task.Delay(1000, cancellationToken);
+
+            // Double-click in box 326,550 373,586 (width=47, height=36)
+            var preTrainClickArea = new Rectangle(326, 550, 47, 36);
+            logger.LogInfo($"[{account.AccountName}] 🖱️ Pre-train setup: clicking in preparation area twice...");
+
+            // First click
+            if (!await ClickRandomInRectAsyncWithRetry(account.InstanceNumber, logger, preTrainClickArea, cancellationToken, 1))
+            {
+                logger.LogWarning($"[{account.AccountName}] ⚠️ Failed first pre-train click, continuing anyway...");
+            }
+
+            // 0.2 second delay
+            await Task.Delay(200, cancellationToken);
+
+            // Second click
+            if (!await ClickRandomInRectAsyncWithRetry(account.InstanceNumber, logger, preTrainClickArea, cancellationToken, 1))
+            {
+                logger.LogWarning($"[{account.AccountName}] ⚠️ Failed second pre-train click, continuing anyway...");
+            }
+
+            // Step 2: Look for Train button FIRST with 2-second timeout and strict error handling
+            logger.LogInfo($"[{account.AccountName}] 🔍 Looking for 'Train' button...");
+            bool trainButtonFound = await FindAndClickImageWithTimeoutAsync("train.png", account.InstanceNumber, logger,
+                threshold: 0.7,
+                timeoutSeconds: 2,
+                useEnhancedMatching: false,
+                searchArea: null,
+                cancellationToken: cancellationToken);
+
+            if (!trainButtonFound)
+            {
+                logger.LogError($"[{account.AccountName}] ❌ CRITICAL ERROR: Failed to find 'train.png' - SKIPPING TROOP TRAINING MODULE");
+                return PrimaryTrainingResult.Abort; // Immediately exit with error when train.png fails
+            }
+
+            // Train button found, proceeding to next step
+            logger.LogInfo($"[{account.AccountName}] ✅ Found train.png, proceeding to next step");
+
+            // Wait 0.5 seconds after clicking train button
+            await Task.Delay(500, cancellationToken);
+
+            // Step 3: Look for minus-button.png to verify we're in training interface
+            logger.LogInfo($"[{account.AccountName}] 🔍 Looking for minus-button.png to verify training interface...");
+            bool minusButtonFound = await FindAndClickImageWithTimeoutAsync("minus-button.png", account.InstanceNumber, logger,
+                threshold: 0.6,
+                timeoutSeconds: 2,
+                useEnhancedMatching: false,
+                searchArea: null,
+                cancellationToken: cancellationToken);
+
+            if (!minusButtonFound)
+            {
+                return PrimaryTrainingResult.Done;
+            }
+
+            logger.LogInfo($"[{account.AccountName}] ✅ Found minus-button.png, we're in the correct training area");
+            await Task.Delay(500, cancellationToken);
+
+            await SelectLevel1IfRequiredAsync(account, logger, cancellationToken, null);
+
+            // Step 4: Click in the train box (409,1078 586,1136)
+            var trainBoxArea = new Rectangle(409, 1078, 177, 58); // width = 586-409=177, height = 1136-1078=58
+            if (!await ClickRandomInRectAsyncWithRetry(account.InstanceNumber, logger, trainBoxArea, cancellationToken, 2))
+            {
+                logger.LogError($"[{account.AccountName}] ❌ Failed to click train box area");
+                return PrimaryTrainingResult.Abort; // Stop processing on error
+            }
+            await Task.Delay(GameCoordinates.Delays.AfterSettingAmount, cancellationToken);
+            return PrimaryTrainingResult.Done;
+        }
+
+        private static Rectangle? GetTroopIconArea(string troopType)
+        {
+            switch (troopType.ToLower())
+            {
+                case "cavalry":
+                    return new Rectangle(365, 1235, 30, 30);
+                case "archers":
+                    return new Rectangle(581, 1234, 30, 30);
+                case "infantry":
+                    return new Rectangle(134, 1229, 30, 30);
+                default:
+                    return null;
+            }
+        }
+
+        /// <summary>Selects another ready troop type on the training screen and trains it.</summary>
+        private async Task TrainRemainingTroopAsync(AccountSettings account, LogService logger, CancellationToken cancellationToken, string readyTroopType)
+        {
+            logger.LogInfo($"[{account.AccountName}] 🔍 Processing ready {readyTroopType}...");
+
+            var iconArea = GetTroopIconArea(readyTroopType);
+            if (iconArea == null)
+            {
+                logger.LogWarning($"[{account.AccountName}] ⚠️ Unknown troop type: {readyTroopType}, skipping");
+                return;
+            }
+
+            if (!await ClickRandomInRectAsyncWithRetry(account.InstanceNumber, logger, iconArea.Value, cancellationToken, 1))
+            {
+                logger.LogWarning($"[{account.AccountName}] ⚠️ Failed to click {readyTroopType} icon");
+                return;
+            }
+
+            logger.LogInfo($"[{account.AccountName}] ✅ Clicked ready {readyTroopType}, waiting 0.5 seconds...");
+            await Task.Delay(500, cancellationToken);
+
+            // For cavalry and archers, look for minus button before clicking train box
+            if (readyTroopType.ToLower() == "cavalry" || readyTroopType.ToLower() == "archers")
+            {
+                logger.LogInfo($"[{account.AccountName}] 🔍 Looking for minus-button.png after {readyTroopType} click...");
+                bool minusFound = await FindAndClickImageWithTimeoutAsync("minus-button.png", account.InstanceNumber, logger,
+                    threshold: 0.6,
+                    timeoutSeconds: 2,
+                    useEnhancedMatching: false,
+                    searchArea: null,
+                    cancellationToken: cancellationToken);
+
+                if (minusFound)
+                {
+                    logger.LogInfo($"[{account.AccountName}] ✅ Found minus-button after {readyTroopType}, checking for level 1...");
+                    await SelectLevel1IfRequiredAsync(account, logger, cancellationToken, readyTroopType);
+                }
+            }
+
+            // Click train box area for this troop
+            var trainBoxAreaFinal = new Rectangle(409, 1078, 177, 58);
+            if (await ClickRandomInRectAsyncWithRetry(account.InstanceNumber, logger, trainBoxAreaFinal, cancellationToken, 1))
+            {
+                logger.LogInfo($"[{account.AccountName}] ✅ Successfully processed ready {readyTroopType}");
+                await Task.Delay(500, cancellationToken);
+            }
+            else
+            {
+                logger.LogWarning($"[{account.AccountName}] ⚠️ Failed to click train box for {readyTroopType}");
+            }
+        }
+
+        /// <summary>
+        /// With the "Train Level 1 only" setting: checks via OCR that Rookie Infantry is selected and, if not, swipes to the level 1 troops and taps them.
+        /// troopLabel is the troop type being processed (null for the primary troop), used in the log messages.
+        /// </summary>
+        private async Task SelectLevel1IfRequiredAsync(AccountSettings account, LogService logger, CancellationToken cancellationToken, string? troopLabel)
+        {
+            var forLabel = troopLabel == null ? "" : $" for {troopLabel}";
+            var onLabel = troopLabel == null ? "" : $" on {troopLabel}";
+
+            // Check for train level 1 only setting
+            var troopSettings = GetTroopTrainingSettings(account);
+            logger.LogInfo($"[{account.AccountName}] 🔧 Train Level 1 Only setting{forLabel}: {troopSettings.TrainLevel1Only}");
+            if (!troopSettings.TrainLevel1Only)
+            {
+                return;
+            }
+
+            logger.LogInfo($"[{account.AccountName}] 🎯 Train Level 1 Only mode enabled{forLabel}, checking for Rookie Infantry...");
+
+            // Use OCR to check for "Rookie Infantry" in area 202,6 518,71
+            var rookieCheckArea = new Rectangle(202, 6, 316, 65); // width = 518-202=316, height = 71-6=65
+
+            var screenshot = await TakeScreenshotAsync(account.InstanceNumber, logger);
+            if (screenshot == null)
+            {
+                logger.LogWarning($"[{account.AccountName}] ⚠️ Failed to take screenshot for rookie check{onLabel}, proceeding with training");
+                return;
+            }
+
+            // Create OCR config for text detection
+            var textOcrConfig = new OcrConfiguration
+            {
+                CharacterWhitelist = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz ",
+                ScaleFactor = 3,
+                PageSegMode = PageSegMode.SingleLine
+            };
+
+            using var ocrService = new OcrService(logger, textOcrConfig);
+            string detectedText = ocrService.ExtractTextFromScreenArea(screenshot, rookieCheckArea);
+
+            logger.LogInfo($"[{account.AccountName}] 📝 OCR detected text{forLabel}: '{detectedText}'");
+
+            // Check if "Rookie Infantry" is detected (case insensitive, allowing for OCR errors)
+            bool isRookieInfantry = detectedText.ToLowerInvariant().Contains("rookie") &&
+                                   detectedText.ToLowerInvariant().Contains("infantry");
+
+            if (isRookieInfantry)
+            {
+                logger.LogInfo($"[{account.AccountName}] ✅ Rookie Infantry already selected{forLabel}, proceeding with training");
+                return;
+            }
+
+            logger.LogInfo($"[{account.AccountName}] 🔄 Rookie Infantry not detected{forLabel}, performing swipe to navigate to level 1 troops...");
+
+            // Perform curved swipe from left to right in area 24,655 710,773
+            var swipeArea = new Rectangle(24, 655, 686, 118); // width = 710-24=686, height = 773-655=118
+            bool swipeSuccess = await PerformCurvedSwipeAsync(account.InstanceNumber, logger, swipeArea, cancellationToken);
+
+            if (!swipeSuccess)
+            {
+                logger.LogWarning($"[{account.AccountName}] ⚠️ Swipe failed{forLabel}, continuing with current selection...");
+                return;
+            }
+
+            logger.LogInfo($"[{account.AccountName}] ✅ Swipe completed successfully{forLabel}");
+            await Task.Delay(1000, cancellationToken); // Wait for UI to settle
+
+            // Click random location in area 77,678 119,732
+            var clickArea = new Rectangle(77, 678, 42, 54); // width = 119-77=42, height = 732-678=54
+            logger.LogInfo($"[{account.AccountName}] 🖱️ Clicking in level 1 selection area{forLabel}...");
+
+            if (await ClickRandomInRectAsyncWithRetry(account.InstanceNumber, logger, clickArea, cancellationToken, 1))
+            {
+                logger.LogInfo($"[{account.AccountName}] ✅ Successfully clicked level 1 selection area{forLabel}");
+                await Task.Delay(500, cancellationToken);
+            }
+            else
+            {
+                logger.LogWarning($"[{account.AccountName}] ⚠️ Failed to click level 1 selection area{forLabel}, continuing anyway...");
+            }
         }
 
         private async Task PerformPostTaskActions(AccountSettings account, LogService logger, CancellationToken cancellationToken)

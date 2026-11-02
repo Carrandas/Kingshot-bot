@@ -212,7 +212,7 @@ namespace Bot.Core.LDPlayer
         {
             try
             {
-                
+
                 // Check if we should apply backoff due to recent failures
                 if (ShouldApplyConnectionBackoff())
                 {
@@ -227,107 +227,10 @@ namespace Bot.Core.LDPlayer
                     logger.LogError($"Connection throttle timeout after 30s for instance {instanceNumber}");
                     throw new TimeoutException($"Connection throttle timeout for instance {instanceNumber}");
                 }
-                
+
                 try
                 {
-
-                    // Check existing connection first
-                    if (_connections.TryGetValue(instanceNumber, out var existingController))
-                    {
-                        // Quick health check
-                        if (await existingController.IsConnectedAndResponsive(cancellationToken).ConfigureAwait(false))
-                        {
-                            return existingController;
-                        }
-                        // Remove stale connection
-                        _connections.TryRemove(instanceNumber, out _);
-                        existingController.Dispose();
-                    }
-
-                // Ensure server is running
-                if (!await EnsureADBServerStartedAsync(logger, cancellationToken).ConfigureAwait(false))
-                {
-                    return null;
-                }
-
-                var instanceLock = GetInstanceLock(instanceNumber);
-                if (!await instanceLock.WaitAsync(TimeSpan.FromSeconds(30), cancellationToken).ConfigureAwait(false))
-                {
-                    logger.LogError($"Instance lock timeout after 30s for instance {instanceNumber}");
-                    throw new TimeoutException($"Instance lock timeout for instance {instanceNumber}");
-                }
-                try
-                {
-                    // Double-check after acquiring lock
-                    if (_connections.TryGetValue(instanceNumber, out existingController))
-                    {
-                        return existingController;
-                    }
-
-                    var adbPath = LDPlayerHelper.GetADBPath();
-                    var deviceSerial = $"emulator-{5554 + instanceNumber * 2}";
-
-
-                    
-                    // Wait for device to appear (up to 90 seconds)
-                    bool deviceFound = false;
-                    
-                    for (int i = 0; i < 90; i++)
-                    {
-                        if (await VerifyDeviceAsync(adbPath, deviceSerial, logger, cancellationToken))
-                        {
-                            deviceFound = true;
-                            break;
-                        }
-                        
-                        if (i < 89) // Don't delay on last attempt
-                        {
-                            await Task.Delay(1000, cancellationToken);
-                        }
-                    }
-
-                    if (!deviceFound)
-                    {
-                        logger.LogError($"[ADB] Device {deviceSerial} not found after 90 seconds", category: LogCategories.ADB);
-                        
-                        // Final attempt with comprehensive recovery
-                        logger.LogWarning($"[ADB] Attempting comprehensive recovery for instance {instanceNumber}...");
-                        try
-                        {
-                            var recoveryService = new AdbRecoveryService(logger);
-                            await recoveryService.AttemptFullRecoveryAsync(instanceNumber, cancellationToken);
-                            
-                            // Try one more time after recovery
-                            await Task.Delay(3000, cancellationToken); // Wait 3 seconds after recovery
-                            if (await VerifyDeviceAsync(adbPath, deviceSerial, logger, cancellationToken))
-                            {
-                                logger.LogInfo($"[ADB] Device {deviceSerial} recovered after comprehensive recovery");
-                                deviceFound = true;
-                            }
-                        }
-                        catch (Exception ex)
-                        {
-                            logger.LogError($"[ADB] Comprehensive recovery failed: {ex.Message}");
-                        }
-                        
-                        if (!deviceFound)
-                        {
-                            return null;
-                        }
-                    }
-
-                    // Create controller
-                    var controller = new AdbController(adbPath, deviceSerial, logger);
-                    _connections[instanceNumber] = controller;
-                    
-                    
-                    logger.LogInfo($"[ADB] Created connection for instance {instanceNumber}");
-                    return controller;
-                }
-                finally
-                {
-                    instanceLock.Release();
-                }
+                    return await GetThrottledConnectionAsync(instanceNumber, logger, cancellationToken).ConfigureAwait(false);
                 }
                 finally
                 {
@@ -337,11 +240,108 @@ namespace Bot.Core.LDPlayer
             catch (Exception ex)
             {
                 RecordConnectionFailure();
-                
-                
+
+
                 logger.LogError($"[ADB] Error getting connection for instance {instanceNumber}: {ex.Message}");
                 return null;
             }
+        }
+
+        private static async Task<AdbController?> GetThrottledConnectionAsync(int instanceNumber, LogService logger, CancellationToken cancellationToken)
+        {
+            // Check existing connection first
+            if (_connections.TryGetValue(instanceNumber, out var existingController))
+            {
+                // Quick health check
+                if (await existingController.IsConnectedAndResponsive(cancellationToken).ConfigureAwait(false))
+                {
+                    return existingController;
+                }
+                // Remove stale connection
+                _connections.TryRemove(instanceNumber, out _);
+                existingController.Dispose();
+            }
+
+            // Ensure server is running
+            if (!await EnsureADBServerStartedAsync(logger, cancellationToken).ConfigureAwait(false))
+            {
+                return null;
+            }
+
+            var instanceLock = GetInstanceLock(instanceNumber);
+            if (!await instanceLock.WaitAsync(TimeSpan.FromSeconds(30), cancellationToken).ConfigureAwait(false))
+            {
+                logger.LogError($"Instance lock timeout after 30s for instance {instanceNumber}");
+                throw new TimeoutException($"Instance lock timeout for instance {instanceNumber}");
+            }
+            try
+            {
+                // Double-check after acquiring lock
+                if (_connections.TryGetValue(instanceNumber, out existingController))
+                {
+                    return existingController;
+                }
+
+                var adbPath = LDPlayerHelper.GetADBPath();
+                var deviceSerial = $"emulator-{5554 + instanceNumber * 2}";
+
+                if (!await WaitForDeviceAsync(adbPath, deviceSerial, instanceNumber, logger, cancellationToken))
+                {
+                    return null;
+                }
+
+                // Create controller
+                var controller = new AdbController(adbPath, deviceSerial, logger);
+                _connections[instanceNumber] = controller;
+
+
+                logger.LogInfo($"[ADB] Created connection for instance {instanceNumber}");
+                return controller;
+            }
+            finally
+            {
+                instanceLock.Release();
+            }
+        }
+
+        private static async Task<bool> WaitForDeviceAsync(string adbPath, string deviceSerial, int instanceNumber, LogService logger, CancellationToken cancellationToken)
+        {
+            // Wait for device to appear (up to 90 seconds)
+            for (int i = 0; i < 90; i++)
+            {
+                if (await VerifyDeviceAsync(adbPath, deviceSerial, logger, cancellationToken))
+                {
+                    return true;
+                }
+
+                if (i < 89) // Don't delay on last attempt
+                {
+                    await Task.Delay(1000, cancellationToken);
+                }
+            }
+
+            logger.LogError($"[ADB] Device {deviceSerial} not found after 90 seconds", category: LogCategories.ADB);
+
+            // Final attempt with comprehensive recovery
+            logger.LogWarning($"[ADB] Attempting comprehensive recovery for instance {instanceNumber}...");
+            try
+            {
+                var recoveryService = new AdbRecoveryService(logger);
+                await recoveryService.AttemptFullRecoveryAsync(instanceNumber, cancellationToken);
+
+                // Try one more time after recovery
+                await Task.Delay(3000, cancellationToken); // Wait 3 seconds after recovery
+                if (await VerifyDeviceAsync(adbPath, deviceSerial, logger, cancellationToken))
+                {
+                    logger.LogInfo($"[ADB] Device {deviceSerial} recovered after comprehensive recovery");
+                    return true;
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.LogError($"[ADB] Comprehensive recovery failed: {ex.Message}");
+            }
+            return false;
         }
 
         /// <summary>
@@ -362,6 +362,42 @@ namespace Bot.Core.LDPlayer
             }
         }
 
+        private static async Task KillAdbServerAsync(string adbPath, LogService logger)
+        {
+            try
+            {
+                var killProcess = Process.Start(new ProcessStartInfo
+                {
+                    FileName = adbPath,
+                    Arguments = "kill-server",
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true
+                });
+                if (killProcess != null)
+                {
+                    using var cts = new CancellationTokenSource(2000); // 2 second timeout
+                    try
+                    {
+                        await killProcess.WaitForExitAsync(cts.Token);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        // Timeout - kill process if still running
+                        if (!killProcess.HasExited)
+                        {
+                            killProcess.Kill();
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning($"[ADB] Non-critical error killing ADB server: {ex.Message}");
+            }
+        }
+
         /// <summary>
         /// Closes and disposes all AdbController connections and resets the server started flag.
         /// </summary>
@@ -376,40 +412,9 @@ namespace Bot.Core.LDPlayer
                 var adbPath = LDPlayerHelper.GetADBPath();
                 if (!string.IsNullOrEmpty(adbPath))
                 {
-                    try
-                    {
-                        var killProcess = Process.Start(new ProcessStartInfo
-                        {
-                            FileName = adbPath,
-                            Arguments = "kill-server",
-                            UseShellExecute = false,
-                            CreateNoWindow = true,
-                            RedirectStandardOutput = true,
-                            RedirectStandardError = true
-                        });
-                        if (killProcess != null)
-                        {
-                            using var cts = new CancellationTokenSource(2000); // 2 second timeout
-                            try
-                            {
-                                await killProcess.WaitForExitAsync(cts.Token);
-                            }
-                            catch (OperationCanceledException)
-                            {
-                                // Timeout - kill process if still running
-                                if (!killProcess.HasExited)
-                                {
-                                    killProcess.Kill();
-                                }
-                            }
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        logger.LogWarning($"[ADB] Non-critical error killing ADB server: {ex.Message}");
-                    }
+                    await KillAdbServerAsync(adbPath, logger);
                 }
-                
+
                 // Dispose all controllers
                 foreach (var kvp in _connections)
                 {

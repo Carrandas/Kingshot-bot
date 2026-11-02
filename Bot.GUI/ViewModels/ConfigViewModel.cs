@@ -100,7 +100,9 @@ namespace Bot.GUI.ViewModels
         }
 
         // Always shutdown emulators after each cycle - hardcoded to true
+#pragma warning disable S2325 // bound from XAML, so it has to be an instance property
         public bool ShutdownEmulatorsAfterCycle => true;
+#pragma warning restore S2325
 
         private int _maxCycles = 0;
         public int MaxCycles
@@ -172,16 +174,7 @@ namespace Bot.GUI.ViewModels
                 {
                     _logger.LogInfo($"SelectedAccount changing from {_selectedAccount?.AccountName ?? "null"} to {value?.AccountName ?? "null"}");
                     
-                    // Unsubscribe from old account's PropertyChanged event
-                    if (_selectedAccount != null)
-                    {
-                        _selectedAccount.PropertyChanged -= SelectedAccount_PropertyChanged;
-                    }
-                    
-                    // Unsubscribe from old account's EnabledTasks CollectionChanged if it exists
-                    if (_selectedAccount?.EnabledTasks is ObservableCollection<TaskType> oldEnabledTasks) {
-                        oldEnabledTasks.CollectionChanged -= SelectedAccount_EnabledTasks_CollectionChanged;
-                    }
+                    UnsubscribeFromAccount(_selectedAccount);
 
                     _selectedAccount = value;
                     OnPropertyChanged();
@@ -193,51 +186,19 @@ namespace Bot.GUI.ViewModels
                     }
 
                     UpdateSelectedAccountFarmingTargets();
-                    
-                    // Raise CanExecuteChanged for all commands that depend on SelectedAccount
-                    ((RelayCommand)RemoveAccountCommand).RaiseCanExecuteChanged();
-                    ((RelayCommand)AddFarmingTargetCommand).RaiseCanExecuteChanged();
-                    ((RelayCommand)RemoveFarmingTargetCommand).RaiseCanExecuteChanged();
-                    ((RelayCommand)ApplyFarmingTargetsToAllCommand).RaiseCanExecuteChanged();
-                    ((RelayCommand)ApplyEnabledTasksToAllCommand).RaiseCanExecuteChanged();
-                    ((RelayCommand)ApplyAutoShieldSettingsToAllCommand).RaiseCanExecuteChanged();
-                    ((RelayCommand)ApplyAutoBuildSettingsToAllCommand).RaiseCanExecuteChanged();
-                    ((RelayCommand)ApplyAutoHuntSettingsToAllCommand).RaiseCanExecuteChanged();
-                    ((RelayCommand)ApplyAutoRallySettingsToAllCommand).RaiseCanExecuteChanged();
-                    ((RelayCommand)ApplyTroopTrainingSettingsToAllCommand).RaiseCanExecuteChanged();
-                    ((RelayCommand)ApplyAllianceTechnologySettingsToAllCommand).RaiseCanExecuteChanged();
-                    ((RelayCommand)ApplyConquestCollectSettingsToAllCommand).RaiseCanExecuteChanged();
+
+                    RaiseSelectedAccountCommandsChanged();
 
                     // Subscribe to new account's EnabledTasks CollectionChanged
                     if (_selectedAccount?.EnabledTasks is ObservableCollection<TaskType> newEnabledTasks) {
                         newEnabledTasks.CollectionChanged += SelectedAccount_EnabledTasks_CollectionChanged;
                     }
-                    
-                    // Force UI updates for all properties that depend on SelectedAccount
-                    OnPropertyChanged(nameof(SelectedAccountFarmingTargets));
-                    OnPropertyChanged(nameof(BreadTargetEnabled));
-                    OnPropertyChanged(nameof(BreadTargetLevel));
-                    OnPropertyChanged(nameof(WoodTargetEnabled));
-                    OnPropertyChanged(nameof(WoodTargetLevel));
-                    OnPropertyChanged(nameof(StoneTargetEnabled));
-                    OnPropertyChanged(nameof(StoneTargetLevel));
-                    OnPropertyChanged(nameof(IronTargetEnabled));
-                    OnPropertyChanged(nameof(IronTargetLevel));
-                    OnPropertyChanged(nameof(AllTaskTypes));
-                    
+
+                    RaiseSelectedAccountDependentPropertiesChanged();
+
                     // Force the account to notify its properties
-                    if (_selectedAccount != null)
-                    {
-                        _selectedAccount.OnPropertyChanged(nameof(AccountSettings.EnabledTasks));
-                        _selectedAccount.OnPropertyChanged(nameof(AccountSettings.AccountName));
-                        _selectedAccount.OnPropertyChanged(nameof(AccountSettings.InstanceNumber));
-                        _selectedAccount.OnPropertyChanged(nameof(AccountSettings.FarmingTargets));
-                        _selectedAccount.OnPropertyChanged(nameof(AccountSettings.AutoHuntSettings));
-                        _selectedAccount.OnPropertyChanged(nameof(AccountSettings.AutoRallySettings));
-                        _selectedAccount.OnPropertyChanged(nameof(AccountSettings.AutoShieldSettings));
-                        _selectedAccount.OnPropertyChanged(nameof(AccountSettings.AutoBuildSettings));
-                    }
-                    
+                    NotifyAccountSettingsChanged(_selectedAccount);
+
                     // Force complete refresh of task bindings
                     RefreshTaskList();
                     
@@ -247,17 +208,85 @@ namespace Bot.GUI.ViewModels
             }
         }
 
+        private void UnsubscribeFromAccount(AccountSettings? account)
+        {
+            if (account == null)
+            {
+                return;
+            }
+
+            // Unsubscribe from old account's PropertyChanged event
+            account.PropertyChanged -= SelectedAccount_PropertyChanged;
+
+            // Unsubscribe from old account's EnabledTasks CollectionChanged if it exists
+            if (account.EnabledTasks is ObservableCollection<TaskType> oldEnabledTasks) {
+                oldEnabledTasks.CollectionChanged -= SelectedAccount_EnabledTasks_CollectionChanged;
+            }
+        }
+
+        /// <summary>Raise CanExecuteChanged for all commands that depend on SelectedAccount</summary>
+        private void RaiseSelectedAccountCommandsChanged()
+        {
+            ((RelayCommand)RemoveAccountCommand).RaiseCanExecuteChanged();
+            ((RelayCommand)AddFarmingTargetCommand).RaiseCanExecuteChanged();
+            ((RelayCommand)RemoveFarmingTargetCommand).RaiseCanExecuteChanged();
+            ((RelayCommand)ApplyFarmingTargetsToAllCommand).RaiseCanExecuteChanged();
+            ((RelayCommand)ApplyEnabledTasksToAllCommand).RaiseCanExecuteChanged();
+            ((RelayCommand)ApplyAutoShieldSettingsToAllCommand).RaiseCanExecuteChanged();
+            ((RelayCommand)ApplyAutoBuildSettingsToAllCommand).RaiseCanExecuteChanged();
+            ((RelayCommand)ApplyAutoHuntSettingsToAllCommand).RaiseCanExecuteChanged();
+            ((RelayCommand)ApplyAutoRallySettingsToAllCommand).RaiseCanExecuteChanged();
+            ((RelayCommand)ApplyTroopTrainingSettingsToAllCommand).RaiseCanExecuteChanged();
+            ((RelayCommand)ApplyAllianceTechnologySettingsToAllCommand).RaiseCanExecuteChanged();
+            ((RelayCommand)ApplyConquestCollectSettingsToAllCommand).RaiseCanExecuteChanged();
+        }
+
+        private static void NotifyAccountSettingsChanged(AccountSettings? account)
+        {
+            if (account == null)
+            {
+                return;
+            }
+
+            account.OnPropertyChanged(nameof(AccountSettings.EnabledTasks));
+            account.OnPropertyChanged(nameof(AccountSettings.AccountName));
+            account.OnPropertyChanged(nameof(AccountSettings.InstanceNumber));
+            account.OnPropertyChanged(nameof(AccountSettings.FarmingTargets));
+            account.OnPropertyChanged(nameof(AccountSettings.AutoHuntSettings));
+            account.OnPropertyChanged(nameof(AccountSettings.AutoRallySettings));
+            account.OnPropertyChanged(nameof(AccountSettings.AutoShieldSettings));
+            account.OnPropertyChanged(nameof(AccountSettings.AutoBuildSettings));
+        }
+
+        /// <summary>Force UI updates for all properties that depend on SelectedAccount</summary>
+        private void RaiseSelectedAccountDependentPropertiesChanged()
+        {
+            OnPropertyChanged(nameof(SelectedAccountFarmingTargets));
+            OnPropertyChanged(nameof(BreadTargetEnabled));
+            OnPropertyChanged(nameof(BreadTargetLevel));
+            OnPropertyChanged(nameof(WoodTargetEnabled));
+            OnPropertyChanged(nameof(WoodTargetLevel));
+            OnPropertyChanged(nameof(StoneTargetEnabled));
+            OnPropertyChanged(nameof(StoneTargetLevel));
+            OnPropertyChanged(nameof(IronTargetEnabled));
+            OnPropertyChanged(nameof(IronTargetLevel));
+            OnPropertyChanged(nameof(AllTaskTypes));
+        }
+
+        private static bool IsAutoSavedAccountProperty(string? propertyName)
+        {
+            return propertyName is nameof(AccountSettings.AccountName) or nameof(AccountSettings.InstanceNumber) or nameof(AccountSettings.DoNotShutdown)
+                || propertyName?.StartsWith("TroopTrainingSettings.") == true
+                || propertyName?.StartsWith("FarmingBoostSettings.") == true;
+        }
+
         private void SelectedAccount_PropertyChanged(object? sender, PropertyChangedEventArgs e)
         {
             // Skip auto-save if we're applying configuration to avoid circular loops
             if (_isApplyingConfig || _globalConfigReloading) return;
 
             // If the account name, instance number, do not shutdown setting, or nested settings change, save the config
-            if (e.PropertyName == nameof(AccountSettings.AccountName) ||
-                e.PropertyName == nameof(AccountSettings.InstanceNumber) ||
-                e.PropertyName == nameof(AccountSettings.DoNotShutdown) ||
-                e.PropertyName?.StartsWith("TroopTrainingSettings.") == true ||
-                e.PropertyName?.StartsWith("FarmingBoostSettings.") == true)
+            if (IsAutoSavedAccountProperty(e.PropertyName))
             {
                 _logger.LogInfo($"Account property '{e.PropertyName}' changed for '{SelectedAccount?.AccountName}', auto-saving config.");
                 SaveConfig();
@@ -450,14 +479,12 @@ namespace Bot.GUI.ViewModels
         }
 
         private readonly LogService _logger;
-        private readonly BotConfig _config;
 
         // Event to notify when configuration changes and UI needs refresh
         public event Action? ConfigurationChanged;
 
         public ConfigViewModel(BotConfig config, LogService logger)
         {
-            _config = config;
             _logger = logger;
             AddAccountCommand = new RelayCommand(_ => AddAccount());
             RemoveAccountCommand = new RelayCommand(_ => RemoveAccount(), _ => SelectedAccount != null);
@@ -543,38 +570,31 @@ namespace Bot.GUI.ViewModels
             {
                 _logger.LogError($"Error loading config into ViewModel from {filePath}: {ex.Message}");
             }
-            if (Accounts.Any() && SelectedAccount == null) SelectedAccount = Accounts.First();
+            if (Accounts.Any() && SelectedAccount == null) SelectedAccount = Accounts[0];
         }
 
-        private async Task LoadConfigOrDefaultAsync(string filePath = "configs/default_config.json")
+        /// <summary>Fix-up: Convert any string values in EnabledTasks to TaskType enum values</summary>
+        private static ObservableCollection<TaskType> NormalizeEnabledTasks(ObservableCollection<TaskType>? enabledTasks)
         {
-            try
+            var fixedList = new ObservableCollection<TaskType>();
+            if (enabledTasks == null)
             {
-                var config = await Task.Run(() => ConfigLoader.Load(filePath)).ConfigureAwait(false);
-                if (config != null)
-                {
-                    // Switch back to UI thread for UI updates
-                    await WPFApplication.Current.Dispatcher.InvokeAsync(() =>
-                    {
-                        ApplyConfigToViewModel(config);
-                        _logger.LogInfo($"Config loaded from {filePath} into ViewModel.");
-                    });
-                }
-                else
-                {
-                    _logger.LogWarning($"No config file found at {filePath} or it's empty. Using default ViewModel values.");
-                }
+                return fixedList;
             }
-            catch (Exception ex)
+
+            foreach (var item in enabledTasks)
             {
-                _logger.LogError($"Error loading config into ViewModel from {filePath}: {ex.Message}");
+                if (item is TaskType t)
+                {
+                    fixedList.Add(t);
+                    continue;
+                }
+
+                var s = item.ToString();
+                if (!string.IsNullOrEmpty(s) && Enum.TryParse<TaskType>(s, out var parsed))
+                    fixedList.Add(parsed);
             }
-            
-            // Ensure UI thread for property access
-            await WPFApplication.Current.Dispatcher.InvokeAsync(() =>
-            {
-                if (Accounts.Any() && SelectedAccount == null) SelectedAccount = Accounts.First();
-            });
+            return fixedList;
         }
 
         private void ApplyConfigToViewModel(BotConfig config)
@@ -585,27 +605,7 @@ namespace Bot.GUI.ViewModels
                 if (acc.FarmingTargets == null) acc.FarmingTargets = new ObservableCollection<FarmingTarget>();
                 if (acc.Characters == null) acc.Characters = new ObservableCollection<CharacterEntry>();
                 if (acc.HiddenTasks == null) acc.HiddenTasks = new ObservableCollection<TaskType>();
-                // Fix-up: Convert any string values in EnabledTasks to TaskType enum values
-                if (acc.EnabledTasks != null)
-                {
-                    var fixedList = new ObservableCollection<TaskType>();
-                    foreach (var item in acc.EnabledTasks)
-                    {
-                        if (item is TaskType t)
-                            fixedList.Add(t);
-                        else
-                        {
-                            var s = item.ToString();
-                            if (!string.IsNullOrEmpty(s) && Enum.TryParse<TaskType>(s, out var parsed))
-                                fixedList.Add(parsed);
-                        }
-                    }
-                    acc.EnabledTasks = fixedList;
-                }
-                else
-                {
-                    acc.EnabledTasks = new ObservableCollection<TaskType>();
-                }
+                acc.EnabledTasks = NormalizeEnabledTasks(acc.EnabledTasks);
                 Accounts.Add(acc);
             }
             
@@ -624,7 +624,7 @@ namespace Bot.GUI.ViewModels
 
             // Set SelectedAccount *after* all properties are loaded to avoid premature saves
             // and to ensure CollectionChanged subscription is set up on the fully loaded account.
-            if (Accounts.Any()) SelectedAccount = Accounts.First();
+            if (Accounts.Any()) SelectedAccount = Accounts[0];
             else SelectedAccount = null; // Ensure farming targets are cleared if no accounts
             
             UpdateSelectedAccountFarmingTargets();
@@ -750,7 +750,7 @@ namespace Bot.GUI.ViewModels
                 if (window.ShowDialog() == true)
                 {
                     AccountSettings? lastAddedAccount = null;
-                    foreach (var instance in viewModel.SelectedInstances)
+                    foreach (var instance in viewModel.GetSelectedInstances())
                     {
                         var newAccount = new AccountSettings
                         {
@@ -920,18 +920,15 @@ namespace Bot.GUI.ViewModels
             );
             var sourceSettings = SelectedAccount.FarmingSettings;
 
-            foreach (var acc in Accounts)
+            foreach (var acc in Accounts.Where(a => a != SelectedAccount))
             {
-                if (acc != SelectedAccount)
-                {
-                    // Apply farming targets
-                    acc.FarmingTargets = new ObservableCollection<FarmingTarget>(
-                        targetsToCopy.Select(ft => new FarmingTarget { ResourceType = ft.ResourceType, Level = ft.Level })
-                    );
-                    
-                    // Apply farming settings
-                    acc.FarmingSettings.MaxFarmingMarches = sourceSettings.MaxFarmingMarches;
-                }
+                // Apply farming targets
+                acc.FarmingTargets = new ObservableCollection<FarmingTarget>(
+                    targetsToCopy.Select(ft => new FarmingTarget { ResourceType = ft.ResourceType, Level = ft.Level })
+                );
+
+                // Apply farming settings
+                acc.FarmingSettings.MaxFarmingMarches = sourceSettings.MaxFarmingMarches;
             }
             
             _logger.LogInfo($"Applied farming targets and settings from {SelectedAccount.AccountName} to all other accounts.");
@@ -971,10 +968,10 @@ namespace Bot.GUI.ViewModels
 
             var sourceSettings = SelectedAccount.AutoShieldSettings;
             
-            foreach (var account in Accounts.Where(a => a != SelectedAccount))
+            foreach (var target in Accounts.Where(a => a != SelectedAccount).Select(a => a.AutoShieldSettings))
             {
-                account.AutoShieldSettings.UseRechargeableShield = sourceSettings.UseRechargeableShield;
-                account.AutoShieldSettings.SelectedBackupShield = sourceSettings.SelectedBackupShield;
+                target.UseRechargeableShield = sourceSettings.UseRechargeableShield;
+                target.SelectedBackupShield = sourceSettings.SelectedBackupShield;
             }
 
             SaveConfig();
@@ -987,10 +984,10 @@ namespace Bot.GUI.ViewModels
 
             var sourceSettings = SelectedAccount.AutoBuildSettings;
             
-            foreach (var account in Accounts.Where(a => a != SelectedAccount))
+            foreach (var target in Accounts.Where(a => a != SelectedAccount).Select(a => a.AutoBuildSettings))
             {
-                account.AutoBuildSettings.MaxSpeedupMinutes = sourceSettings.MaxSpeedupMinutes;
-                account.AutoBuildSettings.EnableAutoSpeedup = sourceSettings.EnableAutoSpeedup;
+                target.MaxSpeedupMinutes = sourceSettings.MaxSpeedupMinutes;
+                target.EnableAutoSpeedup = sourceSettings.EnableAutoSpeedup;
             }
 
             SaveConfig();
@@ -1003,10 +1000,10 @@ namespace Bot.GUI.ViewModels
 
             var sourceSettings = SelectedAccount.AutoHuntSettings;
             
-            foreach (var account in Accounts.Where(a => a != SelectedAccount))
+            foreach (var target in Accounts.Where(a => a != SelectedAccount).Select(a => a.AutoHuntSettings))
             {
-                account.AutoHuntSettings.UseEqualize = sourceSettings.UseEqualize;
-                account.AutoHuntSettings.TapIntelAgent = sourceSettings.TapIntelAgent;
+                target.UseEqualize = sourceSettings.UseEqualize;
+                target.TapIntelAgent = sourceSettings.TapIntelAgent;
             }
 
             SaveConfig();
@@ -1019,11 +1016,11 @@ namespace Bot.GUI.ViewModels
 
             var sourceSettings = SelectedAccount.AutoRallySettings;
             
-            foreach (var account in Accounts.Where(a => a != SelectedAccount))
+            foreach (var target in Accounts.Where(a => a != SelectedAccount).Select(a => a.AutoRallySettings))
             {
-                account.AutoRallySettings.AutoJoin = sourceSettings.AutoJoin;
-                account.AutoRallySettings.AutoJoinMinHours = sourceSettings.AutoJoinMinHours;
-                account.AutoRallySettings.AutoJoinCheckIntervalHours = sourceSettings.AutoJoinCheckIntervalHours;
+                target.AutoJoin = sourceSettings.AutoJoin;
+                target.AutoJoinMinHours = sourceSettings.AutoJoinMinHours;
+                target.AutoJoinCheckIntervalHours = sourceSettings.AutoJoinCheckIntervalHours;
                 // Don't copy LastAutoJoinCheck - each account should maintain its own timing
             }
 

@@ -79,23 +79,7 @@ namespace Bot.Core.LDPlayer
             var instanceList = instanceNumbers.ToList();
 
             // Initialize ADB server before starting any instances
-            try
-            {
-                _logger.LogInfo("Ensuring ADB server is ready before starting instances...");
-                var adbController = await AdbConnectionManager.GetConnectionAsync(0, _logger, cancellationToken);
-                if (adbController == null)
-                {
-                    _logger.LogWarning("Initial ADB server check failed, but proceeding with instance starts...");
-                }
-                else
-                {
-                    _logger.LogInfo("✅ ADB server initialized successfully");
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning($"Error during initial ADB check: {ex.Message}. Proceeding with instance starts...");
-            }
+            await InitializeAdbServerAsync(cancellationToken);
 
             // Wait a moment after ADB initialization
             await Task.Delay(1500, cancellationToken);
@@ -123,48 +107,7 @@ namespace Bot.Core.LDPlayer
                 _logger.LogInfo($"Starting batch {batchIndex + 1}/{batches.Count}: instances {string.Join(", ", batch)}");
 
                 // Start all instances in this batch in parallel
-                var batchTasks = batch.Select(async instanceNumber =>
-                {
-                    try
-                    {
-                        var success = await StartInstanceAsync(instanceNumber, cancellationToken);
-                        results[instanceNumber] = success;
-
-                        if (success)
-                        {
-                            _logger.LogInfo($"✅ Instance {instanceNumber} started successfully");
-
-                            // Verify ADB connection
-                            try
-                            {
-                                var adbController = await AdbConnectionManager.GetConnectionAsync(instanceNumber, _logger, cancellationToken);
-                                if (adbController != null)
-                                {
-                                    _logger.LogInfo($"✅ ADB connection verified for instance {instanceNumber}");
-                                }
-                                else
-                                {
-                                    _logger.LogWarning($"⚠️ ADB connection not established for instance {instanceNumber}");
-                                }
-                            }
-                            catch (Exception ex)
-                            {
-                                _logger.LogWarning($"Error verifying ADB for instance {instanceNumber}: {ex.Message}");
-                            }
-                        }
-                        else
-                        {
-                            _logger.LogError($"❌ Failed to start instance {instanceNumber}");
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogError($"Error starting instance {instanceNumber}: {ex.Message}");
-                        results[instanceNumber] = false;
-                    }
-                });
-
-                await Task.WhenAll(batchTasks);
+                await Task.WhenAll(batch.Select(instanceNumber => StartAndVerifyInstanceAsync(instanceNumber, results, cancellationToken)));
             }
 
             // Final status report
@@ -178,6 +121,71 @@ namespace Bot.Core.LDPlayer
             return new Dictionary<int, bool>(results);
         }
 
+        private async Task InitializeAdbServerAsync(CancellationToken cancellationToken)
+        {
+            try
+            {
+                _logger.LogInfo("Ensuring ADB server is ready before starting instances...");
+                var adbController = await AdbConnectionManager.GetConnectionAsync(0, _logger, cancellationToken);
+                if (adbController == null)
+                {
+                    _logger.LogWarning("Initial ADB server check failed, but proceeding with instance starts...");
+                }
+                else
+                {
+                    _logger.LogInfo("✅ ADB server initialized successfully");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning($"Error during initial ADB check: {ex.Message}. Proceeding with instance starts...");
+            }
+        }
+
+        private async Task StartAndVerifyInstanceAsync(int instanceNumber, ConcurrentDictionary<int, bool> results, CancellationToken cancellationToken)
+        {
+            try
+            {
+                var success = await StartInstanceAsync(instanceNumber, cancellationToken);
+                results[instanceNumber] = success;
+
+                if (success)
+                {
+                    _logger.LogInfo($"✅ Instance {instanceNumber} started successfully");
+                    await VerifyAdbConnectionAsync(instanceNumber, cancellationToken);
+                }
+                else
+                {
+                    _logger.LogError($"❌ Failed to start instance {instanceNumber}");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError($"Error starting instance {instanceNumber}: {ex.Message}");
+                results[instanceNumber] = false;
+            }
+        }
+
+        private async Task VerifyAdbConnectionAsync(int instanceNumber, CancellationToken cancellationToken)
+        {
+            try
+            {
+                var adbController = await AdbConnectionManager.GetConnectionAsync(instanceNumber, _logger, cancellationToken);
+                if (adbController != null)
+                {
+                    _logger.LogInfo($"✅ ADB connection verified for instance {instanceNumber}");
+                }
+                else
+                {
+                    _logger.LogWarning($"⚠️ ADB connection not established for instance {instanceNumber}");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning($"Error verifying ADB for instance {instanceNumber}: {ex.Message}");
+            }
+        }
+
         public async Task<bool> StartInstanceAsync(int instanceNumber, CancellationToken cancellationToken = default, int timeoutSeconds = 60)
         {
             const int maxAttempts = 3;
@@ -186,65 +194,75 @@ namespace Bot.Core.LDPlayer
                 try
                 {
                     _logger.LogInfo($"[Attempt {attempt}/{maxAttempts}] Starting LDPlayer instance {instanceNumber}");
-                    
-                    // Step 1: Modify instance settings before starting
-                    if (!await ModifyInstanceSettingsAsync(instanceNumber, cancellationToken))
-                    {
-                        _logger.LogWarning($"Failed to modify instance settings, but continuing with launch...");
-                        // Continue even if modification fails as the instance might still work with default settings
-                    }
-                    
-                    // Step 2: Launch the instance
-                    // Use --index parameter with quotes to handle special characters
-                    var startResult = await RunLdConsoleCommandAsync($"launch --index \"{instanceNumber}\"", cancellationToken);
-                    
-                    // Check for common error messages
-                    if (!string.IsNullOrEmpty(startResult))
-                    {
-                        if (startResult.Contains("not found", StringComparison.OrdinalIgnoreCase) ||
-                            startResult.Contains("does not exist", StringComparison.OrdinalIgnoreCase))
-                        {
-                            _logger.LogError($"Instance {instanceNumber} not found. Please verify the instance exists.");
-                            return false;
-                        }
-                        if (startResult.Contains("already running", StringComparison.OrdinalIgnoreCase))
-                        {
-                            _logger.LogInfo($"Instance {instanceNumber} is already running. Proceeding with boot check.");
-                            return await WaitUntilFullyBootedAsync(instanceNumber, cancellationToken, timeoutSeconds);
-                        }
-                        if (startResult.Contains("Usage:", StringComparison.OrdinalIgnoreCase))
-                        {
-                            _logger.LogError($"Invalid command format. Retrying with alternative format...");
-                            // Try alternative command format
-                            startResult = await RunLdConsoleCommandAsync($"launch --index={instanceNumber}", cancellationToken);
-                        }
-                    }
 
-                    // If no output or no error messages, assume success
-                    if (string.IsNullOrEmpty(startResult) || (!startResult.Contains("error", StringComparison.OrdinalIgnoreCase) && 
-                        !startResult.Contains("Usage:", StringComparison.OrdinalIgnoreCase)))
+                    var outcome = await TryLaunchInstanceAsync(instanceNumber, timeoutSeconds, cancellationToken);
+                    if (outcome.HasValue)
                     {
-                        _logger.LogInfo($"✅ LDPlayer instance {instanceNumber} launched. Waiting for it to become responsive...");
-                        return await WaitUntilFullyBootedAsync(instanceNumber, cancellationToken, timeoutSeconds);
-                    }
-                    
-                    _logger.LogError($"Failed to start instance {instanceNumber}: {startResult}");
-                    if (attempt < maxAttempts)
-                    {
-                        await Task.Delay(2000, cancellationToken);
+                        return outcome.Value;
                     }
                 }
                 catch (Exception ex)
                 {
                     _logger.LogError($"Error starting instance {instanceNumber} (attempt {attempt}): {ex.Message}");
-                    if (attempt < maxAttempts)
-                    {
-                        await Task.Delay(2000, cancellationToken);
-                    }
+                }
+
+                if (attempt < maxAttempts)
+                {
+                    await Task.Delay(2000, cancellationToken);
                 }
             }
-            
+
             return false;
+        }
+
+        /// <summary>
+        /// One launch attempt. Returns the final result, or null when the attempt failed and may be retried.
+        /// </summary>
+        private async Task<bool?> TryLaunchInstanceAsync(int instanceNumber, int timeoutSeconds, CancellationToken cancellationToken)
+        {
+            // Step 1: Modify instance settings before starting
+            if (!await ModifyInstanceSettingsAsync(instanceNumber, cancellationToken))
+            {
+                _logger.LogWarning($"Failed to modify instance settings, but continuing with launch...");
+                // Continue even if modification fails as the instance might still work with default settings
+            }
+
+            // Step 2: Launch the instance
+            // Use --index parameter with quotes to handle special characters
+            var startResult = await RunLdConsoleCommandAsync($"launch --index \"{instanceNumber}\"", cancellationToken);
+
+            // Check for common error messages
+            if (!string.IsNullOrEmpty(startResult))
+            {
+                if (startResult.Contains("not found", StringComparison.OrdinalIgnoreCase) ||
+                    startResult.Contains("does not exist", StringComparison.OrdinalIgnoreCase))
+                {
+                    _logger.LogError($"Instance {instanceNumber} not found. Please verify the instance exists.");
+                    return false;
+                }
+                if (startResult.Contains("already running", StringComparison.OrdinalIgnoreCase))
+                {
+                    _logger.LogInfo($"Instance {instanceNumber} is already running. Proceeding with boot check.");
+                    return await WaitUntilFullyBootedAsync(instanceNumber, cancellationToken, timeoutSeconds);
+                }
+                if (startResult.Contains("Usage:", StringComparison.OrdinalIgnoreCase))
+                {
+                    _logger.LogError($"Invalid command format. Retrying with alternative format...");
+                    // Try alternative command format
+                    startResult = await RunLdConsoleCommandAsync($"launch --index={instanceNumber}", cancellationToken);
+                }
+            }
+
+            // If no output or no error messages, assume success
+            if (string.IsNullOrEmpty(startResult) || (!startResult.Contains("error", StringComparison.OrdinalIgnoreCase) &&
+                !startResult.Contains("Usage:", StringComparison.OrdinalIgnoreCase)))
+            {
+                _logger.LogInfo($"✅ LDPlayer instance {instanceNumber} launched. Waiting for it to become responsive...");
+                return await WaitUntilFullyBootedAsync(instanceNumber, cancellationToken, timeoutSeconds);
+            }
+
+            _logger.LogError($"Failed to start instance {instanceNumber}: {startResult}");
+            return null;
         }
 
         public async Task<bool> StopInstanceAsync(int instanceNumber, CancellationToken cancellationToken = default)
@@ -460,23 +478,29 @@ namespace Bot.Core.LDPlayer
             }
         }
 
+        private sealed class BootWaitState
+        {
+            public DateTime StartTime = DateTime.UtcNow;
+            public bool RecoveryAttempted;
+            public bool ServerRecoveryAttempted;
+            public int RebootAttempts;
+            public int AdbRetryCount;
+        }
+
+        // MAX_ADB_RETRIES removed as we now use a more aggressive approach with earlier recovery
+        private const int MAX_REBOOT_ATTEMPTS = 3;
+
+        // Configurable timeouts (in seconds)
+        private const int INITIAL_BOOT_WAIT = 60;  // Wait 60 seconds for initial boot before trying reboot
+        private const int FULL_RECOVERY_WAIT = 90;  // Try full recovery after 90 seconds
+
         public async Task<bool> WaitUntilFullyBootedAsync(int instanceNumber, CancellationToken cancellationToken, int timeoutSeconds = 120)
         {
             _logger.LogInfo($"[BootWait] Waiting for instance {instanceNumber} to fully boot...");
-            var startTime = DateTime.UtcNow;
+            var state = new BootWaitState();
             var maxWaitTime = TimeSpan.FromSeconds(timeoutSeconds);
-            bool recoveryAttempted = false;
-            bool serverRecoveryAttempted = false;
-            int rebootAttempts = 0;
-            int adbRetryCount = 0;
-            const int MAX_REBOOT_ATTEMPTS = 3;
-            // MAX_ADB_RETRIES removed as we now use a more aggressive approach with earlier recovery
-            
-            // Configurable timeouts (in seconds)
-            const int INITIAL_BOOT_WAIT = 60;  // Wait 60 seconds for initial boot before trying reboot
-            const int FULL_RECOVERY_WAIT = 90;  // Try full recovery after 90 seconds
 
-            while (DateTime.UtcNow - startTime < maxWaitTime)
+            while (DateTime.UtcNow - state.StartTime < maxWaitTime)
             {
                 if (cancellationToken.IsCancellationRequested)
                 {
@@ -484,147 +508,177 @@ namespace Bot.Core.LDPlayer
                     return false;
                 }
 
-                // Use new detailed status for comprehensive check
-                var detailedStatus = await GetInstanceDetailedStatusAsync(instanceNumber, cancellationToken);
-                
-                if (detailedStatus == null)
+                if (await BootWaitStepAsync(instanceNumber, state, cancellationToken))
                 {
-                    _logger.LogInfo($"[BootWait] Instance {instanceNumber} not found in list2 output, waiting...");
-                    await Task.Delay(2000, cancellationToken);
-                    continue;
+                    return true;
                 }
-                
-                // Check emulator is running
-                if (!detailedStatus.IsRunning)
-                {
-                    _logger.LogInfo($"[BootWait] Instance {instanceNumber} not running (PID: {detailedStatus.ProcessId}), waiting...");
-                    await Task.Delay(1000, cancellationToken);
-                    continue;
-                }
-                
-                // Check Android OS is started
-                if (!detailedStatus.AndroidStarted)
-                {
-                    _logger.LogInfo($"[BootWait] Instance {instanceNumber} emulator running but Android not yet started (Status: {detailedStatus.StatusDescription}), waiting...");
-
-                    // Poll every second: list2 is cheap (~40 ms) and Android often comes up well within the old fixed 5 s wait
-                    await Task.Delay(1000, cancellationToken);
-                    continue;
-                }
-                
-                // Instance is fully booted, now check ADB responsiveness
-                _logger.LogInfo($"[BootWait] Instance {instanceNumber} fully booted ({detailedStatus.StatusDescription}), checking ADB responsiveness...");
-                
-
-                var adbController = await AdbConnectionManager.GetConnectionAsync(instanceNumber, _logger, cancellationToken);
-                if (adbController == null || !await adbController.IsConnectedAndResponsive(cancellationToken))
-                {
-                    var elapsedTime = DateTime.UtcNow - startTime;
-                    adbRetryCount++;
-
-                    // Log more detailed info about ADB connection attempts
-                    _logger.LogWarning($"[BootWait] Instance {instanceNumber} not yet responsive to ADB (attempt {adbRetryCount}), waiting... (Elapsed: {elapsedTime.TotalMinutes:F1} minutes)");
-
-                    // Try ADB server recovery earlier and more aggressively for offline devices
-                    if (adbRetryCount >= 2 && !serverRecoveryAttempted) // Reduced from MAX_ADB_RETRIES (3) to 2
-                    {
-                        serverRecoveryAttempted = true;
-                        _logger.LogWarning($"[BootWait] ADB connection failed {adbRetryCount} times. Attempting comprehensive recovery...");
-                        
-                        // Notify user about recovery attempt
-                        if (_logger is GuiLogService guiLogger)
-                        {
-                            guiLogger.SendUserNotification($"|USER|Warning|{DateTime.Now:HH:mm:ss}|⚠️ Connection issues detected. Attempting automatic recovery for Instance {instanceNumber}...");
-                        }
-                        
-                        // Try comprehensive recovery
-                        var recoveryService = new AdbRecoveryService(_logger);
-                        var recoverySuccess = await recoveryService.AttemptFullRecoveryAsync(instanceNumber, cancellationToken);
-                        
-                        if (recoverySuccess)
-                        {
-                            _logger.LogInfo($"[BootWait] Recovery successful! Retrying connection...", category: LogCategories.ADB);
-                            
-                            // Notify user about successful recovery
-                            if (_logger is GuiLogService guiLogger2)
-                            {
-                                guiLogger2.SendUserNotification($"|USER|Success|{DateTime.Now:HH:mm:ss}|✅ Automatic recovery successful! Connection restored for Instance {instanceNumber}.");
-                            }
-                            
-                            adbRetryCount = 0; // Reset retry count after recovery
-                            await Task.Delay(5000, cancellationToken); // Wait a bit after recovery
-                            continue;
-                        }
-                        else
-                        {
-                            _logger.LogError($"[BootWait] Comprehensive recovery failed for instance {instanceNumber}", category: LogCategories.ADB);
-                            // Fall back to the old recovery method
-                            await AdbConnectionManager.AttemptServerRecoveryAsync(instanceNumber, _logger, cancellationToken);
-                            adbRetryCount = 0;
-                            await Task.Delay(5000, cancellationToken);
-                            continue;
-                        }
-                    }
-                    
-                    // If not responsive after initial boot wait, try a reboot cycle
-                    if (elapsedTime.TotalSeconds >= INITIAL_BOOT_WAIT && rebootAttempts < MAX_REBOOT_ATTEMPTS)
-                    {
-                        rebootAttempts++;
-                        _logger.LogWarning($"[BootWait] Instance {instanceNumber} not responsive after {INITIAL_BOOT_WAIT} seconds. Attempting reboot cycle ({rebootAttempts}/{MAX_REBOOT_ATTEMPTS})...");
-                        
-                        // Stop the instance
-                        await StopInstanceAsync(instanceNumber, cancellationToken);
-                        await Task.Delay(5000, cancellationToken);
-                        
-                        // Start it again
-                        await StartInstanceAsync(instanceNumber, cancellationToken);
-                        
-                        // Reset flags for the new boot attempt
-                        recoveryAttempted = false;
-                        serverRecoveryAttempted = false;
-                        adbRetryCount = 0;
-                        startTime = DateTime.UtcNow; // Reset the timer for the new attempt
-                        continue;
-                    }
-                    
-                    if (elapsedTime.TotalSeconds >= FULL_RECOVERY_WAIT && !recoveryAttempted)
-                    {
-                        recoveryAttempted = true;
-                        _logger.LogWarning($"[BootWait] Instance {instanceNumber} still not responsive after {FULL_RECOVERY_WAIT} seconds. Attempting full instance recovery...");
-                        if (await RecoverAsync(instanceNumber, cancellationToken))
-                        {
-                            _logger.LogInfo($"[BootWait] Instance {instanceNumber} recovered successfully.");
-                            startTime = DateTime.UtcNow; // Reset timer after successful recovery
-                            adbRetryCount = 0;
-                        }
-                        continue;
-                    }
-
-                    _logger.LogInfo($"[BootWait] Instance {instanceNumber} not yet responsive to ADB (attempt {adbRetryCount}), waiting... (Elapsed: {elapsedTime.TotalMinutes:F1} minutes)");
-                    await Task.Delay(5000, cancellationToken);
-                    continue;
-                }
-
-                try
-                {
-                    var screenshot = await adbController.TakeScreenshotAsync(cancellationToken);
-                    if (screenshot != null && screenshot.Length > 0)
-                    {
-                        _logger.LogInfo($"✅ [BootWait] Instance {instanceNumber} is fully booted and responsive.");
-                        return true;
-                    }
-                    _logger.LogInfo($"[BootWait] Instance {instanceNumber} is responsive but screenshots are not ready yet, waiting...");
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogInfo($"[BootWait] Screenshot failed for instance {instanceNumber} (this is normal during boot): {ex.Message}");
-                }
-
-                await Task.Delay(5000, cancellationToken);
             }
 
-            _logger.LogError($"[BootWait] ❌ Instance {instanceNumber} failed to fully boot within {timeoutSeconds} seconds after {rebootAttempts} reboot attempts and {adbRetryCount} ADB connection attempts.");
+            _logger.LogError($"[BootWait] ❌ Instance {instanceNumber} failed to fully boot within {timeoutSeconds} seconds after {state.RebootAttempts} reboot attempts and {state.AdbRetryCount} ADB connection attempts.");
             return false;
+        }
+
+        /// <summary>
+        /// One poll of the boot wait. Returns true once the instance is booted and answers screenshots;
+        /// otherwise it has already waited as long as the situation needs.
+        /// </summary>
+        private async Task<bool> BootWaitStepAsync(int instanceNumber, BootWaitState state, CancellationToken cancellationToken)
+        {
+            // Use new detailed status for comprehensive check
+            var detailedStatus = await GetInstanceDetailedStatusAsync(instanceNumber, cancellationToken);
+
+            if (detailedStatus == null)
+            {
+                _logger.LogInfo($"[BootWait] Instance {instanceNumber} not found in list2 output, waiting...");
+                await Task.Delay(2000, cancellationToken);
+                return false;
+            }
+
+            // Check emulator is running
+            if (!detailedStatus.IsRunning)
+            {
+                _logger.LogInfo($"[BootWait] Instance {instanceNumber} not running (PID: {detailedStatus.ProcessId}), waiting...");
+                await Task.Delay(1000, cancellationToken);
+                return false;
+            }
+
+            // Check Android OS is started
+            if (!detailedStatus.AndroidStarted)
+            {
+                _logger.LogInfo($"[BootWait] Instance {instanceNumber} emulator running but Android not yet started (Status: {detailedStatus.StatusDescription}), waiting...");
+
+                // Poll every second: list2 is cheap (~40 ms) and Android often comes up well within the old fixed 5 s wait
+                await Task.Delay(1000, cancellationToken);
+                return false;
+            }
+
+            // Instance is fully booted, now check ADB responsiveness
+            _logger.LogInfo($"[BootWait] Instance {instanceNumber} fully booted ({detailedStatus.StatusDescription}), checking ADB responsiveness...");
+
+            var adbController = await AdbConnectionManager.GetConnectionAsync(instanceNumber, _logger, cancellationToken);
+            if (adbController == null || !await adbController.IsConnectedAndResponsive(cancellationToken))
+            {
+                await HandleUnresponsiveAdbAsync(instanceNumber, state, cancellationToken);
+                return false;
+            }
+
+            if (await IsScreenshotReadyAsync(instanceNumber, adbController, cancellationToken))
+            {
+                return true;
+            }
+
+            await Task.Delay(5000, cancellationToken);
+            return false;
+        }
+
+        private async Task<bool> IsScreenshotReadyAsync(int instanceNumber, AdbController adbController, CancellationToken cancellationToken)
+        {
+            try
+            {
+                var screenshot = await adbController.TakeScreenshotAsync(cancellationToken);
+                if (screenshot != null && screenshot.Length > 0)
+                {
+                    _logger.LogInfo($"✅ [BootWait] Instance {instanceNumber} is fully booted and responsive.");
+                    return true;
+                }
+                _logger.LogInfo($"[BootWait] Instance {instanceNumber} is responsive but screenshots are not ready yet, waiting...");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogInfo($"[BootWait] Screenshot failed for instance {instanceNumber} (this is normal during boot): {ex.Message}");
+            }
+            return false;
+        }
+
+        private async Task HandleUnresponsiveAdbAsync(int instanceNumber, BootWaitState state, CancellationToken cancellationToken)
+        {
+            var elapsedTime = DateTime.UtcNow - state.StartTime;
+            state.AdbRetryCount++;
+
+            // Log more detailed info about ADB connection attempts
+            _logger.LogWarning($"[BootWait] Instance {instanceNumber} not yet responsive to ADB (attempt {state.AdbRetryCount}), waiting... (Elapsed: {elapsedTime.TotalMinutes:F1} minutes)");
+
+            // Try ADB server recovery earlier and more aggressively for offline devices
+            if (state.AdbRetryCount >= 2 && !state.ServerRecoveryAttempted) // Reduced from MAX_ADB_RETRIES (3) to 2
+            {
+                state.ServerRecoveryAttempted = true;
+                await RecoverAdbConnectionAsync(instanceNumber, state, cancellationToken);
+                return;
+            }
+
+            // If not responsive after initial boot wait, try a reboot cycle
+            if (elapsedTime.TotalSeconds >= INITIAL_BOOT_WAIT && state.RebootAttempts < MAX_REBOOT_ATTEMPTS)
+            {
+                state.RebootAttempts++;
+                _logger.LogWarning($"[BootWait] Instance {instanceNumber} not responsive after {INITIAL_BOOT_WAIT} seconds. Attempting reboot cycle ({state.RebootAttempts}/{MAX_REBOOT_ATTEMPTS})...");
+
+                // Stop the instance
+                await StopInstanceAsync(instanceNumber, cancellationToken);
+                await Task.Delay(5000, cancellationToken);
+
+                // Start it again
+                await StartInstanceAsync(instanceNumber, cancellationToken);
+
+                // Reset flags for the new boot attempt
+                state.RecoveryAttempted = false;
+                state.ServerRecoveryAttempted = false;
+                state.AdbRetryCount = 0;
+                state.StartTime = DateTime.UtcNow; // Reset the timer for the new attempt
+                return;
+            }
+
+            if (elapsedTime.TotalSeconds >= FULL_RECOVERY_WAIT && !state.RecoveryAttempted)
+            {
+                state.RecoveryAttempted = true;
+                _logger.LogWarning($"[BootWait] Instance {instanceNumber} still not responsive after {FULL_RECOVERY_WAIT} seconds. Attempting full instance recovery...");
+                if (await RecoverAsync(instanceNumber, cancellationToken))
+                {
+                    _logger.LogInfo($"[BootWait] Instance {instanceNumber} recovered successfully.");
+                    state.StartTime = DateTime.UtcNow; // Reset timer after successful recovery
+                    state.AdbRetryCount = 0;
+                }
+                return;
+            }
+
+            _logger.LogInfo($"[BootWait] Instance {instanceNumber} not yet responsive to ADB (attempt {state.AdbRetryCount}), waiting... (Elapsed: {elapsedTime.TotalMinutes:F1} minutes)");
+            await Task.Delay(5000, cancellationToken);
+        }
+
+        private async Task RecoverAdbConnectionAsync(int instanceNumber, BootWaitState state, CancellationToken cancellationToken)
+        {
+            _logger.LogWarning($"[BootWait] ADB connection failed {state.AdbRetryCount} times. Attempting comprehensive recovery...");
+
+            // Notify user about recovery attempt
+            NotifyUser($"|USER|Warning|{DateTime.Now:HH:mm:ss}|⚠️ Connection issues detected. Attempting automatic recovery for Instance {instanceNumber}...");
+
+            // Try comprehensive recovery
+            var recoveryService = new AdbRecoveryService(_logger);
+            var recoverySuccess = await recoveryService.AttemptFullRecoveryAsync(instanceNumber, cancellationToken);
+
+            if (recoverySuccess)
+            {
+                _logger.LogInfo($"[BootWait] Recovery successful! Retrying connection...", category: LogCategories.ADB);
+
+                // Notify user about successful recovery
+                NotifyUser($"|USER|Success|{DateTime.Now:HH:mm:ss}|✅ Automatic recovery successful! Connection restored for Instance {instanceNumber}.");
+            }
+            else
+            {
+                _logger.LogError($"[BootWait] Comprehensive recovery failed for instance {instanceNumber}", category: LogCategories.ADB);
+                // Fall back to the old recovery method
+                await AdbConnectionManager.AttemptServerRecoveryAsync(instanceNumber, _logger, cancellationToken);
+            }
+
+            state.AdbRetryCount = 0; // Reset retry count after recovery
+            await Task.Delay(5000, cancellationToken); // Wait a bit after recovery
+        }
+
+        private void NotifyUser(string message)
+        {
+            if (_logger is GuiLogService guiLogger)
+            {
+                guiLogger.SendUserNotification(message);
+            }
         }
 
         private async Task<string> RunDnConsoleCommandAsync(string arguments, CancellationToken cancellationToken = default)

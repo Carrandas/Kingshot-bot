@@ -20,8 +20,8 @@ namespace Bot.Core.Tests
     [Explicit("Drives LDPlayer: run by hand only")]
     public class InstanceManagerPerformanceTests
     {
-        private InstanceManager _instanceManager;
-        private LogService _logger;
+        private InstanceManager _instanceManager = null!;
+        private LogService _logger = null!;
 
         [SetUp]
         public void Setup()
@@ -115,7 +115,7 @@ namespace Bot.Core.Tests
             for (int i = 0; i < iterations; i++)
             {
                 var stopwatch = Stopwatch.StartNew();
-                var isRunning = await _instanceManager.IsInstanceRunningAsync(instanceNumber);
+                await _instanceManager.IsInstanceRunningAsync(instanceNumber);
                 stopwatch.Stop();
                 legacyTimes.Add(stopwatch.ElapsedMilliseconds);
                 
@@ -130,7 +130,7 @@ namespace Bot.Core.Tests
             for (int i = 0; i < iterations; i++)
             {
                 var stopwatch = Stopwatch.StartNew();
-                var status = await _instanceManager.GetInstanceDetailedStatusAsync(instanceNumber);
+                await _instanceManager.GetInstanceDetailedStatusAsync(instanceNumber);
                 stopwatch.Stop();
                 fastTimes.Add(stopwatch.ElapsedMilliseconds);
                 
@@ -169,7 +169,7 @@ namespace Bot.Core.Tests
             // Access private method via reflection for testing
             var parseMethod = typeof(InstanceManager).GetMethod("ParseList2Output", 
                 System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-            var result = (Dictionary<int, InstanceDetailedStatus>)parseMethod.Invoke(_instanceManager, new object[] { sampleOutput });
+            var result = (Dictionary<int, InstanceDetailedStatus>)parseMethod!.Invoke(_instanceManager, new object[] { sampleOutput })!;
             stopwatch.Stop();
 
             // Assert

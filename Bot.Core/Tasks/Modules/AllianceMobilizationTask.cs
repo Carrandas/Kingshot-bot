@@ -105,10 +105,8 @@ namespace Bot.Core.Tasks.Modules
             {
                 string accountId = AccountDetectionTask.GetCachedAccountId(account.InstanceNumber);
                 string accountKey = string.IsNullOrEmpty(accountId) ? $"Account_{account.AccountName}_{account.InstanceNumber}" : accountId;
-                if (_hasRights.TryGetValue(accountKey, out var rights) && !rights)
-                    return TaskExecutionDetails.SkippedBecause("Not R4 or higher on this character, skipped");
-                if (_lastRunUtc.TryGetValue(accountKey, out var lastRun) && DateTime.UtcNow - lastRun < MinInterval)
-                    return TaskExecutionDetails.SkippedBecause($"Ran {(int)(DateTime.UtcNow - lastRun).TotalMinutes} min ago");
+                var skipped = CheckSkip(accountKey);
+                if (skipped != null) return skipped;
 
                 var locatorService = new LocatorService(logger, account, TaskType);
                 int instance = account.InstanceNumber;
@@ -129,9 +127,7 @@ namespace Bot.Core.Tasks.Modules
                 await Task.Delay(1500, cancellationToken);
                 await locatorService.EnsureViewAsync(ViewType.BaseView, instance, cancellationToken);
 
-                string result = noRightsHit
-                    ? "no Refresh mission button (needs R4 or higher)"
-                    : $"{refreshed} mission(s) refreshed";
+                string result = DescribeResult(refreshed, noRightsHit);
                 if (!completed && !noRightsHit) return TaskExecutionDetails.Failed($"Stopped early, {result}");
                 logger.LogInfo($"[{account.AccountName}] Alliance Mobilization done: {result}");
                 return TaskExecutionDetails.Succeeded(result);
@@ -145,6 +141,22 @@ namespace Bot.Core.Tasks.Modules
                 logger.LogError($"[{account.AccountName}] Error in Alliance Mobilization: {ex.Message}");
                 return TaskExecutionDetails.Failed(ex.Message);
             }
+        }
+
+        private static TaskExecutionDetails? CheckSkip(string accountKey)
+        {
+            if (_hasRights.TryGetValue(accountKey, out var rights) && !rights)
+                return TaskExecutionDetails.SkippedBecause("Not R4 or higher on this character, skipped");
+            if (_lastRunUtc.TryGetValue(accountKey, out var lastRun) && DateTime.UtcNow - lastRun < MinInterval)
+                return TaskExecutionDetails.SkippedBecause($"Ran {(int)(DateTime.UtcNow - lastRun).TotalMinutes} min ago");
+            return null;
+        }
+
+        private static string DescribeResult(int refreshed, bool noRightsHit)
+        {
+            return noRightsHit
+                ? "no Refresh mission button (needs R4 or higher)"
+                : $"{refreshed} mission(s) refreshed";
         }
 
         /// <summary>
@@ -191,65 +203,15 @@ namespace Bot.Core.Tasks.Modules
         /// </summary>
         private async Task<(int refreshed, bool noRights, bool completed)> RefreshMissionsAsync(AccountSettings account, LogService logger, int instance, string accountKey, CancellationToken cancellationToken)
         {
-            int refreshed = 0;
-            Rectangle? lastTarget = null;
+            var state = new RefreshState();
             Mat? previousList = null;
             try
             {
                 await ScrollToTopAsync(instance, logger, cancellationToken);
                 for (int page = 0; page <= MaxScrolls; page++)
                 {
-                    // Re-scan the page after each refresh: the refreshed card turns into a "Mission refreshing" slot
-                    while (true)
-                    {
-                        var shot = await TakeScreenshotAsync(instance, logger);
-                        if (shot == null) return (refreshed, false, false);
-                        using var gray = Cv2.ImDecode(shot, ImreadModes.Grayscale);
-
-                        Rectangle? target = null;
-                        bool keepCard = false;
-                        bool rightsKnown = _hasRights.ContainsKey(accountKey);
-                        var cards = CheckCards(gray);
-                        logger.LogInfo($"[{account.AccountName}] Alliance Mobilization page {page}: {cards.Count} open card(s)");
-                        foreach (var card in cards)
-                        {
-                            if (card.CutOff)
-                            {
-                                logger.LogInfo($"[{account.AccountName}]   card at {card.Icon.Location}: cut off, judged on another page");
-                                continue;
-                            }
-                            keepCard = card.Keep != null;
-                            logger.LogInfo($"[{account.AccountName}]   card at {card.Icon.Location}: {(keepCard ? $"keep ({card.Keep})" : "refresh")}");
-                            if (keepCard && rightsKnown) continue;
-                            target = card.Icon;
-                            break;
-                        }
-                        if (target == null) break;
-
-                        if (keepCard)
-                        {
-                            // Rank check only: open the card, look for the Refresh mission button, close it again
-                            var probe = await RefreshCardAsync(account, logger, instance, target.Value, probeOnly: true, cancellationToken);
-                            if (probe == RefreshOutcome.Failed) return (refreshed, false, false);
-                            _hasRights[accountKey] = probe != RefreshOutcome.NoRights;
-                            if (probe == RefreshOutcome.NoRights) return (refreshed, true, true);
-                            continue;
-                        }
-                        if (refreshed >= MaxRefreshes) return (refreshed, false, true);
-                        // The same card again means the last refresh didn't take; don't loop on it
-                        if (target == lastTarget)
-                        {
-                            logger.LogWarning($"[{account.AccountName}] Alliance Mobilization: mission at {target.Value.Location} still open after a refresh");
-                            return (refreshed, false, false);
-                        }
-                        lastTarget = target;
-
-                        var outcome = await RefreshCardAsync(account, logger, instance, target.Value, probeOnly: false, cancellationToken);
-                        if (outcome == RefreshOutcome.Failed) return (refreshed, false, false);
-                        _hasRights[accountKey] = outcome != RefreshOutcome.NoRights;
-                        if (outcome == RefreshOutcome.NoRights) return (refreshed, true, true);
-                        refreshed++;
-                    }
+                    var pageEnd = await RefreshPageAsync(account, logger, instance, accountKey, page, state, cancellationToken);
+                    if (pageEnd != null) return (state.Refreshed, pageEnd.Value.noRights, pageEnd.Value.completed);
 
                     // Scroll down; stop once the list no longer moves
                     await SwipeAsync(instance, logger, ScrollFrom, ScrollTo, PageSwipeMs);
@@ -270,7 +232,91 @@ namespace Bot.Core.Tasks.Modules
             {
                 previousList?.Dispose();
             }
-            return (refreshed, false, true);
+            return (state.Refreshed, false, true);
+        }
+
+        private sealed class RefreshState
+        {
+            public int Refreshed;
+            public Rectangle? LastTarget;
+        }
+
+        /// <summary>
+        /// Refreshes the open missions on the visible page. Returns null when the page is done (scroll on),
+        /// otherwise the end result of the whole run.
+        /// </summary>
+        private async Task<(bool noRights, bool completed)?> RefreshPageAsync(
+            AccountSettings account, LogService logger, int instance, string accountKey, int page, RefreshState state, CancellationToken cancellationToken)
+        {
+            // Re-scan the page after each refresh: the refreshed card turns into a "Mission refreshing" slot
+            while (true)
+            {
+                var shot = await TakeScreenshotAsync(instance, logger);
+                if (shot == null) return (false, false);
+                using var gray = Cv2.ImDecode(shot, ImreadModes.Grayscale);
+
+                bool rightsKnown = _hasRights.ContainsKey(accountKey);
+                var cards = CheckCards(gray);
+                logger.LogInfo($"[{account.AccountName}] Alliance Mobilization page {page}: {cards.Count} open card(s)");
+                var (target, keepCard) = SelectCard(account, logger, cards, rightsKnown);
+                if (target == null) return null;
+
+                var end = keepCard
+                    ? await ProbeRightsAsync(account, logger, instance, accountKey, target.Value, cancellationToken)
+                    : await RefreshTargetAsync(account, logger, instance, accountKey, target.Value, state, cancellationToken);
+                if (end != null) return end;
+            }
+        }
+
+        /// <summary>Rank check only: open the card, look for the Refresh mission button, close it again. Null: carry on with the page.</summary>
+        private async Task<(bool noRights, bool completed)?> ProbeRightsAsync(
+            AccountSettings account, LogService logger, int instance, string accountKey, Rectangle target, CancellationToken cancellationToken)
+        {
+            var probe = await RefreshCardAsync(account, logger, instance, target, probeOnly: true, cancellationToken);
+            if (probe == RefreshOutcome.Failed) return (false, false);
+            _hasRights[accountKey] = probe != RefreshOutcome.NoRights;
+            if (probe == RefreshOutcome.NoRights) return (true, true);
+            return null;
+        }
+
+        /// <summary>Refreshes one mission. Null: carry on with the page.</summary>
+        private async Task<(bool noRights, bool completed)?> RefreshTargetAsync(
+            AccountSettings account, LogService logger, int instance, string accountKey, Rectangle target, RefreshState state, CancellationToken cancellationToken)
+        {
+            if (state.Refreshed >= MaxRefreshes) return (false, true);
+            // The same card again means the last refresh didn't take; don't loop on it
+            if (target == state.LastTarget)
+            {
+                logger.LogWarning($"[{account.AccountName}] Alliance Mobilization: mission at {target.Location} still open after a refresh");
+                return (false, false);
+            }
+            state.LastTarget = target;
+
+            var outcome = await RefreshCardAsync(account, logger, instance, target, probeOnly: false, cancellationToken);
+            if (outcome == RefreshOutcome.Failed) return (false, false);
+            _hasRights[accountKey] = outcome != RefreshOutcome.NoRights;
+            if (outcome == RefreshOutcome.NoRights) return (true, true);
+            state.Refreshed++;
+            return null;
+        }
+
+        /// <summary>The first card that still needs a refresh (or a rank check); null when the page has none.</summary>
+        private static (Rectangle? target, bool keepCard) SelectCard(AccountSettings account, LogService logger, IReadOnlyList<CardCheck> cards, bool rightsKnown)
+        {
+            bool keepCard = false;
+            foreach (var card in cards)
+            {
+                if (card.CutOff)
+                {
+                    logger.LogInfo($"[{account.AccountName}]   card at {card.Icon.Location}: cut off, judged on another page");
+                    continue;
+                }
+                keepCard = card.Keep != null;
+                logger.LogInfo($"[{account.AccountName}]   card at {card.Icon.Location}: {(keepCard ? $"keep ({card.Keep})" : "refresh")}");
+                if (keepCard && rightsKnown) continue;
+                return (card.Icon, keepCard);
+            }
+            return (null, keepCard);
         }
 
         /// <summary>

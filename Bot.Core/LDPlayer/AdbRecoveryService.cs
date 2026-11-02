@@ -31,51 +31,35 @@ namespace Bot.Core.LDPlayer
         public async Task<bool> AttemptFullRecoveryAsync(int instanceNumber, CancellationToken cancellationToken)
         {
             _logger.LogInfo($"[ADBRecovery] Starting comprehensive recovery for instance {instanceNumber}", category: LogCategories.ADB);
-            
-            // Strategy 1: Kill all adb processes and restart
-            if (await RestartADBServerAsync(cancellationToken))
+
+            var strategies = new (Func<Task<bool>> Attempt, string SuccessMessage)[]
             {
-                _logger.LogInfo("[ADBRecovery] ADB server restarted successfully", category: LogCategories.ADB);
-                if (await TestConnectionAsync(instanceNumber, cancellationToken))
-                    return true;
-            }
-            
-            // Strategy 2: Restart the LDPlayer instance
-            if (await RestartInstanceAsync(instanceNumber, cancellationToken))
+                // Strategy 1: Kill all adb processes and restart
+                (() => RestartADBServerAsync(cancellationToken), "ADB server restarted successfully"),
+                // Strategy 2: Restart the LDPlayer instance
+                (() => RestartInstanceAsync(instanceNumber, cancellationToken), $"Instance {instanceNumber} restarted"),
+                // Strategy 3: Fix port conflicts
+                (() => FixPortConflictsAsync(instanceNumber, cancellationToken), "Port conflicts resolved"),
+                // Strategy 4: Reset ADB keys
+                (() => ResetADBKeysAsync(cancellationToken), "ADB keys reset"),
+                // Strategy 5: Enable ADB in LDPlayer settings
+                (() => EnableADBInSettingsAsync(instanceNumber, cancellationToken), "ADB enabled in LDPlayer settings"),
+            };
+
+            foreach (var (attempt, successMessage) in strategies)
             {
-                _logger.LogInfo($"[ADBRecovery] Instance {instanceNumber} restarted", category: LogCategories.ADB);
-                if (await TestConnectionAsync(instanceNumber, cancellationToken))
-                    return true;
+                if (await attempt())
+                {
+                    _logger.LogInfo($"[ADBRecovery] {successMessage}", category: LogCategories.ADB);
+                    if (await TestConnectionAsync(instanceNumber, cancellationToken))
+                        return true;
+                }
             }
-            
-            // Strategy 3: Fix port conflicts
-            if (await FixPortConflictsAsync(instanceNumber, cancellationToken))
-            {
-                _logger.LogInfo("[ADBRecovery] Port conflicts resolved", category: LogCategories.ADB);
-                if (await TestConnectionAsync(instanceNumber, cancellationToken))
-                    return true;
-            }
-            
-            // Strategy 4: Reset ADB keys
-            if (await ResetADBKeysAsync(cancellationToken))
-            {
-                _logger.LogInfo("[ADBRecovery] ADB keys reset", category: LogCategories.ADB);
-                if (await TestConnectionAsync(instanceNumber, cancellationToken))
-                    return true;
-            }
-            
-            // Strategy 5: Enable ADB in LDPlayer settings
-            if (await EnableADBInSettingsAsync(instanceNumber, cancellationToken))
-            {
-                _logger.LogInfo("[ADBRecovery] ADB enabled in LDPlayer settings", category: LogCategories.ADB);
-                if (await TestConnectionAsync(instanceNumber, cancellationToken))
-                    return true;
-            }
-            
+
             _logger.LogError($"[ADBRecovery] All recovery strategies failed for instance {instanceNumber}", category: LogCategories.ADB);
             return false;
         }
-        
+
         private async Task<bool> RestartADBServerAsync(CancellationToken cancellationToken)
         {
             try
@@ -175,7 +159,7 @@ namespace Bot.Core.LDPlayer
             try
             {
                 var port = 5554 + (instanceNumber * 2);
-                
+
                 // Kill processes using the port
                 var netstatInfo = new ProcessStartInfo
                 {
@@ -185,44 +169,50 @@ namespace Bot.Core.LDPlayer
                     RedirectStandardOutput = true,
                     CreateNoWindow = true
                 };
-                
+
                 using var process = Process.Start(netstatInfo);
                 if (process != null)
                 {
                     var output = await process.StandardOutput.ReadToEndAsync(cancellationToken);
                     await process.WaitForExitAsync(cancellationToken);
-                    
+
                     // Parse PIDs and kill conflicting processes
-                    var lines = output.Split('\n');
-                    foreach (var line in lines)
+                    foreach (var line in output.Split('\n'))
                     {
-                        var parts = line.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
-                        if (parts.Length > 4 && int.TryParse(parts[^1], out int pid))
-                        {
-                            try
-                            {
-                                var conflictingProcess = Process.GetProcessById(pid);
-                                if (!conflictingProcess.ProcessName.Contains("LDPlayer", StringComparison.OrdinalIgnoreCase))
-                                {
-                                    conflictingProcess.Kill();
-                                    _logger.LogInfo($"[ADBRecovery] Killed process {conflictingProcess.ProcessName} using port {port}", category: LogCategories.ADB);
-                                }
-                            }
-                            catch { /* the process already exited or can't be killed: the port check below decides */ }
-                        }
+                        KillConflictingProcess(line, port);
                     }
                 }
-                
+
                 return true;
             }
             catch (Exception ex)
             {
                 _logger.LogError($"[ADBRecovery] Failed to fix port conflicts: {ex.Message}", category: LogCategories.ADB);
             }
-            
+
             return false;
         }
-        
+
+        private void KillConflictingProcess(string netstatLine, int port)
+        {
+            var parts = netstatLine.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length <= 4 || !int.TryParse(parts[^1], out int pid))
+            {
+                return;
+            }
+
+            try
+            {
+                var conflictingProcess = Process.GetProcessById(pid);
+                if (!conflictingProcess.ProcessName.Contains("LDPlayer", StringComparison.OrdinalIgnoreCase))
+                {
+                    conflictingProcess.Kill();
+                    _logger.LogInfo($"[ADBRecovery] Killed process {conflictingProcess.ProcessName} using port {port}", category: LogCategories.ADB);
+                }
+            }
+            catch { /* the process already exited or can't be killed: the port check below decides */ }
+        }
+
         private async Task<bool> ResetADBKeysAsync(CancellationToken cancellationToken)
         {
             try

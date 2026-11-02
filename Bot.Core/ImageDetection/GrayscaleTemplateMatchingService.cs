@@ -42,64 +42,51 @@ namespace Bot.Core.ImageDetection
             {
                 lock (_cacheLock)
                 {
-                    while (_templateCache.Count > MAX_CACHE_SIZE)
-                    {
-                        var oldestKey = _templateCache
-                            .Where(kvp => kvp.Value.RefCount == 0)
-                            .OrderBy(kvp => kvp.Value.LastUsed)
-                            .Select(kvp => kvp.Key)
-                            .FirstOrDefault();
-                        
-                        if (!string.IsNullOrEmpty(oldestKey) && _templateCache.TryRemove(oldestKey, out var oldValue))
-                        {
-                            oldValue.Template?.Dispose();
-                        }
-                        else
-                        {
-                            break;
-                        }
-                    }
-
-                    while (_scaledTemplateCache.Count > MAX_CACHE_SIZE)
-                    {
-                        var oldestKey = _scaledTemplateCache
-                            .Where(kvp => kvp.Value.RefCount == 0)
-                            .OrderBy(kvp => kvp.Value.LastUsed)
-                            .Select(kvp => kvp.Key)
-                            .FirstOrDefault();
-                        
-                        if (!oldestKey.Equals(default((string, double))) && _scaledTemplateCache.TryRemove(oldestKey, out var oldValue))
-                        {
-                            oldValue.Mat?.Dispose();
-                        }
-                        else
-                        {
-                            break;
-                        }
-                    }
+                    TrimToMaxSize(_templateCache, v => v.LastUsed, v => v.RefCount, v => v.Template?.Dispose());
+                    TrimToMaxSize(_scaledTemplateCache, v => v.LastUsed, v => v.RefCount, v => v.Mat?.Dispose());
 
                     var cutoff = DateTime.UtcNow.AddHours(-1);
-                    
-                    foreach (var kvp in _templateCache.Where(kvp => kvp.Value.LastUsed < cutoff && kvp.Value.RefCount == 0))
-                    {
-                        if (_templateCache.TryRemove(kvp.Key, out var oldValue))
-                        {
-                            oldValue.Template?.Dispose();
-                        }
-                    }
-
-                    foreach (var kvp in _scaledTemplateCache.Where(kvp => kvp.Value.LastUsed < cutoff && kvp.Value.RefCount == 0))
-                    {
-                        if (_scaledTemplateCache.TryRemove(kvp.Key, out var oldValue))
-                        {
-                            oldValue.Mat?.Dispose();
-                        }
-                    }
+                    RemoveExpired(_templateCache, cutoff, v => v.LastUsed, v => v.RefCount, v => v.Template?.Dispose());
+                    RemoveExpired(_scaledTemplateCache, cutoff, v => v.LastUsed, v => v.RefCount, v => v.Mat?.Dispose());
                 }
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"Error during grayscale template cache cleanup: {ex.Message}");
+            }
+        }
+
+        private static void TrimToMaxSize<TKey, TValue>(
+            ConcurrentDictionary<TKey, TValue> cache, Func<TValue, DateTime> lastUsed, Func<TValue, int> refCount, Action<TValue> dispose)
+            where TKey : notnull
+        {
+            while (cache.Count > MAX_CACHE_SIZE)
+            {
+                var oldest = cache
+                    .Where(kvp => refCount(kvp.Value) == 0)
+                    .OrderBy(kvp => lastUsed(kvp.Value))
+                    .Select(kvp => kvp.Key)
+                    .Take(1)
+                    .ToList();
+
+                if (oldest.Count == 0 || !cache.TryRemove(oldest[0], out var removed))
+                {
+                    break;
+                }
+                dispose(removed);
+            }
+        }
+
+        private static void RemoveExpired<TKey, TValue>(
+            ConcurrentDictionary<TKey, TValue> cache, DateTime cutoff, Func<TValue, DateTime> lastUsed, Func<TValue, int> refCount, Action<TValue> dispose)
+            where TKey : notnull
+        {
+            foreach (var kvp in cache.Where(kvp => lastUsed(kvp.Value) < cutoff && refCount(kvp.Value) == 0))
+            {
+                if (cache.TryRemove(kvp.Key, out var removed))
+                {
+                    dispose(removed);
+                }
             }
         }
 

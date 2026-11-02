@@ -86,40 +86,7 @@ namespace Bot.Core.Config
             {
                 try
                 {
-                    _logger.LogInfo($"Saving config to: {path} (attempt {attempt})");
-                    var options = new JsonSerializerOptions 
-                    { 
-                        WriteIndented = true,
-                        Converters = { new JsonStringEnumConverter(null, allowIntegerValues: true) }
-                    };
-                    var json = JsonSerializer.Serialize(config, options);
-                    
-                    // Ensure directory exists
-                    var directory = Path.GetDirectoryName(path);
-                    if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
-                    {
-                        Directory.CreateDirectory(directory);
-                        _logger.LogInfo($"Created directory for config file: {directory}");
-                    }
-                    
-                    // Use FileStream with FileShare.Read to prevent conflicts
-                    var tempPath = path + ".tmp";
-                    using (var fileStream = new FileStream(tempPath, FileMode.Create, FileAccess.Write, FileShare.Read))
-                    using (var writer = new StreamWriter(fileStream))
-                    {
-                        writer.Write(json);
-                        writer.Flush();
-                        fileStream.Flush(true); // Flush to disk
-                    }
-                    
-                    // Atomic replace - move temp file to target
-                    if (File.Exists(path))
-                    {
-                        File.Delete(path);
-                    }
-                    File.Move(tempPath, path);
-                    
-                    _logger.LogInfo($"Successfully saved config to {path} (attempt {attempt}).");
+                    WriteConfigFile(path, config, attempt);
                     return; // Success
                 }
                 catch (IOException ex) when (attempt < MAX_SAVE_RETRIES)
@@ -129,23 +96,65 @@ namespace Bot.Core.Config
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError($"Failed to save config to {path} on attempt {attempt}: {ex.Message}");
-                    if (attempt == MAX_SAVE_RETRIES)
-                    {
-                        _logger.LogError($"All {MAX_SAVE_RETRIES} save attempts failed. Full exception: {ex}");
-                        // Clean up temp file if it exists
-                        var tempPath = path + ".tmp";
-                        if (File.Exists(tempPath))
-                        {
-                            try { File.Delete(tempPath); } catch { /* Ignore cleanup errors */ }
-                        }
-                    }
-                    else
-                    {
-                        // Wait before retry for non-IO exceptions too
-                        Thread.Sleep(RETRY_DELAY_MS * attempt);
-                    }
+                    HandleSaveFailure(path, attempt, ex);
                 }
+            }
+        }
+
+        private static void WriteConfigFile(string path, BotConfig config, int attempt)
+        {
+            _logger.LogInfo($"Saving config to: {path} (attempt {attempt})");
+            var options = new JsonSerializerOptions 
+            { 
+                WriteIndented = true,
+                Converters = { new JsonStringEnumConverter(null, allowIntegerValues: true) }
+            };
+            var json = JsonSerializer.Serialize(config, options);
+            
+            // Ensure directory exists
+            var directory = Path.GetDirectoryName(path);
+            if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
+            {
+                Directory.CreateDirectory(directory);
+                _logger.LogInfo($"Created directory for config file: {directory}");
+            }
+            
+            // Use FileStream with FileShare.Read to prevent conflicts
+            var tempPath = path + ".tmp";
+            using (var fileStream = new FileStream(tempPath, FileMode.Create, FileAccess.Write, FileShare.Read))
+            using (var writer = new StreamWriter(fileStream))
+            {
+                writer.Write(json);
+                writer.Flush();
+                fileStream.Flush(true); // Flush to disk
+            }
+            
+            // Atomic replace - move temp file to target
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+            File.Move(tempPath, path);
+            
+            _logger.LogInfo($"Successfully saved config to {path} (attempt {attempt}).");
+        }
+
+        private static void HandleSaveFailure(string path, int attempt, Exception ex)
+        {
+            _logger.LogError($"Failed to save config to {path} on attempt {attempt}: {ex.Message}");
+            if (attempt != MAX_SAVE_RETRIES)
+            {
+                // Wait before retry for non-IO exceptions too
+                Thread.Sleep(RETRY_DELAY_MS * attempt);
+                return;
+            }
+
+            _logger.LogError($"All {MAX_SAVE_RETRIES} save attempts failed. Full exception: {ex}");
+            // Clean up temp file if it exists
+            var tempPath = path + ".tmp";
+            if (File.Exists(tempPath))
+            {
+                try { File.Delete(tempPath); } catch { /* Ignore cleanup errors */ }
             }
         }
     }

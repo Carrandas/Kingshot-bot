@@ -131,6 +131,23 @@ namespace Bot.Core.Models
                 return;
             }
 
+            ValidateInstanceLimits(logger);
+            ValidateStartupDelay(logger);
+
+            if (MaxRetries < 0)
+            {
+                logger.LogWarning("Max retries cannot be negative");
+                MaxRetries = 0;
+            }
+
+            foreach (var account in Accounts)
+            {
+                ValidateAccount(account, logger);
+            }
+        }
+
+        private void ValidateInstanceLimits(LogService logger)
+        {
             // Validate and enforce safety limits for concurrent instances
             if (TotalRunningInstances < 1)
             {
@@ -154,8 +171,10 @@ namespace Bot.Core.Models
                 logger.LogWarning("Max concurrent instances exceeds recommended limit of 5. Performance may be impacted.");
                 MaxConcurrentInstances = 5;
             }
+        }
 
-            // Validate startup delay
+        private void ValidateStartupDelay(LogService logger)
+        {
             if (InstanceStartupDelayMs < 1000)
             {
                 logger.LogWarning("Instance startup delay too low. Setting to minimum 1 second for stability.");
@@ -165,29 +184,23 @@ namespace Bot.Core.Models
             {
                 logger.LogWarning("Instance startup delay very high. Consider reducing for better performance.");
             }
+        }
 
-            if (MaxRetries < 0)
+        private static void ValidateAccount(AccountSettings account, LogService logger)
+        {
+            if (string.IsNullOrEmpty(account.AccountName))
             {
-                logger.LogWarning("Max retries cannot be negative");
-                MaxRetries = 0;
+                logger.LogWarning($"Account name is empty for instance {account.InstanceNumber}");
             }
 
-            foreach (var account in Accounts)
+            if (account.InstanceNumber < 0)
             {
-                if (string.IsNullOrEmpty(account.AccountName))
-                {
-                    logger.LogWarning($"Account name is empty for instance {account.InstanceNumber}");
-                }
+                logger.LogWarning($"Invalid instance number {account.InstanceNumber} for account {account.AccountName}");
+            }
 
-                if (account.InstanceNumber < 0)
-                {
-                    logger.LogWarning($"Invalid instance number {account.InstanceNumber} for account {account.AccountName}");
-                }
-
-                if (account.EnabledTasks == null || account.EnabledTasks.Count == 0)
-                {
-                    logger.LogWarning($"No tasks configured for account {account.AccountName}");
-                }
+            if (account.EnabledTasks == null || account.EnabledTasks.Count == 0)
+            {
+                logger.LogWarning($"No tasks configured for account {account.AccountName}");
             }
         }
 

@@ -41,6 +41,21 @@ namespace Bot.Core.Services
             _ocrService = new OcrService(logger);
         }
 
+        private static void ShowTimerStatus(IUserNotificationService userNotifications, TimeSpan? remainingTime)
+        {
+            if (remainingTime.HasValue)
+            {
+                var timeText = remainingTime.Value.TotalHours >= 1
+                    ? $"{remainingTime.Value:hh\\:mm\\:ss}"
+                    : $"{remainingTime.Value:mm\\:ss}";
+                userNotifications.ShowStatus($"Active march timers detected - {timeText} remaining", NotificationType.Info);
+            }
+            else
+            {
+                userNotifications.ShowStatus("Active march timers detected - exact time unknown", NotificationType.Info);
+            }
+        }
+
         /// <summary>
         /// Checks if there are any active march timers that would prevent farming
         /// </summary>
@@ -96,19 +111,9 @@ namespace Bot.Core.Services
                 // Provide detailed GUI feedback about timer status
                 if (hasActiveTimers && userNotifications != null)
                 {
-                    if (remainingTime.HasValue)
-                    {
-                        var timeText = remainingTime.Value.TotalHours >= 1 
-                            ? $"{remainingTime.Value:hh\\:mm\\:ss}" 
-                            : $"{remainingTime.Value:mm\\:ss}";
-                        userNotifications.ShowStatus($"Active march timers detected - {timeText} remaining", NotificationType.Info);
-                    }
-                    else
-                    {
-                        userNotifications.ShowStatus("Active march timers detected - exact time unknown", NotificationType.Info);
-                    }
+                    ShowTimerStatus(userNotifications, remainingTime);
                 }
-                
+
                 return new MarchTimerResult(hasActiveTimers, remainingTime);
             }
             catch (Exception ex)

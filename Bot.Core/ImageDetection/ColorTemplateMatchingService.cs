@@ -42,40 +42,50 @@ namespace Bot.Core.ImageDetection
             {
                 lock (_cacheLock)
                 {
-                    while (_templateCache.Count > MAX_CACHE_SIZE)
-                    {
-                        var oldestKey = _templateCache
-                            .Where(kvp => kvp.Value.RefCount == 0)
-                            .OrderBy(kvp => kvp.Value.LastUsed)
-                            .Select(kvp => kvp.Key)
-                            .FirstOrDefault();
-                        
-                        if (!string.IsNullOrEmpty(oldestKey) && _templateCache.TryRemove(oldestKey, out var oldValue))
-                        {
-                            oldValue.BGR?.Dispose();
-                            oldValue.HSV?.Dispose();
-                        }
-                        else
-                        {
-                            break;
-                        }
-                    }
-
-                    var cutoff = DateTime.UtcNow.AddHours(-1);
-                    
-                    foreach (var kvp in _templateCache.Where(kvp => kvp.Value.LastUsed < cutoff && kvp.Value.RefCount == 0))
-                    {
-                        if (_templateCache.TryRemove(kvp.Key, out var oldValue))
-                        {
-                            oldValue.BGR?.Dispose();
-                            oldValue.HSV?.Dispose();
-                        }
-                    }
+                    TrimToMaxSize();
+                    RemoveStaleTemplates();
                 }
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"Error during color template cache cleanup: {ex.Message}");
+            }
+        }
+
+        private static void DisposeTemplate((Mat BGR, Mat HSV, DateTime LastUsed, int RefCount) entry)
+        {
+            entry.BGR?.Dispose();
+            entry.HSV?.Dispose();
+        }
+
+        private static void TrimToMaxSize()
+        {
+            while (_templateCache.Count > MAX_CACHE_SIZE)
+            {
+                var oldestKey = _templateCache
+                    .Where(kvp => kvp.Value.RefCount == 0)
+                    .OrderBy(kvp => kvp.Value.LastUsed)
+                    .Select(kvp => kvp.Key)
+                    .FirstOrDefault();
+
+                if (string.IsNullOrEmpty(oldestKey) || !_templateCache.TryRemove(oldestKey, out var oldValue))
+                {
+                    break;
+                }
+                DisposeTemplate(oldValue);
+            }
+        }
+
+        private static void RemoveStaleTemplates()
+        {
+            var cutoff = DateTime.UtcNow.AddHours(-1);
+
+            foreach (var kvp in _templateCache.Where(kvp => kvp.Value.LastUsed < cutoff && kvp.Value.RefCount == 0))
+            {
+                if (_templateCache.TryRemove(kvp.Key, out var oldValue))
+                {
+                    DisposeTemplate(oldValue);
+                }
             }
         }
 
@@ -281,88 +291,7 @@ namespace Bot.Core.ImageDetection
                 try
                 {
                     var template = GetOrCreateScaledTemplate(cacheKey, templateBGR, templateHSV, scale, newWidth, newHeight);
-
-                    // Match in BGR space (per channel)
-                    double bgrConfidence = 0;
-                    Point bgrMaxLoc = new Point();
-
-                    for (int i = 0; i < 3; i++)
-                    {
-                        using var resultBGR = new Mat();
-                        Cv2.MatchTemplate(screenshotBGRChannels[i], template.BGR[i], resultBGR, TemplateMatchModes.CCoeffNormed);
-                        Cv2.MinMaxLoc(resultBGR, out _, out double maxVal, out _, out Point maxLoc);
-
-                        if (i == 0) // Use Blue channel for location
-                        {
-                            bgrMaxLoc = maxLoc;
-                        }
-                        bgrConfidence += maxVal;
-                    }
-                    bgrConfidence /= 3.0; // Average BGR confidence
-
-                    // Match in HSV space with saturation filtering
-                    double hsvConfidence = 0;
-                    Point hsvMaxLoc = new Point();
-
-                    // Check if template has sufficient saturation (not grey)
-                    if (template.AverageSaturation >= 0.35)
-                    {
-                        // Hue channel matching
-                        double hueConfidence;
-                        using (var resultH = new Mat())
-                        {
-                            Cv2.MatchTemplate(screenshotHSVChannels[0], template.Hue, resultH, TemplateMatchModes.CCoeffNormed);
-                            Cv2.MinMaxLoc(resultH, out _, out hueConfidence, out _, out hsvMaxLoc);
-                        }
-
-                        // Saturation channel matching
-                        double saturationConfidence;
-                        using (var resultS = new Mat())
-                        {
-                            Cv2.MatchTemplate(screenshotHSVChannels[1], template.Saturation, resultS, TemplateMatchModes.CCoeffNormed);
-                            Cv2.MinMaxLoc(resultS, out _, out saturationConfidence, out _, out _);
-                        }
-
-                        // Check saturation of detected area in screenshot
-                        var detectedRect = new Rect(hsvMaxLoc.X, hsvMaxLoc.Y, newWidth, newHeight);
-                        if (detectedRect.X + detectedRect.Width <= screenshotHSVChannels[1].Width &&
-                            detectedRect.Y + detectedRect.Height <= screenshotHSVChannels[1].Height)
-                        {
-                            using var detectedSaturationArea = screenshotHSVChannels[1][detectedRect];
-                            var detectedSatMean = Cv2.Mean(detectedSaturationArea);
-                            double detectedAvgSaturation = detectedSatMean.Val0 / 255.0;
-
-                            if (detectedAvgSaturation < 0.3)
-                            {
-                                hsvConfidence = 0;
-                            }
-                            else
-                            {
-                                double preliminaryHsvConfidence = (0.9 * hueConfidence) + (0.1 * saturationConfidence);
-
-                                // Validate confidence consistency
-                                double confidenceGap = Math.Abs(bgrConfidence - preliminaryHsvConfidence);
-                                if (confidenceGap > 0.3 && bgrConfidence > preliminaryHsvConfidence)
-                                {
-                                    hsvConfidence = preliminaryHsvConfidence * 0.5;
-                                }
-                                else
-                                {
-                                    hsvConfidence = preliminaryHsvConfidence;
-                                }
-                            }
-                        }
-                        else
-                        {
-                            hsvConfidence = (0.9 * hueConfidence) + (0.1 * saturationConfidence);
-                        }
-                    }
-
-                    // Weighted combination of confidences
-                    double combinedConfidence = (HSV_WEIGHT * hsvConfidence) + (BGR_WEIGHT * bgrConfidence);
-                    Point finalMaxLoc = (hsvConfidence > bgrConfidence) ? hsvMaxLoc : bgrMaxLoc;
-
-                    perScale[index] = (combinedConfidence, new Rectangle(finalMaxLoc.X, finalMaxLoc.Y, newWidth, newHeight));
+                    perScale[index] = MatchAtScale(screenshotBGRChannels, screenshotHSVChannels, template, newWidth, newHeight);
                 }
                 catch (Exception ex)
                 {
@@ -380,6 +309,95 @@ namespace Bot.Core.ImageDetection
             }
 
             return (bestConfidence >= threshold, bestRect, bestConfidence);
+        }
+
+        private static (double confidence, Rectangle rect) MatchAtScale(
+            Mat[] screenshotBGRChannels, Mat[] screenshotHSVChannels, ScaledColorTemplate template, int newWidth, int newHeight)
+        {
+            // Match in BGR space (per channel)
+            var (bgrConfidence, bgrMaxLoc) = MatchBgr(screenshotBGRChannels, template);
+
+            // Match in HSV space with saturation filtering
+            double hsvConfidence = 0;
+            Point hsvMaxLoc = new Point();
+
+            // Check if template has sufficient saturation (not grey)
+            if (template.AverageSaturation >= 0.35)
+            {
+                (hsvConfidence, hsvMaxLoc) = MatchHsv(screenshotHSVChannels, template, bgrConfidence, newWidth, newHeight);
+            }
+
+            // Weighted combination of confidences
+            double combinedConfidence = (HSV_WEIGHT * hsvConfidence) + (BGR_WEIGHT * bgrConfidence);
+            Point finalMaxLoc = (hsvConfidence > bgrConfidence) ? hsvMaxLoc : bgrMaxLoc;
+
+            return (combinedConfidence, new Rectangle(finalMaxLoc.X, finalMaxLoc.Y, newWidth, newHeight));
+        }
+
+        private static (double confidence, Point maxLoc) MatchBgr(Mat[] screenshotBGRChannels, ScaledColorTemplate template)
+        {
+            double bgrConfidence = 0;
+            Point bgrMaxLoc = new Point();
+
+            for (int i = 0; i < 3; i++)
+            {
+                using var resultBGR = new Mat();
+                Cv2.MatchTemplate(screenshotBGRChannels[i], template.BGR[i], resultBGR, TemplateMatchModes.CCoeffNormed);
+                Cv2.MinMaxLoc(resultBGR, out _, out double maxVal, out _, out Point maxLoc);
+
+                if (i == 0) // Use Blue channel for location
+                {
+                    bgrMaxLoc = maxLoc;
+                }
+                bgrConfidence += maxVal;
+            }
+            return (bgrConfidence / 3.0, bgrMaxLoc); // Average BGR confidence
+        }
+
+        private static (double confidence, Point maxLoc) MatchHsv(
+            Mat[] screenshotHSVChannels, ScaledColorTemplate template, double bgrConfidence, int newWidth, int newHeight)
+        {
+            // Hue channel matching
+            double hueConfidence;
+            Point hsvMaxLoc;
+            using (var resultH = new Mat())
+            {
+                Cv2.MatchTemplate(screenshotHSVChannels[0], template.Hue, resultH, TemplateMatchModes.CCoeffNormed);
+                Cv2.MinMaxLoc(resultH, out _, out hueConfidence, out _, out hsvMaxLoc);
+            }
+
+            // Saturation channel matching
+            double saturationConfidence;
+            using (var resultS = new Mat())
+            {
+                Cv2.MatchTemplate(screenshotHSVChannels[1], template.Saturation, resultS, TemplateMatchModes.CCoeffNormed);
+                Cv2.MinMaxLoc(resultS, out _, out saturationConfidence, out _, out _);
+            }
+
+            double preliminaryHsvConfidence = (0.9 * hueConfidence) + (0.1 * saturationConfidence);
+
+            // Check saturation of detected area in screenshot
+            var detectedRect = new Rect(hsvMaxLoc.X, hsvMaxLoc.Y, newWidth, newHeight);
+            if (detectedRect.X + detectedRect.Width > screenshotHSVChannels[1].Width ||
+                detectedRect.Y + detectedRect.Height > screenshotHSVChannels[1].Height)
+            {
+                return (preliminaryHsvConfidence, hsvMaxLoc);
+            }
+
+            using var detectedSaturationArea = screenshotHSVChannels[1][detectedRect];
+            double detectedAvgSaturation = Cv2.Mean(detectedSaturationArea).Val0 / 255.0;
+            if (detectedAvgSaturation < 0.3)
+            {
+                return (0, hsvMaxLoc);
+            }
+
+            // Validate confidence consistency
+            double confidenceGap = Math.Abs(bgrConfidence - preliminaryHsvConfidence);
+            if (confidenceGap > 0.3 && bgrConfidence > preliminaryHsvConfidence)
+            {
+                return (preliminaryHsvConfidence * 0.5, hsvMaxLoc);
+            }
+            return (preliminaryHsvConfidence, hsvMaxLoc);
         }
 
         public void Dispose()

@@ -88,22 +88,33 @@ namespace Bot.Core.Tasks.Modules
             }
         }
 
+        private async Task<bool> OpenSidePanelAsync(AccountSettings account, LogService logger, int instance, CancellationToken cancellationToken)
+        {
+            if ((await MatchAsync(PanelCloseArrowTemplate, PanelCloseArrowArea, PanelArrowThreshold, instance, logger)).found)
+            {
+                return true;
+            }
+
+            var arrow = await MatchAsync(PanelOpenArrowTemplate, PanelOpenArrowArea, PanelArrowThreshold, instance, logger);
+            if (!arrow.found)
+            {
+                logger.LogWarning($"[{account.AccountName}] Water Essence: side panel arrow not found");
+                return false;
+            }
+            await ClickCenterInRectAsync(instance, logger, arrow.rect);
+            await Task.Delay(1500, cancellationToken);
+            return true;
+        }
+
         /// <summary>
         /// Side panel > Daily tab > Fountain of Life row arrow, when enough water essence is available.
         /// Returns the amount read from the row (-1 when unreadable; the island is opened anyway then).
         /// </summary>
         private async Task<(bool opened, int available)> OpenFountainAsync(AccountSettings account, LogService logger, int instance, CancellationToken cancellationToken)
         {
-            if (!(await MatchAsync(PanelCloseArrowTemplate, PanelCloseArrowArea, PanelArrowThreshold, instance, logger)).found)
+            if (!await OpenSidePanelAsync(account, logger, instance, cancellationToken))
             {
-                var arrow = await MatchAsync(PanelOpenArrowTemplate, PanelOpenArrowArea, PanelArrowThreshold, instance, logger);
-                if (!arrow.found)
-                {
-                    logger.LogWarning($"[{account.AccountName}] Water Essence: side panel arrow not found");
-                    return (false, -1);
-                }
-                await ClickCenterInRectAsync(instance, logger, arrow.rect);
-                await Task.Delay(1500, cancellationToken);
+                return (false, -1);
             }
             await ClickAsync(instance, logger, DailyTabPoint);
             await Task.Delay(1200, cancellationToken);

@@ -125,99 +125,18 @@ namespace Bot.Core.Tasks.Modules
                 int instance = account.InstanceNumber;
                 await locatorService.EnsureViewAsync(ViewType.BaseView, instance, cancellationToken);
 
-                // The envelope only shows while letters wait; it wobbles, so look at a few frames
-                (bool found, Rectangle rect, double confidence) envelope = default;
-                for (int i = 0; i < 3 && !envelope.found; i++)
-                {
-                    envelope = await MatchAsync(EnvelopeTemplate, EnvelopeArea, EnvelopeThreshold, instance, logger);
-                    if (!envelope.found) await Task.Delay(700, cancellationToken);
-                }
-                if (!envelope.found)
-                    return TaskExecutionDetails.Succeeded("No letters waiting");
-
-                await ClickCenterInRectAsync(instance, logger, envelope.rect);
-                await Task.Delay(2500, cancellationToken);
-                if (!(await MatchAsync(TitleTemplate, TitleArea, Threshold, instance, logger)).found)
-                {
-                    logger.LogWarning($"[{account.AccountName}] Suggestion Box did not open");
-                    await locatorService.EnsureViewAsync(ViewType.BaseView, instance, cancellationToken);
-                    return TaskExecutionDetails.Failed("Suggestion Box did not open");
-                }
-                // The box reopens on the last tab used
-                await ClickAsync(instance, logger, SosTabPoint);
-                await Task.Delay(2000, cancellationToken);
+                var openFailure = await OpenSuggestionBoxAsync(account, logger, instance, locatorService, cancellationToken);
+                if (openFailure != null) return openFailure;
 
                 var answers = LoadAnswers(logger);
                 int answered = 0, right = 0, wrong = 0;
                 while (answered < MaxLetters)
                 {
-                    await WaitIfPausedAsync(cancellationToken);
-                    // Answered rows disappear, so the next letter is always in the first row
-                    if (!(await MatchAsync(QuestionTemplate, FirstRowIconArea, Threshold, instance, logger)).found) break;
+                    var (proceed, score) = await AnswerNextLetterAsync(account, logger, instance, answers, cancellationToken);
+                    if (!proceed) break;
 
-                    await ClickAsync(instance, logger, FirstRowPoint);
-                    await Task.Delay(2500, cancellationToken);
-                    if (!(await MatchAsync(AnswerButtonTemplate, AnswerButtonArea, Threshold, instance, logger)).found)
-                    {
-                        logger.LogWarning($"[{account.AccountName}] Suggestion Box: letter did not open");
-                        break;
-                    }
-
-                    var shot = await TakeScreenshotAsync(instance, logger);
-                    if (shot == null) break;
-                    string letter = ReadText(shot, LetterTextArea, white: false, logger);
-                    string[] options = AnswerAreas.Select(a => ReadText(shot, a, white: true, logger)).ToArray();
-
-                    int pick = PickAnswer(answers, letter, options, out AnswerEntry? entry);
-                    bool known = entry != null;
-                    bool tryingOther = entry?.TryOther == true;
-                    if (tryingOther) pick = 1 - pick;
-                    if (!known)
-                        logger.LogWarning($"[{account.AccountName}] Suggestion Box: NEW LETTER '{letter}', answers '{options[0]}' / '{options[1]}', guessing the first");
-                    else
-                        logger.LogInfo($"[{account.AccountName}] Suggestion Box: known letter, answering '{options[pick]}' (other: '{options[1 - pick]}'){(tryingOther ? ", trying the answer that was not tried yet" : "")}");
-                    await ClickCenterInRectAsync(instance, logger, AnswerAreas[pick]);
-                    await Task.Delay(2500, cancellationToken);
-
-                    var result = await TakeScreenshotAsync(instance, logger);
-                    string opinion = result == null ? "" : ReadText(result, OpinionArea, white: true, logger);
-                    // "Public Opinion: +3%" for the right answer, "-2%" for the wrong one, "0%" for a neutral one
-                    // (some letters have no +3% answer)
-                    int? score = null;
-                    if (opinion.Contains('-')) score = -1;
-                    else if (opinion.Contains('+')) score = 1;
-                    else if (opinion.Contains('%')) score = 0;
                     if (score > 0) right++;
                     if (score < 0) wrong++;
-                    string verdict;
-                    if (score == null) verdict = "unread";
-                    else if (score > 0) verdict = "right";
-                    else if (score < 0) verdict = "wrong";
-                    else verdict = "neutral";
-                    logger.LogInfo($"[{account.AccountName}] Suggestion Box: result '{opinion}' ({verdict})");
-
-                    AnswerEntry? learned = null;
-                    if (score != null && !known && Words(letter).Count > 0)
-                        learned = new AnswerEntry { Letter = letter, Answer = options[score < 0 ? 1 - pick : pick], TryOther = score == 0 };
-                    else if (score != null && tryingOther)
-                        // the other answer was tried after a 0%: keep it only when it did better
-                        learned = new AnswerEntry { Letter = entry!.Letter, Answer = score > 0 ? options[pick] : entry.Answer };
-                    else if (score < 0 && known)
-                        learned = new AnswerEntry { Letter = entry!.Letter, Answer = options[1 - pick] };
-
-                    if (learned != null && Words(learned.Answer).Count > 0)
-                    {
-                        // learned entries come after the built-in ones and win a tie
-                        if (entry != null) answers.Remove(entry);
-                        answers.Add(learned);
-                        logger.LogWarning($"[{account.AccountName}] Suggestion Box: {(known ? "stored answer is now" : "learned")} '{learned.Answer}'{(learned.TryOther ? " (0%, the other answer is tried next time)" : "")}");
-                        SaveLearned(answers.Except(KnownAnswers).ToList(), logger);
-                    }
-
-                    var confirm = await MatchAsync(ConfirmTemplate, ConfirmArea, Threshold, instance, logger);
-                    if (confirm.found) await ClickCenterInRectAsync(instance, logger, confirm.rect);
-                    else await ClickAsync(instance, logger, ConfirmPoint);
-                    await Task.Delay(2500, cancellationToken);
                     answered++;
                 }
 
@@ -239,6 +158,139 @@ namespace Bot.Core.Tasks.Modules
                 logger.LogError($"[{account.AccountName}] Error in Suggestion Box: {ex.Message}");
                 return TaskExecutionDetails.Failed(ex.Message);
             }
+        }
+
+        /// <summary>Taps the envelope and the SOS tab. Returns the result when there is nothing to answer or the box did not open, otherwise null.</summary>
+        private async Task<TaskExecutionDetails?> OpenSuggestionBoxAsync(
+            AccountSettings account, LogService logger, int instance, LocatorService locatorService, CancellationToken cancellationToken)
+        {
+            // The envelope only shows while letters wait; it wobbles, so look at a few frames
+            (bool found, Rectangle rect, double confidence) envelope = default;
+            for (int i = 0; i < 3 && !envelope.found; i++)
+            {
+                envelope = await MatchAsync(EnvelopeTemplate, EnvelopeArea, EnvelopeThreshold, instance, logger);
+                if (!envelope.found) await Task.Delay(700, cancellationToken);
+            }
+            if (!envelope.found)
+                return TaskExecutionDetails.Succeeded("No letters waiting");
+
+            await ClickCenterInRectAsync(instance, logger, envelope.rect);
+            await Task.Delay(2500, cancellationToken);
+            if (!(await MatchAsync(TitleTemplate, TitleArea, Threshold, instance, logger)).found)
+            {
+                logger.LogWarning($"[{account.AccountName}] Suggestion Box did not open");
+                await locatorService.EnsureViewAsync(ViewType.BaseView, instance, cancellationToken);
+                return TaskExecutionDetails.Failed("Suggestion Box did not open");
+            }
+            // The box reopens on the last tab used
+            await ClickAsync(instance, logger, SosTabPoint);
+            await Task.Delay(2000, cancellationToken);
+            return null;
+        }
+
+        /// <summary>Taps the first letter row and screenshots the open letter. Null when no letter is left or it did not open.</summary>
+        private async Task<byte[]?> OpenFirstLetterAsync(AccountSettings account, LogService logger, int instance, CancellationToken cancellationToken)
+        {
+            // Answered rows disappear, so the next letter is always in the first row
+            if (!(await MatchAsync(QuestionTemplate, FirstRowIconArea, Threshold, instance, logger)).found) return null;
+
+            await ClickAsync(instance, logger, FirstRowPoint);
+            await Task.Delay(2500, cancellationToken);
+            if (!(await MatchAsync(AnswerButtonTemplate, AnswerButtonArea, Threshold, instance, logger)).found)
+            {
+                logger.LogWarning($"[{account.AccountName}] Suggestion Box: letter did not open");
+                return null;
+            }
+
+            return await TakeScreenshotAsync(instance, logger);
+        }
+
+        private static void StoreLearnedEntry(AccountSettings account, LogService logger, List<AnswerEntry> answers, AnswerEntry? entry, bool known, AnswerEntry? learned)
+        {
+            if (learned == null || Words(learned.Answer).Count == 0) return;
+
+            // learned entries come after the built-in ones and win a tie
+            if (entry != null) answers.Remove(entry);
+            answers.Add(learned);
+            logger.LogWarning($"[{account.AccountName}] Suggestion Box: {(known ? "stored answer is now" : "learned")} '{learned.Answer}'{(learned.TryOther ? " (0%, the other answer is tried next time)" : "")}");
+            SaveLearned(answers.Except(KnownAnswers).ToList(), logger);
+        }
+
+        private static void LogAnswerChoice(AccountSettings account, LogService logger, bool known, bool tryingOther, string letter, string[] options, int pick)
+        {
+            if (!known)
+                logger.LogWarning($"[{account.AccountName}] Suggestion Box: NEW LETTER '{letter}', answers '{options[0]}' / '{options[1]}', guessing the first");
+            else
+                logger.LogInfo($"[{account.AccountName}] Suggestion Box: known letter, answering '{options[pick]}' (other: '{options[1 - pick]}'){(tryingOther ? ", trying the answer that was not tried yet" : "")}");
+        }
+
+        /// <summary>
+        /// Opens the first letter, answers it, learns from the result and confirms. proceed is false when there is no letter left
+        /// or a screen did not open; score is the public opinion change (-1 wrong, 0 neutral, 1 right, null unread).
+        /// </summary>
+        private async Task<(bool proceed, int? score)> AnswerNextLetterAsync(
+            AccountSettings account, LogService logger, int instance, List<AnswerEntry> answers, CancellationToken cancellationToken)
+        {
+            await WaitIfPausedAsync(cancellationToken);
+            var shot = await OpenFirstLetterAsync(account, logger, instance, cancellationToken);
+            if (shot == null) return (false, null);
+
+            string letter = ReadText(shot, LetterTextArea, white: false, logger);
+            string[] options = AnswerAreas.Select(a => ReadText(shot, a, white: true, logger)).ToArray();
+
+            int pick = PickAnswer(answers, letter, options, out AnswerEntry? entry);
+            bool known = entry != null;
+            bool tryingOther = entry?.TryOther == true;
+            if (tryingOther) pick = 1 - pick;
+            LogAnswerChoice(account, logger, known, tryingOther, letter, options, pick);
+            await ClickCenterInRectAsync(instance, logger, AnswerAreas[pick]);
+            await Task.Delay(2500, cancellationToken);
+
+            var result = await TakeScreenshotAsync(instance, logger);
+            string opinion = result == null ? "" : ReadText(result, OpinionArea, white: true, logger);
+            int? score = ReadOpinionScore(opinion);
+            logger.LogInfo($"[{account.AccountName}] Suggestion Box: result '{opinion}' ({DescribeVerdict(score)})");
+
+            StoreLearnedEntry(account, logger, answers, entry, known, DecideLearnedEntry(score, known, tryingOther, entry, letter, options, pick));
+
+            var confirm = await MatchAsync(ConfirmTemplate, ConfirmArea, Threshold, instance, logger);
+            if (confirm.found) await ClickCenterInRectAsync(instance, logger, confirm.rect);
+            else await ClickAsync(instance, logger, ConfirmPoint);
+            await Task.Delay(2500, cancellationToken);
+            return (true, score);
+        }
+
+        /// <summary>
+        /// "Public Opinion: +3%" for the right answer, "-2%" for the wrong one, "0%" for a neutral one
+        /// (some letters have no +3% answer). Null when nothing was read.
+        /// </summary>
+        private static int? ReadOpinionScore(string opinion)
+        {
+            if (opinion.Contains('-')) return -1;
+            if (opinion.Contains('+')) return 1;
+            if (opinion.Contains('%')) return 0;
+            return null;
+        }
+
+        private static string DescribeVerdict(int? score)
+        {
+            if (score == null) return "unread";
+            if (score > 0) return "right";
+            if (score < 0) return "wrong";
+            return "neutral";
+        }
+
+        /// <summary>The answer table entry to store after this letter, or null when nothing is learned.</summary>
+        private static AnswerEntry? DecideLearnedEntry(int? score, bool known, bool tryingOther, AnswerEntry? entry, string letter, string[] options, int pick)
+        {
+            if (score != null && !known && Words(letter).Count > 0)
+                return new AnswerEntry { Letter = letter, Answer = options[score < 0 ? 1 - pick : pick], TryOther = score == 0 };
+            if (score != null && tryingOther)
+                // the other answer was tried after a 0%: keep it only when it did better
+                return new AnswerEntry { Letter = entry!.Letter, Answer = score > 0 ? options[pick] : entry.Answer };
+            if (score < 0 && known)
+                return new AnswerEntry { Letter = entry!.Letter, Answer = options[1 - pick] };
+            return null;
         }
 
         /// <summary>

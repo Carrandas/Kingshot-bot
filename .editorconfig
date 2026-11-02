@@ -3,3 +3,6 @@ root = true
 [*.cs]
 # Random is used for tap jitter and delays, not for security
 dotnet_diagnostic.S2245.severity = none
+# Complexity rules are off in the default Sonar profile; keep them on
+dotnet_diagnostic.S1541.severity = warning
+dotnet_diagnostic.S3776.severity = warning

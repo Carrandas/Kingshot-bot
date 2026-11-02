@@ -62,7 +62,7 @@ namespace Bot.GUI.Converters
         /// <summary>Tasks the user can enable and run: not the system tasks or the hidden ones.</summary>
         public static bool IsUserTask(TaskType taskType) => !SystemTasks.Contains(taskType) && !DisabledTasks.Contains(taskType);
 
-        public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+        public object? Convert(object value, Type targetType, object parameter, CultureInfo culture)
         {
             // If converting a collection, filter out system tasks and disabled tasks and convert the rest
             if (value is IEnumerable<TaskType> taskTypes)
@@ -84,7 +84,7 @@ namespace Bot.GUI.Converters
             return value?.ToString() ?? string.Empty;
         }
 
-        public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+        public object? ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
         {
             if (value is string displayName)
             {

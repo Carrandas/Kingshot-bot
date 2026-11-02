@@ -65,7 +65,7 @@ namespace Bot.GUI.Controls
                         Mouse.SetCursor(WpfCursors.Hand);
                         listBoxItem.Opacity = 0.5;
                         
-                        WpfDragDropEffects result = DragDrop.DoDragDrop(this, draggedItem, WpfDragDropEffects.Move);
+                        DragDrop.DoDragDrop(this, draggedItem, WpfDragDropEffects.Move);
                         
                         // Reset visual state
                         listBoxItem.Opacity = 1.0;
@@ -89,34 +89,42 @@ namespace Bot.GUI.Controls
 
                 if (targetListBoxItem != null && draggedItem != null)
                 {
-                    var targetItem = targetListBoxItem.DataContext;
-                    if (draggedItem != targetItem && ItemsSource is IList collection)
-                    {
-                        int draggedIndex = collection.IndexOf(draggedItem);
-                        int targetIndex = collection.IndexOf(targetItem);
-
-                        if (draggedIndex >= 0 && targetIndex >= 0 && draggedIndex != targetIndex)
-                        {
-                            // Use ObservableCollection.Move if available, otherwise remove and insert
-                            if (collection is ObservableCollection<Bot.Core.Models.AccountSettings> obsCollection)
-                            {
-                                obsCollection.Move(draggedIndex, targetIndex);
-                            }
-                            else
-                            {
-                                collection.Remove(draggedItem);
-                                collection.Insert(targetIndex, draggedItem);
-                            }
-                            
-                            SelectedItem = draggedItem; // Maintain selection
-                            
-                            // Execute the command if provided
-                            ItemReorderedCommand?.Execute(null);
-                        }
-                    }
+                    MoveItem(draggedItem, targetListBoxItem.DataContext);
                 }
             }
             base.OnDrop(e);
+        }
+
+        private void MoveItem(object draggedItem, object? targetItem)
+        {
+            if (draggedItem == targetItem || ItemsSource is not IList collection)
+            {
+                return;
+            }
+
+            int draggedIndex = collection.IndexOf(draggedItem);
+            int targetIndex = collection.IndexOf(targetItem);
+
+            if (draggedIndex < 0 || targetIndex < 0 || draggedIndex == targetIndex)
+            {
+                return;
+            }
+
+            // Use ObservableCollection.Move if available, otherwise remove and insert
+            if (collection is ObservableCollection<Bot.Core.Models.AccountSettings> obsCollection)
+            {
+                obsCollection.Move(draggedIndex, targetIndex);
+            }
+            else
+            {
+                collection.Remove(draggedItem);
+                collection.Insert(targetIndex, draggedItem);
+            }
+
+            SelectedItem = draggedItem; // Maintain selection
+
+            // Execute the command if provided
+            ItemReorderedCommand?.Execute(null);
         }
 
         protected override void OnDragOver(WpfDragEventArgs e)
@@ -134,7 +142,6 @@ namespace Bot.GUI.Controls
                 ShowDropIndicator(targetItem, e.GetPosition(this));
                 
                 // Highlight the target item
-                var originalBrush = targetItem.Background;
                 targetItem.Background = new SolidColorBrush(WpfColor.FromArgb(50, 0, 122, 204)); // Semi-transparent blue
             }
             else
@@ -184,7 +191,7 @@ namespace Bot.GUI.Controls
             }
         }
 
-        private ListBoxItem GetListBoxItemUnderMouse(WpfPoint position)
+        private ListBoxItem? GetListBoxItemUnderMouse(WpfPoint position)
         {
             HitTestResult hitTestResult = VisualTreeHelper.HitTest(this, position);
             if (hitTestResult?.VisualHit != null)

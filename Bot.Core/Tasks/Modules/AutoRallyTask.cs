@@ -23,7 +23,7 @@ namespace Bot.Core.Tasks.Modules
         private static readonly ConcurrentDictionary<string, int> MarchesUsed = new();
         private static readonly ConcurrentDictionary<string, DateTime> LastExecutionTimes = new();
         
-        private readonly string _templateFolder;
+        private readonly string _templateFolder = Path.Combine(AppContext.BaseDirectory, "templates", "images", "Auto Rally");
         private new UnifiedTemplateMatchingService? _templateMatcher;
         private const int SEARCH_TIMEOUT_MS = 2000; // 2 seconds for image searches (as requested)
         private const int SEARCH_INTERVAL_MS = 500; // Check every 0.5 seconds (4 attempts total)
@@ -58,10 +58,6 @@ namespace Bot.Core.Tasks.Modules
         {
             try
             {
-                // Get the application's base directory and combine with template path
-                string baseDir = AppContext.BaseDirectory;
-                _templateFolder = Path.Combine(baseDir, "templates", "images", "Auto Rally");
-
                 // Ensure template directory exists
                 if (!Directory.Exists(_templateFolder))
                 {
@@ -91,16 +87,7 @@ namespace Bot.Core.Tasks.Modules
                 if (cancellationToken.IsCancellationRequested) return TaskExecutionDetails.Failed("Task was cancelled");
 
                 // Get unique account ID for accurate timer tracking (moved to beginning)
-                var accountId = AccountDetectionTask.GetCachedAccountId(account.InstanceNumber);
-                if (string.IsNullOrEmpty(accountId))
-                {
-                    logger.LogWarning($"[{account.AccountName}] No cached account ID found, using fallback key");
-                    accountId = $"Account_{account.AccountName}_{account.InstanceNumber}";
-                }
-                else
-                {
-                    logger.LogInfo($"[{account.AccountName}] Using cached account ID: '{accountId}'");
-                }
+                var accountId = ResolveAccountId(account, logger);
 
                 // Get AutoRally settings
                 var settings = account.AutoRallySettings;
@@ -108,165 +95,36 @@ namespace Bot.Core.Tasks.Modules
                 // Step 1: Handle Auto Join if enabled and timing allows
                 if (settings.AutoJoin)
                 {
-                    if (ShouldCheckAutoJoin(settings, account.AccountName, logger))
-                    {
-                        logger.LogInfo($"[{account.AccountName}] 🤖 Auto Join enabled and timing check passed, setting up auto join...");
-                        var autoJoinResult = await HandleAutoJoinAsync(account, logger, cancellationToken);
-                        
-                        // Update the last check time regardless of success/failure
-                        settings.LastAutoJoinCheck = DateTime.UtcNow;
-                        
-                        if (!autoJoinResult.Success)
-                        {
-                            return autoJoinResult; // Return early if auto join setup failed
-                        }
-                    }
-                    else
-                    {
-                        logger.LogInfo($"[{account.AccountName}] 🤖 Auto Join enabled but timing check not due yet, skipping auto join setup");
-                    }
+                    var autoJoinFailure = await RunAutoJoinStepAsync(account, settings, logger, cancellationToken);
+                    if (autoJoinFailure != null) return autoJoinFailure; // Return early if auto join setup failed
                 }
 
                 // Step 2: Look for rally icon
                 logger.LogInfo($"[{account.AccountName}] 🔍 Looking for rally icon...");
-                
-                // Ensure we're in the correct view before looking for rally icon
-                logger.LogInfo($"[{account.AccountName}] 🏠 Ensuring correct view before rally icon search...");
-                var locatorService = new LocatorService(logger, account);
-                
-                var currentView = await locatorService.DetectCurrentViewAsync(account.InstanceNumber, cancellationToken);
-                logger.LogInfo($"[{account.AccountName}] 📍 Current view: {currentView}");
-                
-                if (currentView != ViewType.BaseView && currentView != ViewType.MapView)
-                {
-                    logger.LogInfo($"[{account.AccountName}] 🔄 Not in base/map view, attempting to navigate to base view...");
-                    if (!await locatorService.EnsureViewAsync(ViewType.BaseView, account.InstanceNumber, cancellationToken))
-                    {
-                        logger.LogWarning($"[{account.AccountName}] ⚠️ Could not navigate to base view, proceeding anyway...");
-                    }
-                    else
-                    {
-                        logger.LogInfo($"[{account.AccountName}] ✅ Successfully navigated to base view");
-                    }
-                    
-                    await Task.Delay(1000, cancellationToken); // Wait for view transition
-                }
-                
-                var rallyIconPath = Path.Combine(_templateFolder, RALLY_ICON);
-                
-                // Check if the image file exists
-                if (!File.Exists(rallyIconPath))
-                {
-                    logger.LogError($"[{account.AccountName}] ❌ Rally icon template not found: {RALLY_ICON}");
-                    userNotifications?.ShowError($"Rally icon template not found: {RALLY_ICON}");
-                    return TaskExecutionDetails.Failed($"Rally icon template not found: {RALLY_ICON}");
-                }
-                
-                // Check if rally icon is present on screen first (without clicking)
-                var rallyIconPresent = await IsImageFoundAsync(account, logger, cancellationToken, rallyIconPath, "rally icon", SEARCH_TIMEOUT_MS, RallyIconSearchArea);
-                
-                if (!rallyIconPresent)
-                {
-                    logger.LogWarning($"[{account.AccountName}] ❌ Could not find rally icon on screen");
-                    logger.LogInfo($"[{account.AccountName}] Search parameters:");
-                    logger.LogInfo($"[{account.AccountName}] - Timeout: {SEARCH_TIMEOUT_MS}ms");
-                    logger.LogInfo($"[{account.AccountName}] - Interval: {SEARCH_INTERVAL_MS}ms");
-                    logger.LogInfo($"[{account.AccountName}] - Threshold: {TEMPLATE_MATCH_THRESHOLD}");
-                    
-                    userNotifications?.ShowWarning("Rally icon not found on screen");
-                    
-                    // Save execution time even on failure
-                    LastExecutionTimes[accountId] = DateTime.Now;
-                    await SaveExecutionTimesAsync();
-                    
-                    return new TaskExecutionDetails(true, message: "Rally icon not found - no rallies available");
-                }
-                
-                // Check available marches before doing anything else (skip if AutoJoin is enabled)
-                if (!settings.AutoJoin)
-                {
-                    int initialMarches = await GetAvailableMarchesAsync(account, logger);
-                    logger.LogInfo($"[{account.AccountName}] Initial march check: {initialMarches} marches available");
-                    if (initialMarches <= 0)
-                    {
-                        return TaskExecutionDetails.Failed("No marches available at start, skipping Auto Rally module");
-                    }
-                }
-                
-                // Now click the rally icon since we have marches available
-                var rallyIconFound = await FindAndClickWithTimeoutAsync(
-                    account, logger, cancellationToken, rallyIconPath, 
-                    "rally icon", SEARCH_TIMEOUT_MS, SEARCH_INTERVAL_MS);
+                await EnsureRallyViewAsync(account, logger, cancellationToken);
 
-                if (!rallyIconFound)
-                {
-                    logger.LogWarning($"[{account.AccountName}] ❌ Could not click rally icon");
-                    userNotifications?.ShowWarning("Failed to click rally icon");
-                    
-                    // Save execution time even on failure
-                    LastExecutionTimes[accountId] = DateTime.Now;
-                    await SaveExecutionTimesAsync();
-                    
-                    return TaskExecutionDetails.Failed("Failed to click rally icon");
-                }
-
-                logger.LogInfo($"[{account.AccountName}] ✅ Successfully found and clicked rally icon");
-                await Task.Delay(1000, cancellationToken); // Wait for rally screen to load
+                var openResult = await OpenRallyScreenAsync(account, accountId, settings, logger, userNotifications, cancellationToken);
+                if (openResult != null) return openResult;
 
                 // Initialize march counter for this account (using cached account ID for proper isolation)
                 MarchesUsed.TryAdd(accountId, 0);
 
                 // Try to join rallies until we run out of marches or find no more rallies
-                int rallyCount = 0;
-                int maxRallies = 10; // Safety limit to prevent infinite loops
-                
-                while (!cancellationToken.IsCancellationRequested && rallyCount < maxRallies)
-                {
-                    logger.LogInfo($"[{account.AccountName}] 🎯 Attempting to join rally #{rallyCount + 1}...");
-                    
-                    var joinResult = await TryJoinRallyAsync(account, logger, cancellationToken);
-                    
-                    if (joinResult == RallyJoinResult.NoMoreRallies)
-                    {
-                        logger.LogInfo($"[{account.AccountName}] 🏁 No more rallies available to join");
-                        break;
-                    }
-                    
-                    if (joinResult == RallyJoinResult.MaxMarchesReached)
-                    {
-                        logger.LogInfo($"[{account.AccountName}] 🎖️ Maximum marches reached");
-                        break;
-                    }
-                    
-                    if (joinResult == RallyJoinResult.Success)
-                    {
-                        rallyCount++;
-                        MarchesUsed[accountId]++;
-                        logger.LogInfo($"[{account.AccountName}] ✅ Successfully joined rally #{rallyCount}, total marches used: {MarchesUsed[accountId]}");
-                        userNotifications?.ShowStatus($"Joined rally #{rallyCount}", NotificationType.Info);
-                    }
-                    else if (joinResult == RallyJoinResult.Error)
-                    {
-                        rallyCount++; // Increment counter to move to next rally even on error
-                        logger.LogWarning($"[{account.AccountName}] ⚠️ Rally join error occurred, continuing to next rally...");
-                    }
-
-                    await Task.Delay(1000, cancellationToken); // Brief pause between rally attempts
-                }
+                int rallyCount = await JoinRalliesAsync(account, accountId, logger, userNotifications, cancellationToken);
 
                 // Click back to exit rally screen
                 logger.LogInfo($"[{account.AccountName}] 🔚 Exiting rally screen...");
                 var backButtonPath = Path.Combine(_templateFolder, BACK_BUTTON);
                 await FindAndClickWithTimeoutAsync(account, logger, cancellationToken, backButtonPath, "back button", 2000, SEARCH_INTERVAL_MS);
                 await Task.Delay(500, cancellationToken); // Wait for navigation to complete
-                
+
                 // Save execution time
                 LastExecutionTimes[accountId] = DateTime.Now;
                 await SaveExecutionTimesAsync();
 
                 var totalMarches = MarchesUsed[accountId];
-                string message = rallyCount > 0 ? 
-                    $"Joined {rallyCount} rallies, used {totalMarches} marches" : 
+                string message = rallyCount > 0 ?
+                    $"Joined {rallyCount} rallies, used {totalMarches} marches" :
                     "No rallies joined - none available or max marches reached";
 
                 logger.LogInfo($"[{account.AccountName}] 🎉 Auto Rally task completed: {message}");
@@ -281,6 +139,175 @@ namespace Bot.Core.Tasks.Modules
                 userNotifications?.ShowError($"Auto Rally task failed: {ex.Message}");
                 return TaskExecutionDetails.Failed($"Auto Rally task failed: {ex.Message}");
             }
+        }
+
+        private static string ResolveAccountId(AccountSettings account, LogService logger)
+        {
+            var accountId = AccountDetectionTask.GetCachedAccountId(account.InstanceNumber);
+            if (string.IsNullOrEmpty(accountId))
+            {
+                logger.LogWarning($"[{account.AccountName}] No cached account ID found, using fallback key");
+                return $"Account_{account.AccountName}_{account.InstanceNumber}";
+            }
+
+            logger.LogInfo($"[{account.AccountName}] Using cached account ID: '{accountId}'");
+            return accountId;
+        }
+
+        /// <summary>Runs the auto join setup when its timing check is due. Returns the failure, or null.</summary>
+        private async Task<TaskExecutionDetails?> RunAutoJoinStepAsync(AccountSettings account, AutoRallySettings settings, LogService logger, CancellationToken cancellationToken)
+        {
+            if (!ShouldCheckAutoJoin(settings, account.AccountName, logger))
+            {
+                logger.LogInfo($"[{account.AccountName}] 🤖 Auto Join enabled but timing check not due yet, skipping auto join setup");
+                return null;
+            }
+
+            logger.LogInfo($"[{account.AccountName}] 🤖 Auto Join enabled and timing check passed, setting up auto join...");
+            var autoJoinResult = await HandleAutoJoinAsync(account, logger, cancellationToken);
+
+            // Update the last check time regardless of success/failure
+            settings.LastAutoJoinCheck = DateTime.UtcNow;
+
+            return autoJoinResult.Success ? null : autoJoinResult;
+        }
+
+        private static async Task EnsureRallyViewAsync(AccountSettings account, LogService logger, CancellationToken cancellationToken)
+        {
+            // Ensure we're in the correct view before looking for rally icon
+            logger.LogInfo($"[{account.AccountName}] 🏠 Ensuring correct view before rally icon search...");
+            var locatorService = new LocatorService(logger, account);
+
+            var currentView = await locatorService.DetectCurrentViewAsync(account.InstanceNumber, cancellationToken);
+            logger.LogInfo($"[{account.AccountName}] 📍 Current view: {currentView}");
+
+            if (currentView == ViewType.BaseView || currentView == ViewType.MapView)
+            {
+                return;
+            }
+
+            logger.LogInfo($"[{account.AccountName}] 🔄 Not in base/map view, attempting to navigate to base view...");
+            if (!await locatorService.EnsureViewAsync(ViewType.BaseView, account.InstanceNumber, cancellationToken))
+            {
+                logger.LogWarning($"[{account.AccountName}] ⚠️ Could not navigate to base view, proceeding anyway...");
+            }
+            else
+            {
+                logger.LogInfo($"[{account.AccountName}] ✅ Successfully navigated to base view");
+            }
+
+            await Task.Delay(1000, cancellationToken); // Wait for view transition
+        }
+
+        /// <summary>Finds and clicks the rally icon. Returns the task result when the run ends here, null once the rally screen is open.</summary>
+        private async Task<TaskExecutionDetails?> OpenRallyScreenAsync(
+            AccountSettings account, string accountId, AutoRallySettings settings, LogService logger,
+            IUserNotificationService? userNotifications, CancellationToken cancellationToken)
+        {
+            var rallyIconPath = Path.Combine(_templateFolder, RALLY_ICON);
+
+            // Check if the image file exists
+            if (!File.Exists(rallyIconPath))
+            {
+                logger.LogError($"[{account.AccountName}] ❌ Rally icon template not found: {RALLY_ICON}");
+                userNotifications?.ShowError($"Rally icon template not found: {RALLY_ICON}");
+                return TaskExecutionDetails.Failed($"Rally icon template not found: {RALLY_ICON}");
+            }
+
+            // Check if rally icon is present on screen first (without clicking)
+            var rallyIconPresent = await IsImageFoundAsync(account, logger, cancellationToken, rallyIconPath, "rally icon", SEARCH_TIMEOUT_MS, RallyIconSearchArea);
+
+            if (!rallyIconPresent)
+            {
+                logger.LogWarning($"[{account.AccountName}] ❌ Could not find rally icon on screen");
+                logger.LogInfo($"[{account.AccountName}] Search parameters:");
+                logger.LogInfo($"[{account.AccountName}] - Timeout: {SEARCH_TIMEOUT_MS}ms");
+                logger.LogInfo($"[{account.AccountName}] - Interval: {SEARCH_INTERVAL_MS}ms");
+                logger.LogInfo($"[{account.AccountName}] - Threshold: {TEMPLATE_MATCH_THRESHOLD}");
+
+                userNotifications?.ShowWarning("Rally icon not found on screen");
+
+                // Save execution time even on failure
+                LastExecutionTimes[accountId] = DateTime.Now;
+                await SaveExecutionTimesAsync();
+
+                return new TaskExecutionDetails(true, message: "Rally icon not found - no rallies available");
+            }
+
+            // Check available marches before doing anything else (skip if AutoJoin is enabled)
+            if (!settings.AutoJoin)
+            {
+                int initialMarches = await GetAvailableMarchesAsync(account, logger);
+                logger.LogInfo($"[{account.AccountName}] Initial march check: {initialMarches} marches available");
+                if (initialMarches <= 0)
+                {
+                    return TaskExecutionDetails.Failed("No marches available at start, skipping Auto Rally module");
+                }
+            }
+
+            // Now click the rally icon since we have marches available
+            var rallyIconFound = await FindAndClickWithTimeoutAsync(
+                account, logger, cancellationToken, rallyIconPath,
+                "rally icon", SEARCH_TIMEOUT_MS, SEARCH_INTERVAL_MS);
+
+            if (!rallyIconFound)
+            {
+                logger.LogWarning($"[{account.AccountName}] ❌ Could not click rally icon");
+                userNotifications?.ShowWarning("Failed to click rally icon");
+
+                // Save execution time even on failure
+                LastExecutionTimes[accountId] = DateTime.Now;
+                await SaveExecutionTimesAsync();
+
+                return TaskExecutionDetails.Failed("Failed to click rally icon");
+            }
+
+            logger.LogInfo($"[{account.AccountName}] ✅ Successfully found and clicked rally icon");
+            await Task.Delay(1000, cancellationToken); // Wait for rally screen to load
+            return null;
+        }
+
+        /// <summary>Joins rallies until there are none left, the marches are used up or the safety limit is hit. Returns the number of rallies attempted.</summary>
+        private async Task<int> JoinRalliesAsync(
+            AccountSettings account, string accountId, LogService logger, IUserNotificationService? userNotifications, CancellationToken cancellationToken)
+        {
+            int rallyCount = 0;
+            int maxRallies = 10; // Safety limit to prevent infinite loops
+
+            while (!cancellationToken.IsCancellationRequested && rallyCount < maxRallies)
+            {
+                logger.LogInfo($"[{account.AccountName}] 🎯 Attempting to join rally #{rallyCount + 1}...");
+
+                var joinResult = await TryJoinRallyAsync(account, logger, cancellationToken);
+
+                if (joinResult == RallyJoinResult.NoMoreRallies)
+                {
+                    logger.LogInfo($"[{account.AccountName}] 🏁 No more rallies available to join");
+                    break;
+                }
+
+                if (joinResult == RallyJoinResult.MaxMarchesReached)
+                {
+                    logger.LogInfo($"[{account.AccountName}] 🎖️ Maximum marches reached");
+                    break;
+                }
+
+                if (joinResult == RallyJoinResult.Success)
+                {
+                    rallyCount++;
+                    MarchesUsed[accountId]++;
+                    logger.LogInfo($"[{account.AccountName}] ✅ Successfully joined rally #{rallyCount}, total marches used: {MarchesUsed[accountId]}");
+                    userNotifications?.ShowStatus($"Joined rally #{rallyCount}", NotificationType.Info);
+                }
+                else if (joinResult == RallyJoinResult.Error)
+                {
+                    rallyCount++; // Increment counter to move to next rally even on error
+                    logger.LogWarning($"[{account.AccountName}] ⚠️ Rally join error occurred, continuing to next rally...");
+                }
+
+                await Task.Delay(1000, cancellationToken); // Brief pause between rally attempts
+            }
+            return rallyCount;
         }
 
         #region Execution Time Tracking
@@ -589,6 +616,79 @@ namespace Bot.Core.Tasks.Modules
         /// Specialized method for finding and clicking green plus buttons with color-sensitive detection
         /// This avoids clicking on greyed-out/disabled plus buttons
         /// </summary>
+        /// <summary>One look for the green plus: matches the template and clicks it when it is green (not greyed out).</summary>
+        private async Task<(bool clicked, double confidence)> TryClickGreenPlusAsync(
+            AccountSettings account, LogService logger, byte[] screenshotBytes, string templatePath, string templateName,
+            Rectangle? searchArea, DateTime startTime)
+        {
+            // Convert byte array to bitmap for color validation
+            System.Drawing.Bitmap? screenshot = null;
+            double confidence = 0.0;
+            try
+            {
+                using var ms = new System.IO.MemoryStream(screenshotBytes);
+                screenshot = new System.Drawing.Bitmap(ms);
+
+                if (_templateMatcher == null) _templateMatcher = new UnifiedTemplateMatchingService(logger);
+
+                logger.LogInfo($"[{account.AccountName}] 🔍 Searching for {templateName} in area {searchArea?.ToString() ?? "full screen"}...");
+
+                // Use UI element detection with color matching for better accuracy
+                var (found, matchRect, matchConfidence) = _templateMatcher.MatchTemplate(
+                    screenshotBytes, // Template matching uses byte array
+                    templatePath,
+                    account.InstanceNumber,
+                    threshold: 0.25,
+                    scales: UnifiedTemplateMatchingService.StandardScales,
+                    searchArea: searchArea,
+                    isUIElement: true,
+                    verboseLogging: false
+                );
+                confidence = matchConfidence;
+
+                // Always log the confidence for debugging
+                logger.LogInfo($"[{account.AccountName}] 🎯 Template match result: found={found}, confidence={confidence:F3}, threshold=0.25");
+
+                if (found)
+                {
+                    return (await ClickIfGreenAsync(account, logger, screenshot, templateName, matchRect, confidence, startTime), confidence);
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.LogError($"[{account.AccountName}] ❌ Failed to process screenshot: {ex.Message}");
+            }
+            finally
+            {
+                screenshot?.Dispose();
+            }
+            return (false, confidence);
+        }
+
+        private async Task<bool> ClickIfGreenAsync(
+            AccountSettings account, LogService logger, System.Drawing.Bitmap screenshot, string templateName,
+            Rectangle matchRect, double confidence, DateTime startTime)
+        {
+            // Simple validation: Check if the matched area is green (not grey)
+            if (!IsGreenNotGrey(screenshot, matchRect, logger, account.AccountName))
+            {
+                logger.LogInfo($"[{account.AccountName}] 🔍 Found GREY {templateName} at {matchRect} with confidence {confidence:F3} - skipping (button disabled)");
+                return false;
+            }
+
+            logger.LogInfo($"[{account.AccountName}] ✅ Found GREEN {templateName} at {matchRect} with confidence {confidence:F3}");
+
+            logger.LogInfo($"[{account.AccountName}] 🎯 Clicking GREEN {templateName} at rectangle {matchRect}");
+            if (await ClickRandomInRectAsync(account.InstanceNumber, logger, matchRect))
+            {
+                logger.LogInfo($"[{account.AccountName}] ✅ Successfully clicked GREEN {templateName} after {(DateTime.UtcNow - startTime).TotalMilliseconds:F0}ms");
+                return true;
+            }
+
+            logger.LogWarning($"[{account.AccountName}] ⚠️ Found GREEN {templateName} at {matchRect} but click failed");
+            return false;
+        }
+
         private async Task<bool> FindAndClickGreenPlusWithTimeoutAsync(
             AccountSettings account, 
             LogService logger, 
@@ -619,69 +719,13 @@ namespace Bot.Core.Tasks.Modules
                     continue;
                 }
 
-                // Convert byte array to bitmap for color validation
-                System.Drawing.Bitmap? screenshot = null;
-                try
-                {
-                    using var ms = new System.IO.MemoryStream(screenshotBytes);
-                    screenshot = new System.Drawing.Bitmap(ms);
-                    
-                    if (_templateMatcher == null) _templateMatcher = new UnifiedTemplateMatchingService(logger);
-                    
-                    logger.LogInfo($"[{account.AccountName}] 🔍 Searching for {templateName} in area {searchArea?.ToString() ?? "full screen"}...");
-                    
-                    // Use UI element detection with color matching for better accuracy
-                    var (found, matchRect, confidence) = _templateMatcher.MatchTemplate(
-                        screenshotBytes, // Template matching uses byte array
-                        templatePath,
-                        account.InstanceNumber,
-                        threshold: 0.25,
-                        scales: UnifiedTemplateMatchingService.StandardScales,
-                        searchArea: searchArea,
-                        isUIElement: true,
-                        verboseLogging: false
-                    );
-                    
+                var (clicked, confidence) = await TryClickGreenPlusAsync(account, logger, screenshotBytes, templatePath, templateName, searchArea, startTime);
 
-                    // Track best confidence found across all attempts
-                    if (confidence > bestConfidence)
-                        bestConfidence = confidence;
+                // Track best confidence found across all attempts
+                if (confidence > bestConfidence)
+                    bestConfidence = confidence;
 
-                    // Always log the confidence for debugging
-                    logger.LogInfo($"[{account.AccountName}] 🎯 Template match result: found={found}, confidence={confidence:F3}, threshold=0.25");
-
-                    if (found)
-                    {
-                        // Simple validation: Check if the matched area is green (not grey)
-                        if (IsGreenNotGrey(screenshot, matchRect, logger, account.AccountName))
-                        {
-                            logger.LogInfo($"[{account.AccountName}] ✅ Found GREEN {templateName} at {matchRect} with confidence {confidence:F3}");
-                            
-                            logger.LogInfo($"[{account.AccountName}] 🎯 Clicking GREEN {templateName} at rectangle {matchRect}");
-                            if (await ClickRandomInRectAsync(account.InstanceNumber, logger, matchRect))
-                            {
-                                logger.LogInfo($"[{account.AccountName}] ✅ Successfully clicked GREEN {templateName} after {(DateTime.UtcNow - startTime).TotalMilliseconds:F0}ms");
-                                return true;
-                            }
-                            else
-                            {
-                                logger.LogWarning($"[{account.AccountName}] ⚠️ Found GREEN {templateName} at {matchRect} but click failed");
-                            }
-                        }
-                        else
-                        {
-                            logger.LogInfo($"[{account.AccountName}] 🔍 Found GREY {templateName} at {matchRect} with confidence {confidence:F3} - skipping (button disabled)");
-                        }
-                    }
-                }
-                catch (Exception ex)
-                {
-                    logger.LogError($"[{account.AccountName}] ❌ Failed to process screenshot: {ex.Message}");
-                }
-                finally
-                {
-                    screenshot?.Dispose();
-                }
+                if (clicked) return true;
 
                 await Task.Delay(intervalMs, cancellationToken);
             }
@@ -689,6 +733,38 @@ namespace Bot.Core.Tasks.Modules
             logger.LogInfo($"[{account.AccountName}] ⏱️ {templateName} not found within {timeoutMs}ms timeout (best confidence: {bestConfidence:F3}, threshold: 0.25)");
             
             return false;
+        }
+
+        private static (int green, int grey, int total) CountGreenAndGreyPixels(System.Drawing.Bitmap regionBitmap)
+        {
+            int greenPixels = 0;
+            int greyPixels = 0;
+            int totalPixels = 0;
+
+            for (int x = 0; x < regionBitmap.Width; x++)
+            {
+                for (int y = 0; y < regionBitmap.Height; y++)
+                {
+                    var pixel = regionBitmap.GetPixel(x, y);
+                    totalPixels++;
+
+                    // Check if pixel is green-ish (green component higher than red and blue)
+                    bool isGreen = pixel.G > pixel.R + 10 && pixel.G > pixel.B + 10 && pixel.G > 60;
+
+                    // Check if pixel is grey-ish (R, G, B values are close to each other)
+                    bool isGrey = Math.Abs(pixel.R - pixel.G) <= 20 && Math.Abs(pixel.G - pixel.B) <= 20 && Math.Abs(pixel.R - pixel.B) <= 20;
+
+                    if (isGreen && !isGrey)
+                    {
+                        greenPixels++;
+                    }
+                    else if (isGrey)
+                    {
+                        greyPixels++;
+                    }
+                }
+            }
+            return (greenPixels, greyPixels, totalPixels);
         }
 
         /// <summary>
@@ -705,34 +781,8 @@ namespace Bot.Core.Tasks.Modules
                     g.DrawImage(screenshot, new System.Drawing.Rectangle(0, 0, region.Width, region.Height), region, System.Drawing.GraphicsUnit.Pixel);
                 }
 
-                int greenPixels = 0;
-                int greyPixels = 0;
-                int totalPixels = 0;
-                
-                for (int x = 0; x < regionBitmap.Width; x++)
-                {
-                    for (int y = 0; y < regionBitmap.Height; y++)
-                    {
-                        var pixel = regionBitmap.GetPixel(x, y);
-                        totalPixels++;
-                        
-                        // Check if pixel is green-ish (green component higher than red and blue)
-                        bool isGreen = pixel.G > pixel.R + 10 && pixel.G > pixel.B + 10 && pixel.G > 60;
-                        
-                        // Check if pixel is grey-ish (R, G, B values are close to each other)
-                        bool isGrey = Math.Abs(pixel.R - pixel.G) <= 20 && Math.Abs(pixel.G - pixel.B) <= 20 && Math.Abs(pixel.R - pixel.B) <= 20;
-                        
-                        if (isGreen && !isGrey)
-                        {
-                            greenPixels++;
-                        }
-                        else if (isGrey)
-                        {
-                            greyPixels++;
-                        }
-                    }
-                }
-                
+                var (greenPixels, greyPixels, totalPixels) = CountGreenAndGreyPixels(regionBitmap);
+
                 logger.LogInfo($"[{accountName}] 🎨 Color analysis: Green pixels: {greenPixels}, Grey pixels: {greyPixels}, Total: {totalPixels}");
                 
                 regionBitmap.Dispose();
@@ -1124,6 +1174,28 @@ namespace Bot.Core.Tasks.Modules
             return 1;
         }
 
+        private static void LogTemplateNotFound(AccountSettings account, LogService logger, string templatePath, string templateName, int attemptCount, double confidence)
+        {
+            logger.LogInfo($"[{account.AccountName}] 🔍 {templateName} not found (attempt {attemptCount}) - confidence: {confidence:F3}");
+            logger.LogInfo($"[{account.AccountName}] 📁 Template file path: {templatePath}");
+            logger.LogInfo($"[{account.AccountName}] 🎯 Search threshold: {TEMPLATE_MATCH_THRESHOLD}");
+        }
+
+        private async Task<bool> ClickFoundTemplateAsync(
+            AccountSettings account, LogService logger, string templateName, Rectangle matchRect, double confidence, DateTime startTime)
+        {
+            logger.LogInfo($"[{account.AccountName}] ✅ Found {templateName} at {matchRect} with confidence {confidence:F3}");
+            logger.LogInfo($"[{account.AccountName}] 🎯 Clicking {templateName} at rectangle {matchRect}");
+            if (await ClickRandomInRectAsync(account.InstanceNumber, logger, matchRect))
+            {
+                logger.LogInfo($"[{account.AccountName}] ✅ Successfully clicked {templateName} after {(DateTime.UtcNow - startTime).TotalMilliseconds:F0}ms");
+                return true;
+            }
+
+            logger.LogWarning($"[{account.AccountName}] ⚠️ Found {templateName} at {matchRect} but click failed");
+            return false;
+        }
+
         /// <summary>
         /// Helper method to find and click an image with timeout and interval checking
         /// </summary>
@@ -1172,25 +1244,13 @@ namespace Bot.Core.Tasks.Modules
                 if (confidence > bestConfidence)
                     bestConfidence = confidence;
 
-                if (found)
+                if (found && await ClickFoundTemplateAsync(account, logger, templateName, matchRect, confidence, startTime))
                 {
-                    logger.LogInfo($"[{account.AccountName}] ✅ Found {templateName} at {matchRect} with confidence {confidence:F3}");
-                    logger.LogInfo($"[{account.AccountName}] 🎯 Clicking {templateName} at rectangle {matchRect}");
-                    if (await ClickRandomInRectAsync(account.InstanceNumber, logger, matchRect))
-                    {
-                        logger.LogInfo($"[{account.AccountName}] ✅ Successfully clicked {templateName} after {(DateTime.UtcNow - startTime).TotalMilliseconds:F0}ms");
-                        return true;
-                    }
-                    else
-                    {
-                        logger.LogWarning($"[{account.AccountName}] ⚠️ Found {templateName} at {matchRect} but click failed");
-                    }
+                    return true;
                 }
-                else
+                if (!found)
                 {
-                    logger.LogInfo($"[{account.AccountName}] 🔍 {templateName} not found (attempt {attemptCount}) - confidence: {confidence:F3}");
-                    logger.LogInfo($"[{account.AccountName}] 📁 Template file path: {templatePath}");
-                    logger.LogInfo($"[{account.AccountName}] 🎯 Search threshold: {TEMPLATE_MATCH_THRESHOLD}");
+                    LogTemplateNotFound(account, logger, templatePath, templateName, attemptCount, confidence);
                 }
 
                 await Task.Delay(intervalMs, cancellationToken);

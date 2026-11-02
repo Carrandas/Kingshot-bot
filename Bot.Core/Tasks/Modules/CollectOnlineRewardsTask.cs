@@ -100,66 +100,72 @@ namespace Bot.Core.Tasks.Modules
                 await ClickAsync(instance, logger, new Point(row.rect.X + row.rect.Width / 2 + PanelRowTitleDx, row.rect.Y + row.rect.Height / 2));
                 await Task.Delay(1500, cancellationToken);
 
-                if (rowIcon == OnlineRowIconTemplate)
-                {
-                    // The row pans the camera to the building with the chest bubble; tapping the bubble claims the chest
-                    // The camera pan takes a moment; at night the town (and the bubble) is darker
-                    var bubble = (found: false, rect: Rectangle.Empty, confidence: 0.0);
-                    for (int i = 0; i < 3 && !bubble.found; i++)
-                    {
-                        bubble = await MatchAsync(OnlineChestBubbleTemplate, OnlineChestBubbleArea, OnlineChestBubbleThreshold, instance, logger);
-                        if (!bubble.found)
-                            bubble = await MatchAsync(OnlineChestBubbleNightTemplate, OnlineChestBubbleArea, OnlineChestBubbleThreshold, instance, logger);
-                        if (!bubble.found) await Task.Delay(1000, cancellationToken);
-                    }
-                    if (bubble.found)
-                    {
-                        await ClickCenterInRectAsync(instance, logger, bubble.rect);
-                    }
-                    else
-                    {
-                        // A pointing hand covers the bubble after the row tap; the pan always centres the bubble at the same spot
-                        logger.LogInfo($"[{account.AccountName}] Online Rewards: bubble hidden by the pointer ({bubble.confidence:F2}), tapping the pan target");
-                        await ClickAsync(instance, logger, OnlineChestPanTarget);
-                    }
-                    await Task.Delay(2000, cancellationToken);
-                    if (!(await MatchAsync(NextChestTemplate, NextChestArea, DailyPanelThreshold, instance, logger)).found)
-                    {
-                        logger.LogWarning($"[{account.AccountName}] Online Rewards: chest screen did not open");
-                        continue;
-                    }
-                    logger.LogInfo($"[{account.AccountName}] Online Rewards: chest claimed");
-                    claims++;
-                    // The chest screen ("Next Chest Ready In") has no buttons; a tap exits it
-                    for (int i = 0; i < 3; i++)
-                    {
-                        if (!(await MatchAsync(NextChestTemplate, NextChestArea, DailyPanelThreshold, instance, logger)).found) break;
-                        await ClickAsync(instance, logger, OnlineChestTapPoint);
-                        await Task.Delay(1500, cancellationToken);
-                    }
-                }
-                else
-                {
-                    if (!(await MatchAsync(GourmetHeaderTemplate, GourmetHeaderArea, DailyPanelThreshold, instance, logger)).found)
-                    {
-                        logger.LogWarning($"[{account.AccountName}] Gourmet Feast popup not found");
-                        continue;
-                    }
-                    var claim = await MatchAsync(GourmetClaimTemplate, GourmetClaimArea, DailyPanelThreshold, instance, logger);
-                    if (claim.found)
-                    {
-                        await ClickCenterInRectAsync(instance, logger, claim.rect);
-                        await Task.Delay(2000, cancellationToken);
-                        claims++;
-                    }
-                    else
-                    {
-                        logger.LogInfo($"[{account.AccountName}] Gourmet Feast: no Claim button");
-                    }
-                }
+                bool claimed = rowIcon == OnlineRowIconTemplate
+                    ? await ClaimOnlineChestAsync(account, logger, instance, cancellationToken)
+                    : await ClaimGourmetFeastAsync(account, logger, instance, cancellationToken);
+                if (claimed) claims++;
             }
             await _locatorService!.EnsureViewAsync(ViewType.BaseView, instance, cancellationToken);
             return claims;
+        }
+
+        /// <summary>The Online Rewards row panned the camera to the chest bubble: tap it and leave the chest screen. True when the chest was claimed.</summary>
+        private async Task<bool> ClaimOnlineChestAsync(AccountSettings account, LogService logger, int instance, CancellationToken cancellationToken)
+        {
+            // The row pans the camera to the building with the chest bubble; tapping the bubble claims the chest
+            // The camera pan takes a moment; at night the town (and the bubble) is darker
+            var bubble = (found: false, rect: Rectangle.Empty, confidence: 0.0);
+            for (int i = 0; i < 3 && !bubble.found; i++)
+            {
+                bubble = await MatchAsync(OnlineChestBubbleTemplate, OnlineChestBubbleArea, OnlineChestBubbleThreshold, instance, logger);
+                if (!bubble.found)
+                    bubble = await MatchAsync(OnlineChestBubbleNightTemplate, OnlineChestBubbleArea, OnlineChestBubbleThreshold, instance, logger);
+                if (!bubble.found) await Task.Delay(1000, cancellationToken);
+            }
+            if (bubble.found)
+            {
+                await ClickCenterInRectAsync(instance, logger, bubble.rect);
+            }
+            else
+            {
+                // A pointing hand covers the bubble after the row tap; the pan always centres the bubble at the same spot
+                logger.LogInfo($"[{account.AccountName}] Online Rewards: bubble hidden by the pointer ({bubble.confidence:F2}), tapping the pan target");
+                await ClickAsync(instance, logger, OnlineChestPanTarget);
+            }
+            await Task.Delay(2000, cancellationToken);
+            if (!(await MatchAsync(NextChestTemplate, NextChestArea, DailyPanelThreshold, instance, logger)).found)
+            {
+                logger.LogWarning($"[{account.AccountName}] Online Rewards: chest screen did not open");
+                return false;
+            }
+            logger.LogInfo($"[{account.AccountName}] Online Rewards: chest claimed");
+            // The chest screen ("Next Chest Ready In") has no buttons; a tap exits it
+            for (int i = 0; i < 3; i++)
+            {
+                if (!(await MatchAsync(NextChestTemplate, NextChestArea, DailyPanelThreshold, instance, logger)).found) break;
+                await ClickAsync(instance, logger, OnlineChestTapPoint);
+                await Task.Delay(1500, cancellationToken);
+            }
+            return true;
+        }
+
+        /// <summary>The Gourmet Feast popup is open: press Claim. True when it was claimed.</summary>
+        private async Task<bool> ClaimGourmetFeastAsync(AccountSettings account, LogService logger, int instance, CancellationToken cancellationToken)
+        {
+            if (!(await MatchAsync(GourmetHeaderTemplate, GourmetHeaderArea, DailyPanelThreshold, instance, logger)).found)
+            {
+                logger.LogWarning($"[{account.AccountName}] Gourmet Feast popup not found");
+                return false;
+            }
+            var claim = await MatchAsync(GourmetClaimTemplate, GourmetClaimArea, DailyPanelThreshold, instance, logger);
+            if (!claim.found)
+            {
+                logger.LogInfo($"[{account.AccountName}] Gourmet Feast: no Claim button");
+                return false;
+            }
+            await ClickCenterInRectAsync(instance, logger, claim.rect);
+            await Task.Delay(2000, cancellationToken);
+            return true;
         }
 
         private async Task<bool> OpenDailyPanelAsync(int instance, LogService logger, CancellationToken cancellationToken)

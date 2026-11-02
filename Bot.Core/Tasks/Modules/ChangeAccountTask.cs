@@ -89,14 +89,7 @@ namespace Bot.Core.Tasks.Modules
                 }
 
                 CharacterRoster.Merge(account, rows.Select(r => (r.Name, r.Kingdom)));
-                // The game can reopen on another character than the one the last cycle ended on: the cached account ID
-                // then belongs to that other character, and daily gates get marked on the wrong account
-                var previous = CharacterRoster.GetActiveName(account.InstanceNumber);
-                if (previous == null || !CharacterRoster.SameName(previous, active.Name))
-                {
-                    AccountDetectionTask.ClearCacheForInstance(account.InstanceNumber);
-                }
-                CharacterRoster.SetActive(account.InstanceNumber, active.Name, active.Kingdom);
+                RememberActiveCharacter(account, active);
 
                 var activeKey = CharacterRoster.NormalizeKey(active.Name);
                 bool activeEnabled = CharacterRoster.IsEnabled(account, active.Name, active.Kingdom);
@@ -111,45 +104,17 @@ namespace Bot.Core.Tasks.Modules
                 }
 
                 // End of the list (or a disabled character is active): go to the next enabled character that has not run yet
-                var next = rows.FirstOrDefault(r =>
-                    !r.IsActive &&
-                    CharacterRoster.NormalizeKey(r.Name).Length > 0 &&
-                    !started.Contains(CharacterRoster.NormalizeKey(r.Name)) &&
-                    CharacterRoster.IsEnabled(account, r.Name, r.Kingdom));
+                var next = FindNextCharacter(account, rows, started);
 
                 if (next == null)
                 {
                     await CloseCharactersScreenAsync(account, logger, cancellationToken);
-                    if (!activeEnabled)
-                    {
-                        return TaskExecutionDetails.Failed($"{active.Name} is disabled and no other enabled character is left to switch to");
-                    }
-                    return TaskExecutionDetails.Succeeded($"all enabled characters done ({started.Count})");
+                    return activeEnabled
+                        ? TaskExecutionDetails.Succeeded($"all enabled characters done ({started.Count})")
+                        : TaskExecutionDetails.Failed($"{active.Name} is disabled and no other enabled character is left to switch to");
                 }
 
-                logger.LogInfo($"[{account.AccountName}] Switching from {active.Name} to {next.Name}{KingdomSuffix(next.Kingdom)}...");
-                if (!await ClickRandomInRectAsync(account.InstanceNumber, logger, next.TapArea))
-                {
-                    return TaskExecutionDetails.Failed("Failed to click character row");
-                }
-                await Task.Delay(1000, cancellationToken);
-
-                logger.LogInfo($"[{account.AccountName}] Looking for confirm button...");
-                if (!await FindAndClickImageAsync("confirm.png", account.InstanceNumber, logger, threshold: 0.7))
-                {
-                    return TaskExecutionDetails.Failed("Could not find confirm button");
-                }
-
-                logger.LogInfo($"[{account.AccountName}] Waiting for loading screen...");
-                await Task.Delay(3000, cancellationToken);  // Initial delay to ensure loading screen appears
-
-                // Clear cached account ID for this instance since we've switched accounts
-                AccountDetectionTask.ClearCacheForInstance(account.InstanceNumber);
-                CharacterRoster.SetActive(account.InstanceNumber, next.Name, next.Kingdom);
-                logger.LogInfo($"[{account.AccountName}] Cleared cached account ID for instance {account.InstanceNumber}");
-
-                // Signal that tasks need to be restarted from loading screen
-                return new TaskExecutionDetails(true, message: $"Switched to {next.Name}, restarting tasks...", requiresTaskRestart: true);
+                return await SwitchToRowAsync(account, logger, active, next, cancellationToken);
             }
             catch (OperationCanceledException)
             {
@@ -160,6 +125,55 @@ namespace Bot.Core.Tasks.Modules
                 logger.LogError($"[{account.AccountName}] Error during account change: {ex.Message}");
                 return TaskExecutionDetails.Failed($"Error during account change: {ex.Message}");
             }
+        }
+
+        private static void RememberActiveCharacter(AccountSettings account, CharacterRow active)
+        {
+            // The game can reopen on another character than the one the last cycle ended on: the cached account ID
+            // then belongs to that other character, and daily gates get marked on the wrong account
+            var previous = CharacterRoster.GetActiveName(account.InstanceNumber);
+            if (previous == null || !CharacterRoster.SameName(previous, active.Name))
+            {
+                AccountDetectionTask.ClearCacheForInstance(account.InstanceNumber);
+            }
+            CharacterRoster.SetActive(account.InstanceNumber, active.Name, active.Kingdom);
+        }
+
+        private static CharacterRow? FindNextCharacter(AccountSettings account, List<CharacterRow> rows, HashSet<string> started)
+        {
+            return rows.FirstOrDefault(r =>
+                !r.IsActive &&
+                CharacterRoster.NormalizeKey(r.Name).Length > 0 &&
+                !started.Contains(CharacterRoster.NormalizeKey(r.Name)) &&
+                CharacterRoster.IsEnabled(account, r.Name, r.Kingdom));
+        }
+
+        /// <summary>Taps the next character's row and confirms the switch; the game reloads, so the task list restarts.</summary>
+        private async Task<TaskExecutionDetails> SwitchToRowAsync(AccountSettings account, LogService logger, CharacterRow active, CharacterRow next, CancellationToken cancellationToken)
+        {
+            logger.LogInfo($"[{account.AccountName}] Switching from {active.Name} to {next.Name}{KingdomSuffix(next.Kingdom)}...");
+            if (!await ClickRandomInRectAsync(account.InstanceNumber, logger, next.TapArea))
+            {
+                return TaskExecutionDetails.Failed("Failed to click character row");
+            }
+            await Task.Delay(1000, cancellationToken);
+
+            logger.LogInfo($"[{account.AccountName}] Looking for confirm button...");
+            if (!await FindAndClickImageAsync("confirm.png", account.InstanceNumber, logger, threshold: 0.7))
+            {
+                return TaskExecutionDetails.Failed("Could not find confirm button");
+            }
+
+            logger.LogInfo($"[{account.AccountName}] Waiting for loading screen...");
+            await Task.Delay(3000, cancellationToken);  // Initial delay to ensure loading screen appears
+
+            // Clear cached account ID for this instance since we've switched accounts
+            AccountDetectionTask.ClearCacheForInstance(account.InstanceNumber);
+            CharacterRoster.SetActive(account.InstanceNumber, next.Name, next.Kingdom);
+            logger.LogInfo($"[{account.AccountName}] Cleared cached account ID for instance {account.InstanceNumber}");
+
+            // Signal that tasks need to be restarted from loading screen
+            return new TaskExecutionDetails(true, message: $"Switched to {next.Name}, restarting tasks...", requiresTaskRestart: true);
         }
 
         /// <summary>Opens the Characters screen only to refresh the roster and the active character (dashboard "Scan characters").</summary>
@@ -307,7 +321,7 @@ namespace Bot.Core.Tasks.Modules
             var headers = FindAll(screenshot, KingdomTemplate, KingdomThreshold);
 
             Point? tickCenter = null;
-            var tick = _templateMatcher!.MatchTemplate(screenshot, Path.Combine(ImageTemplateFolder, "tick.png"),
+            var tick = _templateMatcher.MatchTemplate(screenshot, Path.Combine(ImageTemplateFolder, "tick.png"),
                 account.InstanceNumber, threshold: TickThreshold, searchArea: CharacterListArea);
             if (tick.found)
             {

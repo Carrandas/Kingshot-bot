@@ -37,40 +37,41 @@ namespace Bot.Core.Tasks.Modules
             _lastFailedTaskType = taskType;
         }
 
+        private static readonly Dictionary<TaskType, string> FriendlyTaskNames = new()
+        {
+            [TaskType.AutoHunt] = "Auto Hunt",
+            [TaskType.AutoHeal] = "Auto Heal",
+            [TaskType.Farming] = "Farming",
+            [TaskType.AutoAllianceHelp] = "Alliance Help",
+            [TaskType.ClaimMail] = "Claim Mail",
+            [TaskType.ConquestCollect] = "Conquest Collect",
+            [TaskType.TroopTraining] = "Troop Training",
+            [TaskType.ChangeAccount] = "Change Account",
+            [TaskType.AutoBuild] = "Auto Build",
+            [TaskType.Startup] = "Startup",
+            [TaskType.Recovery] = "Recovery",
+            [TaskType.AutoShield] = "Auto Shield",
+            [TaskType.CollectVip] = "Collect VIP",
+            [TaskType.ClaimMissions] = "Claim Missions",
+            [TaskType.CollectRewards] = "Collect Store Rewards",
+            [TaskType.CollectOnlineRewards] = "Collect Online Rewards",
+            [TaskType.PetAdventure] = "Pet Adventure",
+            [TaskType.Journey] = "Journey",
+            [TaskType.PetSkill] = "Pet Skill",
+            [TaskType.MysticTrial] = "Mystic Trial",
+            [TaskType.AutoJoinRally] = "Auto Join Rally",
+            [TaskType.TruegoldCrucible] = "Truegold Crucible",
+            [TaskType.AllianceTriumph] = "Alliance Triumph",
+            [TaskType.WaterEssence] = "Water Essence",
+            [TaskType.NomadicMerchant] = "Nomadic Merchant",
+            [TaskType.AllianceChests] = "Alliance Chests",
+            [TaskType.SuggestionBox] = "Suggestion Box",
+            [TaskType.AllianceMobilization] = "Alliance Mobilization",
+        };
+
         private static string GetUserFriendlyTaskName(TaskType taskType)
         {
-            return taskType switch
-            {
-                TaskType.AutoHunt => "Auto Hunt",
-                TaskType.AutoHeal => "Auto Heal",
-                TaskType.Farming => "Farming",
-                TaskType.AutoAllianceHelp => "Alliance Help",
-                TaskType.ClaimMail => "Claim Mail",
-                TaskType.ConquestCollect => "Conquest Collect",
-                TaskType.TroopTraining => "Troop Training",
-                TaskType.ChangeAccount => "Change Account",
-                TaskType.AutoBuild => "Auto Build",
-                TaskType.Startup => "Startup",
-                TaskType.Recovery => "Recovery",
-                TaskType.AutoShield => "Auto Shield",
-                TaskType.CollectVip => "Collect VIP",
-                TaskType.ClaimMissions => "Claim Missions",
-                TaskType.CollectRewards => "Collect Store Rewards",
-                TaskType.CollectOnlineRewards => "Collect Online Rewards",
-                TaskType.PetAdventure => "Pet Adventure",
-                TaskType.Journey => "Journey",
-                TaskType.PetSkill => "Pet Skill",
-                TaskType.MysticTrial => "Mystic Trial",
-                TaskType.AutoJoinRally => "Auto Join Rally",
-                TaskType.TruegoldCrucible => "Truegold Crucible",
-                TaskType.AllianceTriumph => "Alliance Triumph",
-                TaskType.WaterEssence => "Water Essence",
-                TaskType.NomadicMerchant => "Nomadic Merchant",
-                TaskType.AllianceChests => "Alliance Chests",
-                TaskType.SuggestionBox => "Suggestion Box",
-                TaskType.AllianceMobilization => "Alliance Mobilization",
-                _ => taskType.ToString()
-            };
+            return FriendlyTaskNames.TryGetValue(taskType, out var name) ? name : taskType.ToString();
         }
 
         private static readonly ConcurrentDictionary<int, SemaphoreSlim> _recoveryLocks = new();
@@ -147,95 +148,183 @@ namespace Bot.Core.Tasks.Modules
                 return false;
             }
 
+            var images = new RecoveryImages(adClosePath, adClose2Path, backArrowPath, baseViewPath, mapViewPath);
+
             const int MAX_RECOVERY_ATTEMPTS = 4;
             for (int attempt = 1; attempt <= MAX_RECOVERY_ATTEMPTS; attempt++)
             {
                 logger.LogInfo($"[{account.AccountName}] Enhanced recovery attempt {attempt}/{MAX_RECOVERY_ATTEMPTS}");
-                
-                try
-                {
-                    // Take a screenshot
-                    var adbController = await AdbMigrationHelper.GetConnectionAsync(account.InstanceNumber, logger, cancellationToken);
-                    if (adbController == null) return false;
 
-                    var screenshot = await AdbMigrationHelper.TakeScreenshotAsync(adbController, logger, cancellationToken);
-                    if (screenshot == null || screenshot.Length == 0)
-                    {
-                        logger.LogError($"[{account.AccountName}] Failed to capture screenshot");
-                        continue;
-                    }
-
-                    // Check for all navigation elements simultaneously. 0.8: these are blind taps on an unknown screen,
-                    // at 0.6 the X template matched random spots (0.61) next to gem-cost buttons
-                    var (foundAdClose, adCloseRect, adCloseConf) = _templateMatcher.MatchTemplate(screenshot, adClosePath, account.InstanceNumber, 0.8f);
-                    var (foundAdClose2, adClose2Rect, adClose2Conf) = _templateMatcher.MatchTemplate(screenshot, adClose2Path, account.InstanceNumber, 0.8f);
-                    var (foundBackArrow, backArrowRect, backArrowConf) = _templateMatcher.MatchTemplate(screenshot, backArrowPath, account.InstanceNumber, 0.8f);
-
-                    // If any navigation element is found, click it
-                    bool clickedSomething = false;
-                    if (foundAdClose)
-                    {
-                        logger.LogInfo($"[{account.AccountName}] Found ad-close.png (confidence: {adCloseConf:F3}), clicking...");
-                        await AdbMigrationHelper.TapAsync(adbController, adCloseRect.GetCenter().X, adCloseRect.GetCenter().Y, logger, cancellationToken);
-                        clickedSomething = true;
-                    }
-                    if (foundAdClose2)
-                    {
-                        logger.LogInfo($"[{account.AccountName}] Found ad-close2.png (confidence: {adClose2Conf:F3}), clicking...");
-                        await AdbMigrationHelper.TapAsync(adbController, adClose2Rect.GetCenter().X, adClose2Rect.GetCenter().Y, logger, cancellationToken);
-                        clickedSomething = true;
-                    }
-                    if (foundBackArrow)
-                    {
-                        logger.LogInfo($"[{account.AccountName}] Found back-arrow.png (confidence: {backArrowConf:F3}), clicking...");
-                        await AdbMigrationHelper.TapAsync(adbController, backArrowRect.GetCenter().X, backArrowRect.GetCenter().Y, logger, cancellationToken);
-                        clickedSomething = true;
-                    }
-
-                    if (clickedSomething)
-                    {
-                        await Task.Delay(500, cancellationToken); // Wait 0.5s after clicking
-                    }
-
-                    // Check for map views
-                    screenshot = await AdbMigrationHelper.TakeScreenshotAsync(adbController, logger, cancellationToken);
-                    if (screenshot == null || screenshot.Length == 0) continue;
-
-                    var (foundBase, _, _) = _templateMatcher.MatchTemplate(screenshot, baseViewPath, account.InstanceNumber, 0.6f);
-                    var (foundMap, _, _) = _templateMatcher.MatchTemplate(screenshot, mapViewPath, account.InstanceNumber, 0.6f);
-
-                    if (foundBase || foundMap)
-                    {
-                        logger.LogInfo($"[{account.AccountName}] ✅ Successfully recovered! Found {(foundBase ? "base" : "map")} view");
-                        userNotifications?.ShowSuccess($"Navigation recovered! Found {(foundBase ? "base" : "map")} view");
-                        
-                        // If we have a last failed task, restart it
-                        if (_lastFailedTaskType.HasValue)
-                        {
-                            var taskName = GetUserFriendlyTaskName(_lastFailedTaskType.Value);
-                            logger.LogInfo($"[{account.AccountName}] Restarting failed {taskName} task...");
-                            userNotifications?.ShowStatus($"Restarting {taskName} task...", NotificationType.Info);
-                            var taskInstance = TaskFactory.CreateTask(_lastFailedTaskType.Value);
-                            if (taskInstance != null)
-                            {
-                                await taskInstance.InitializeAsync(logger, cancellationToken);
-                                await taskInstance.ExecuteAsync(account, logger, cancellationToken, false, userNotifications);
-                            }
-                        }
-                        
-                        return true;
-                    }
-
-                    logger.LogInfo($"[{account.AccountName}] Maps not found yet, continuing recovery loop...");
-                }
-                catch (Exception ex)
-                {
-                    logger.LogError($"[{account.AccountName}] Error during enhanced recovery attempt {attempt}: {ex.Message}");
-                }
+                var outcome = await TryRecoveryAttemptAsync(account, logger, cancellationToken, userNotifications, images, attempt);
+                if (outcome.HasValue) return outcome.Value;
             }
 
             logger.LogInfo($"[{account.AccountName}] Enhanced recovery failed after {MAX_RECOVERY_ATTEMPTS} attempts, falling back to instance restart");
             return false;
+        }
+
+        private sealed record RecoveryImages(string AdClose, string AdClose2, string BackArrow, string BaseView, string MapView);
+
+        /// <summary>One recovery attempt. True: recovered, false: give up on the enhanced recovery, null: try again.</summary>
+        private async Task<bool?> TryRecoveryAttemptAsync(
+            AccountSettings account, LogService logger, CancellationToken cancellationToken,
+            IUserNotificationService? userNotifications, RecoveryImages images, int attempt)
+        {
+            try
+            {
+                // Take a screenshot
+                var adbController = await AdbMigrationHelper.GetConnectionAsync(account.InstanceNumber, logger, cancellationToken);
+                if (adbController == null) return false;
+
+                var screenshot = await AdbMigrationHelper.TakeScreenshotAsync(adbController, logger, cancellationToken);
+                if (IsMissing(screenshot))
+                {
+                    logger.LogError($"[{account.AccountName}] Failed to capture screenshot");
+                    return null;
+                }
+
+                if (await ClickNavigationElementsAsync(account, logger, cancellationToken, adbController, screenshot, images))
+                {
+                    await Task.Delay(500, cancellationToken); // Wait 0.5s after clicking
+                }
+
+                // Check for map views
+                screenshot = await AdbMigrationHelper.TakeScreenshotAsync(adbController, logger, cancellationToken);
+                if (IsMissing(screenshot)) return null;
+
+                var (foundBase, _, _) = _templateMatcher.MatchTemplate(screenshot, images.BaseView, account.InstanceNumber, 0.6f);
+                var (foundMap, _, _) = _templateMatcher.MatchTemplate(screenshot, images.MapView, account.InstanceNumber, 0.6f);
+
+                if (foundBase || foundMap)
+                {
+                    var viewName = foundBase ? "base" : "map";
+                    logger.LogInfo($"[{account.AccountName}] ✅ Successfully recovered! Found {viewName} view");
+                    userNotifications?.ShowSuccess($"Navigation recovered! Found {viewName} view");
+
+                    await RestartFailedTaskAsync(account, logger, cancellationToken, userNotifications);
+                    return true;
+                }
+
+                logger.LogInfo($"[{account.AccountName}] Maps not found yet, continuing recovery loop...");
+            }
+            catch (Exception ex)
+            {
+                logger.LogError($"[{account.AccountName}] Error during enhanced recovery attempt {attempt}: {ex.Message}");
+            }
+            return null;
+        }
+
+        private static bool IsMissing(byte[]? screenshot) => screenshot == null || screenshot.Length == 0;
+
+        /// <summary>Taps every ad close button and back arrow found on the screenshot. True when something was tapped.</summary>
+        private async Task<bool> ClickNavigationElementsAsync(
+            AccountSettings account, LogService logger, CancellationToken cancellationToken, object adbController, byte[] screenshot, RecoveryImages images)
+        {
+            // Check for all navigation elements simultaneously. 0.8: these are blind taps on an unknown screen,
+            // at 0.6 the X template matched random spots (0.61) next to gem-cost buttons
+            bool clickedSomething = false;
+            foreach (var (name, path) in new[] { ("ad-close.png", images.AdClose), ("ad-close2.png", images.AdClose2), ("back-arrow.png", images.BackArrow) })
+            {
+                var (found, rect, confidence) = _templateMatcher.MatchTemplate(screenshot, path, account.InstanceNumber, 0.8f);
+                if (!found) continue;
+
+                logger.LogInfo($"[{account.AccountName}] Found {name} (confidence: {confidence:F3}), clicking...");
+                await AdbMigrationHelper.TapAsync(adbController, rect.GetCenter().X, rect.GetCenter().Y, logger, cancellationToken);
+                clickedSomething = true;
+            }
+            return clickedSomething;
+        }
+
+        /// <summary>If we have a last failed task, restart it</summary>
+        private async Task RestartFailedTaskAsync(AccountSettings account, LogService logger, CancellationToken cancellationToken, IUserNotificationService? userNotifications)
+        {
+            if (!_lastFailedTaskType.HasValue)
+            {
+                return;
+            }
+
+            var taskName = GetUserFriendlyTaskName(_lastFailedTaskType.Value);
+            logger.LogInfo($"[{account.AccountName}] Restarting failed {taskName} task...");
+            userNotifications?.ShowStatus($"Restarting {taskName} task...", NotificationType.Info);
+            var taskInstance = TaskFactory.CreateTask(_lastFailedTaskType.Value);
+            if (taskInstance != null)
+            {
+                await taskInstance.InitializeAsync(logger, cancellationToken);
+                await taskInstance.ExecuteAsync(account, logger, cancellationToken, false, userNotifications);
+            }
+        }
+
+        private (string triggerInfo, string warningMessage) DescribeTrigger()
+        {
+            if (!_lastFailedTaskType.HasValue)
+            {
+                return ("Recovery triggered by unknown task", "Bot appears to be lost, attempting recovery...");
+            }
+
+            var taskName = GetUserFriendlyTaskName(_lastFailedTaskType.Value);
+            return ($"Recovery triggered by {taskName} task", $"Bot lost during {taskName} task, attempting recovery...");
+        }
+
+        private static async Task<TaskExecutionDetails> RestartInstanceAsync(
+            AccountSettings account, LogService logger, CancellationToken cancellationToken, IUserNotificationService? userNotifications)
+        {
+            userNotifications?.ShowWarning("Navigation recovery failed, restarting emulator...", "This may take a few minutes");
+
+            var ldConsolePath = LDPlayerHelper.GetLDPlayerConsolePath();
+            var dnConsolePath = LDPlayerHelper.GetDNPlayerConsolePath();
+            var instanceManager = new InstanceManager(ldConsolePath, dnConsolePath, logger);
+
+            if (!await StopAndStartInstanceAsync(account, logger, cancellationToken, userNotifications, instanceManager))
+            {
+                return TaskExecutionDetails.Failed("Failed to start instance");
+            }
+
+            // Step 3: Wait for instance to be fully booted (with timeout protection for parallel instances)
+            userNotifications?.ShowStatus("Waiting for emulator to fully boot...", NotificationType.Info);
+            logger.LogInfo($"[{account.AccountName}] Waiting for instance to be fully booted...");
+            await Task.Delay(20000, cancellationToken); // Wait for instance to fully boot
+
+            // Note: We maintain semaphore ownership during recovery to ensure this instance
+            // slot is not accidentally given to another account during the restart process
+
+            // Step 4: Run startup task
+            userNotifications?.ShowStatus("Initializing game after restart...", NotificationType.Info);
+            logger.LogInfo($"[{account.AccountName}] Running startup task...");
+            var startupTask = new StartupTask();
+            await startupTask.InitializeAsync(logger, cancellationToken);
+            var startupResult = await startupTask.ExecuteAsync(account, logger, cancellationToken, false, userNotifications);
+            if (!startupResult.Success)
+            {
+                logger.LogError($"[{account.AccountName}] Startup task failed after recovery");
+                userNotifications?.ShowError("Game initialization failed after restart", false, "The bot may need manual intervention");
+                return TaskExecutionDetails.Failed("Startup task failed after recovery");
+            }
+
+            logger.LogInfo($"[{account.AccountName}] ✅ Instance {account.InstanceNumber} confirmed fully booted and responsive after recovery");
+            userNotifications?.ShowSuccess("Emulator successfully restarted and ready!");
+            return TaskExecutionDetails.Succeeded();
+        }
+
+        /// <summary>Steps 1 and 2: stops the instance and starts it again. False when it did not start.</summary>
+        private static async Task<bool> StopAndStartInstanceAsync(
+            AccountSettings account, LogService logger, CancellationToken cancellationToken, IUserNotificationService? userNotifications, InstanceManager instanceManager)
+        {
+            // Step 1: Stop the instance
+            userNotifications?.ShowStatus("Stopping emulator instance...", NotificationType.Info);
+            logger.LogInfo($"[{account.AccountName}] Stopping instance {account.InstanceNumber}...");
+            await instanceManager.StopInstanceAsync(account.InstanceNumber, cancellationToken);
+            await Task.Delay(5000, cancellationToken); // Wait for instance to fully stop
+
+            // Step 2: Start the instance
+            userNotifications?.ShowStatus("Starting emulator instance...", NotificationType.Info);
+            logger.LogInfo($"[{account.AccountName}] Starting instance {account.InstanceNumber}...");
+            var success = await instanceManager.StartInstanceAsync(account.InstanceNumber, cancellationToken);
+            if (!success)
+            {
+                logger.LogError($"[{account.AccountName}] Failed to start instance {account.InstanceNumber}");
+                userNotifications?.ShowError("Failed to restart emulator instance", false, "Check if LDPlayer is properly installed");
+            }
+            return success;
         }
 
         protected override async Task<TaskExecutionDetails> ExecuteTaskLogicAsync(
@@ -248,17 +337,11 @@ namespace Bot.Core.Tasks.Modules
             try
             {
                 // Log which task caused the recovery with detailed information
-                string triggerInfo = _lastFailedTaskType.HasValue 
-                    ? $"Recovery triggered by {GetUserFriendlyTaskName(_lastFailedTaskType.Value)} task"
-                    : "Recovery triggered by unknown task";
-                
+                var (triggerInfo, warningMessage) = DescribeTrigger();
+
                 logger.LogInfo($"[{account.AccountName}] 🚀 {triggerInfo} - starting recovery process for instance {account.InstanceNumber}...");
-                
+
                 // Show GUI notification including the task that caused recovery
-                string warningMessage = _lastFailedTaskType.HasValue 
-                    ? $"Bot lost during {GetUserFriendlyTaskName(_lastFailedTaskType.Value)} task, attempting recovery..."
-                    : "Bot appears to be lost, attempting recovery...";
-                
                 userNotifications?.ShowWarning(warningMessage, "The bot will try to navigate back to a known state");
                 
                 // Acquire recovery lock to prevent other instances from starting
@@ -280,53 +363,7 @@ namespace Bot.Core.Tasks.Modules
                     }
 
                     // If enhanced recovery fails, proceed with full instance restart
-                    userNotifications?.ShowWarning("Navigation recovery failed, restarting emulator...", "This may take a few minutes");
-                    
-                    var ldConsolePath = LDPlayerHelper.GetLDPlayerConsolePath();
-                    var dnConsolePath = LDPlayerHelper.GetDNPlayerConsolePath();
-                    var instanceManager = new InstanceManager(ldConsolePath, dnConsolePath, logger);
-
-                    // Step 1: Stop the instance
-                    userNotifications?.ShowStatus("Stopping emulator instance...", NotificationType.Info);
-                    logger.LogInfo($"[{account.AccountName}] Stopping instance {account.InstanceNumber}...");
-                    await instanceManager.StopInstanceAsync(account.InstanceNumber, cancellationToken);
-                    await Task.Delay(5000, cancellationToken); // Wait for instance to fully stop
-
-                    // Step 2: Start the instance
-                    userNotifications?.ShowStatus("Starting emulator instance...", NotificationType.Info);
-                    logger.LogInfo($"[{account.AccountName}] Starting instance {account.InstanceNumber}...");
-                    var success = await instanceManager.StartInstanceAsync(account.InstanceNumber, cancellationToken);
-                    if (!success)
-                    {
-                        logger.LogError($"[{account.AccountName}] Failed to start instance {account.InstanceNumber}");
-                        userNotifications?.ShowError("Failed to restart emulator instance", false, "Check if LDPlayer is properly installed");
-                        return TaskExecutionDetails.Failed("Failed to start instance");
-                    }
-
-                    // Step 3: Wait for instance to be fully booted (with timeout protection for parallel instances)
-                    userNotifications?.ShowStatus("Waiting for emulator to fully boot...", NotificationType.Info);
-                    logger.LogInfo($"[{account.AccountName}] Waiting for instance to be fully booted...");
-                    await Task.Delay(20000, cancellationToken); // Wait for instance to fully boot
-                    
-                    // Note: We maintain semaphore ownership during recovery to ensure this instance
-                    // slot is not accidentally given to another account during the restart process
-
-                    // Step 4: Run startup task
-                    userNotifications?.ShowStatus("Initializing game after restart...", NotificationType.Info);
-                    logger.LogInfo($"[{account.AccountName}] Running startup task...");
-                    var startupTask = new StartupTask();
-                    await startupTask.InitializeAsync(logger, cancellationToken);
-                    var startupResult = await startupTask.ExecuteAsync(account, logger, cancellationToken, false, userNotifications);
-                    if (!startupResult.Success)
-                    {
-                        logger.LogError($"[{account.AccountName}] Startup task failed after recovery");
-                        userNotifications?.ShowError("Game initialization failed after restart", false, "The bot may need manual intervention");
-                        return TaskExecutionDetails.Failed("Startup task failed after recovery");
-                    }
-
-                    logger.LogInfo($"[{account.AccountName}] ✅ Instance {account.InstanceNumber} confirmed fully booted and responsive after recovery");
-                    userNotifications?.ShowSuccess("Emulator successfully restarted and ready!");
-                    return TaskExecutionDetails.Succeeded();
+                    return await RestartInstanceAsync(account, logger, cancellationToken, userNotifications);
                 }
                 finally
                 {
@@ -349,25 +386,26 @@ namespace Bot.Core.Tasks.Modules
     {
         private static readonly IConfigurationManager _configManager = ConfigurationManager.Instance;
 
+        private static readonly Dictionary<TaskType, Func<LogService, BaseTaskWithCommonPatterns>> Factories = new()
+        {
+            [TaskType.AutoHunt] = _ => new AutoHuntTask(),
+            [TaskType.AutoHeal] = logger => new AutoHealTask(logger),
+            [TaskType.Farming] = _ => new FarmingTask(),
+            [TaskType.AutoAllianceHelp] = _ => new AllianceHelpTask(),
+            [TaskType.ClaimMail] = _ => new ClaimMailTask(),
+            [TaskType.ConquestCollect] = _ => new ConquestCollectTask(),
+            [TaskType.TroopTraining] = _ => new TroopTrainingTask(),
+            [TaskType.ChangeAccount] = _ => new ChangeAccountTask(),
+            [TaskType.AutoBuild] = _ => new AutoBuildTask(),
+            [TaskType.Startup] = _ => new StartupTask(),
+            [TaskType.Recovery] = _ => new RecoveryTask(),
+            [TaskType.AutoShield] = _ => new AutoShieldTask(_configManager),
+        };
+
         public static BaseTaskWithCommonPatterns? CreateTask(TaskType taskType)
         {
             var logger = new LogService(); // Create a new logger for each task
-            return taskType switch
-            {
-                TaskType.AutoHunt => new AutoHuntTask(),
-                TaskType.AutoHeal => new AutoHealTask(logger),
-                TaskType.Farming => new FarmingTask(),
-                TaskType.AutoAllianceHelp => new AllianceHelpTask(),
-                TaskType.ClaimMail => new ClaimMailTask(),
-                TaskType.ConquestCollect => new ConquestCollectTask(),
-                TaskType.TroopTraining => new TroopTrainingTask(),
-                TaskType.ChangeAccount => new ChangeAccountTask(),
-                TaskType.AutoBuild => new AutoBuildTask(),
-                TaskType.Startup => new StartupTask(),
-                TaskType.Recovery => new RecoveryTask(),
-                TaskType.AutoShield => new AutoShieldTask(_configManager),
-                _ => null
-            };
+            return Factories.TryGetValue(taskType, out var factory) ? factory(logger) : null;
         }
     }
 } 

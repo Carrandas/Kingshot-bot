@@ -126,7 +126,7 @@ namespace Bot.GUI.Views
             });
         }
 
-        private class ProcessedLogEntry
+        private sealed class ProcessedLogEntry
         {
             public string? Level { get; set; }
             public string? Category { get; set; }
@@ -193,41 +193,6 @@ namespace Bot.GUI.Views
                 {
                     TrimOldLogs();
                 }
-            }
-        }
-
-        private void ProcessLogEntry(string logMessage)
-        {
-            try
-            {
-                // Parse the log format: |LEVEL|CATEGORY|TIMESTAMP|MESSAGE
-                var parts = logMessage.Split('|');
-                if (parts.Length >= 5 && string.IsNullOrEmpty(parts[0])) // First part should be empty due to leading |
-                {
-                    var level = parts[1];
-                    var category = parts[2];
-                    var timestamp = parts[3];
-                    var message = string.Join("|", parts.Skip(4)); // Handle messages with | in them
-
-                    AddFormattedLog(level, category, timestamp, message);
-                }
-                else
-                {
-                    // Fallback for improperly formatted logs - likely direct AppendLog calls
-                    AddSimpleLog(logMessage);
-                }
-
-                // Maintain max line count
-                _currentLineCount++;
-                if (_currentLineCount > MAX_LINES)
-                {
-                    TrimOldLogs();
-                }
-            }
-            catch (Exception ex)
-            {
-                // If parsing fails, just add as simple text
-                AddSimpleLog($"[LOG ERROR] {logMessage} - {ex.Message}");
             }
         }
 
@@ -325,7 +290,7 @@ namespace Bot.GUI.Views
             return GetLogStyle(level);
         }
 
-        private bool IsDebugMessage(string message)
+        private static bool IsDebugMessage(string message)
         {
             var debugKeywords = new[]
             {
@@ -334,13 +299,7 @@ namespace Bot.GUI.Views
                 "Connecting to", "Starting screenshot", "Locator", "dimensions"
             };
 
-            foreach (var keyword in debugKeywords)
-            {
-                if (message.Contains(keyword, StringComparison.OrdinalIgnoreCase))
-                    return true;
-            }
-
-            return false;
+            return debugKeywords.Any(keyword => message.Contains(keyword, StringComparison.OrdinalIgnoreCase));
         }
 
         private void TrimOldLogs()
@@ -354,7 +313,7 @@ namespace Bot.GUI.Views
             _currentLineCount -= 100;
         }
 
-        private class LogStyle
+        private sealed class LogStyle
         {
             public System.Windows.Media.Color Color { get; set; }
             public double FontSize { get; set; }

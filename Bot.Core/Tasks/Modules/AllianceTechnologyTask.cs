@@ -71,6 +71,24 @@ namespace Bot.Core.Tasks.Modules
             _templateFolder = Path.Combine(AppContext.BaseDirectory, "templates", "images", "alliancetech");
         }
 
+        private async Task<int> HoldContributeAsync(int instance, LogService logger, CancellationToken cancellationToken)
+        {
+            int holds = 0;
+            while (holds < MaxHolds)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var button = await MatchAsync(ContributeTemplate, ContributeButtonArea, instance, logger);
+                if (!button.found || !await IsTealAsync( instance, logger)) break;
+
+                // Holding the button repeats the contribution until it is released or the attempts run out
+                var center = new Point(button.rect.X + button.rect.Width / 2, button.rect.Y + button.rect.Height / 2);
+                await SwipeAsync(instance, logger, center, center, HoldMs);
+                holds++;
+                await Task.Delay(1000, cancellationToken);
+            }
+            return holds;
+        }
+
         protected override async Task<TaskExecutionDetails> ExecuteTaskLogicAsync(
             AccountSettings account,
             LogService logger,
@@ -113,19 +131,7 @@ namespace Bot.Core.Tasks.Modules
                 await ClickAsync(instance, logger, new Point(thumb.rect.X + thumb.rect.Width / 2 + ThumbToIconOffset.X, thumb.rect.Y + thumb.rect.Height / 2 + ThumbToIconOffset.Y));
                 await Task.Delay(1500, cancellationToken);
 
-                int holds = 0;
-                while (holds < MaxHolds)
-                {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    var button = await MatchAsync(ContributeTemplate, ContributeButtonArea, instance, logger);
-                    if (!button.found || !await IsTealAsync( instance, logger)) break;
-
-                    // Holding the button repeats the contribution until it is released or the attempts run out
-                    var center = new Point(button.rect.X + button.rect.Width / 2, button.rect.Y + button.rect.Height / 2);
-                    await SwipeAsync(instance, logger, center, center, HoldMs);
-                    holds++;
-                    await Task.Delay(1000, cancellationToken);
-                }
+                int holds = await HoldContributeAsync(instance, logger, cancellationToken);
                 logger.LogInfo($"[{account.AccountName}] Alliance Technology: held Contribute {holds} time(s)");
 
                 var close = await MatchAsync(CloseXTemplate, CloseXArea, instance, logger);

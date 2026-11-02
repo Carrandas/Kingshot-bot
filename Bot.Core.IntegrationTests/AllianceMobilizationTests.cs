@@ -15,7 +15,11 @@ namespace Bot.Core.IntegrationTests
     public class AllianceMobilizationTests
     {
         // Columns of the card grid: 0 left, 1 middle, 2 right
-        private static int Column(CardCheck card) => card.Icon.X < 250 ? 0 : card.Icon.X < 460 ? 1 : 2;
+        private static int Column(CardCheck card)
+        {
+            if (card.Icon.X < 250) return 0;
+            return card.Icon.X < 460 ? 1 : 2;
+        }
 
         private static string Describe(CardCheck card) => $"col {Column(card)} {(card.Keep != null ? "keep" : "refresh")}";
 

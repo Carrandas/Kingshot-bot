@@ -103,167 +103,14 @@ namespace Bot.Core.Tasks.Modules.AutoHunt
                     return TaskExecutionDetails.Failed("Max march detected at start, waiting 2 minutes");
                 }
 
-                // Main hunt loop
-                int availableMarches;
-                bool noMarchesAvailable;
-                int blockedTargetWaits = 0;
-                int consecutiveFailures = 0;
-                
-                // Outer loop to handle blocked area retries
-                while (!cancellationToken.IsCancellationRequested)
+                await WaitIfPausedAsync(cancellationToken);
+                if (!cancellationToken.IsCancellationRequested)
                 {
-                    await WaitIfPausedAsync(cancellationToken);
-                    if (cancellationToken.IsCancellationRequested) break;
-
-                    // Inner hunt loop
-                    while (!cancellationToken.IsCancellationRequested)
-                    {
-                        await WaitIfPausedAsync(cancellationToken);
-                        if (cancellationToken.IsCancellationRequested) break;
-
-                        // Check if we are already in hunt mode from a previous action
-                        bool isAlreadyInHuntMode = SkipMapViewChecks.GetOrAdd(accountId, false);
-
-                        if (!isAlreadyInHuntMode)
-                        {
-                            // Check marches at the start of every iteration
-                            availableMarches = await WaitForAvailableMarchesDirectly(account, logger, cancellationToken);
-                            if (availableMarches == -1)
-                            {
-                                return new TaskExecutionDetails(true, message: "Stamina depleted while waiting for marches");
-                            }
-                        }
-                        else
-                        {
-                            logger.LogInfo($"[{account.AccountName}] Already in hunt mode, skipping map view and march wait checks.");
-                            availableMarches = await GetAvailableMarchesDirectly(account, logger);
-                            logger.LogInfo($"[{account.AccountName}] Current available marches: {availableMarches}");
-                            
-                            // Reset the flag for the next iteration
-                            SkipMapViewChecks.AddOrUpdate(accountId, false, (_, __) => false);
-                        }
-
-                        // Enter hunt mode if not already in it
-                        if (!isAlreadyInHuntMode)
-                        {
-                            if (!await EnterHuntModeDirectly(account, logger, cancellationToken))
-                            {
-                                return TaskExecutionDetails.Failed("Could not enter hunt mode");
-                            }
-                            await Task.Delay(2000, cancellationToken);
-                            await TapIntelAgentAsync(account, logger, cancellationToken);
-                        }
-
-                        // Detect targets - directly implemented in coordinator
-                        var targets = await DetectAllTargetsDirectly(account, logger, cancellationToken, accountId);
-                        if (targets.Any())
-                        {
-                            var targetsOrderedByConfidence = targets.OrderByDescending(t => t.Confidence).ToList();
-                            logger.LogInfo($"[{account.AccountName}] Target selection order by confidence: {string.Join(", ", targetsOrderedByConfidence.Select(t => $"{t.Type}({t.Confidence:F3})"))}");
-                        }
-
-                        // Prioritize target
-                        var context = new TargetPrioritizationContext(sessionState, availableMarches, accountId);
-                        var target = _targetDetectionService.PrioritizeTarget(targets, context, out noMarchesAvailable);
-
-                        if (target == null)
-                        {
-                            if (noMarchesAvailable)
-                            {
-                                logger.LogInfo($"[{account.AccountName}] Found targets but no marches available, waiting for marches...");
-                                continue;
-                            }
-
-                            // Targets with a march on the way stay blocked until their tick is cleared, and new
-                            // intel missions only show up once those are done: wait for the marches instead of leaving
-                            var predictionFailed = PredictionFailedAreas.GetOrAdd(accountId, _ => new HashSet<Rectangle>());
-                            if (blockedTargetWaits < MaxBlockedTargetWaits &&
-                                GetAutoHuntSettings(account).GetUsedTargetAreas(accountId).Any(area => !predictionFailed.Contains(area)))
-                            {
-                                blockedTargetWaits++;
-                                logger.LogInfo($"[{account.AccountName}] Only targets with a march on the way left, waiting {BlockedTargetWaitMs / 1000}s for them to finish ({blockedTargetWaits}/{MaxBlockedTargetWaits})");
-                                await ReturnToMapViewDirectly(account, logger, cancellationToken);
-                                await Task.Delay(BlockedTargetWaitMs, cancellationToken);
-                                continue;
-                            }
-
-                            logger.LogInfo($"[{account.AccountName}] No suitable targets available, returning to map view");
-                            await ReturnToMapViewDirectly(account, logger, cancellationToken);
-                            break;
-                        }
-
-                        // Process the target
-                        var result = await ProcessTargetByType(target, sessionState, account, logger, cancellationToken, accountId);
-                        if (result.StaminaDepleted)
-                        {
-                            logger.LogInfo($"[{account.AccountName}] Stamina depleted, ending hunt session");
-                            await ReturnToMapViewDirectly(account, logger, cancellationToken);
-                            return new TaskExecutionDetails(true, message: "Stamina depleted, moving to next module");
-                        }
-
-                        if (!result.Success && target.RequiresMarch)
-                        {
-                            // No march went out (e.g. the deploy screen did not open while every march was busy):
-                            // release the area, unless the target is marching already or was predicted to fail
-                            bool keepBlocked = result.Message == "Target already marching" || result.Message.StartsWith("Prediction");
-                            if (!keepBlocked)
-                            {
-                                var settings = GetAutoHuntSettings(account);
-                                settings.RemoveUsedTargetArea(accountId, target.TargetArea);
-                                SaveAutoHuntSettings(account, settings);
-                                logger.LogInfo($"[{account.AccountName}] {target.Type} not attacked ({result.Message}), area released");
-                            }
-
-                            if (++consecutiveFailures >= MaxConsecutiveFailures)
-                            {
-                                logger.LogInfo($"[{account.AccountName}] {consecutiveFailures} failed attacks in a row, ending the hunt for this run");
-                                await ReturnToMapViewDirectly(account, logger, cancellationToken);
-                                break;
-                            }
-                        }
-                        else if (result.Success)
-                        {
-                            consecutiveFailures = 0;
-                        }
-
-                        if (result.Success && target.RequiresMarch)
-                        {
-                            availableMarches--;
-                            logger.LogInfo($"[{account.AccountName}] March used. Remaining: {availableMarches}");
-
-                            if (availableMarches <= 0)
-                            {
-                                logger.LogInfo($"[{account.AccountName}] No more marches available, waiting for marches...");
-                            }
-                        }
-                    }
+                    var early = await RunHuntLoopAsync(account, logger, cancellationToken, accountId, sessionState);
+                    if (early != null) return early;
 
                     // Analyze blocked areas to determine next action
-                    var finalSettings = GetAutoHuntSettings(account);
-                    var blockedAreas = finalSettings.GetUsedTargetAreas(accountId);
-                    var predictionFailedAreas = PredictionFailedAreas.GetOrAdd(accountId, _ => new HashSet<Rectangle>());
-                    
-                    if (blockedAreas.Any())
-                    {
-                        var nonPredictionBlocks = blockedAreas.Where(area => !predictionFailedAreas.Contains(area)).ToList();
-                        
-                        if (nonPredictionBlocks.Any())
-                        {
-                            logger.LogInfo($"[{account.AccountName}] 🎯 AutoHunt completed. {nonPredictionBlocks.Count} temporary blocks, {predictionFailedAreas.Count} prediction failures.");
-                            logger.LogInfo($"[{account.AccountName}] 📋 Moving to next module (blocked areas will expire individually).");
-                            break;
-                        }
-                        else
-                        {
-                            logger.LogInfo($"[{account.AccountName}] 🚫 All {predictionFailedAreas.Count} blocked areas are prediction failures. Moving to next module.");
-                            break;
-                        }
-                    }
-                    else
-                    {
-                        logger.LogInfo($"[{account.AccountName}] 🎯 AutoHunt completed. No blocked areas.");
-                        break;
-                    }
+                    LogBlockedAreaSummary(account, logger, accountId);
                 }
 
                 return new TaskExecutionDetails(true, message: "AutoHunt completed");
@@ -272,6 +119,216 @@ namespace Bot.Core.Tasks.Modules.AutoHunt
             {
                 logger.LogError($"[{account.AccountName}] Error during AutoHunt: {ex.Message}");
                 return TaskExecutionDetails.Failed($"Error during AutoHunt: {ex.Message}");
+            }
+        }
+
+        private enum HuntFlow { Next, EndLoop, Finish }
+
+        private readonly record struct HuntOutcome(HuntFlow Flow, TaskExecutionDetails? Result = null);
+
+        private sealed class HuntLoopState
+        {
+            public int BlockedTargetWaits;
+            public int ConsecutiveFailures;
+        }
+
+        /// <summary>The inner hunt loop. Returns the task result when the hunt ends early, null when it ran out of targets.</summary>
+        private async Task<TaskExecutionDetails?> RunHuntLoopAsync(
+            AccountSettings account, LogService logger, CancellationToken cancellationToken, string accountId, AutoHuntSessionState sessionState)
+        {
+            var state = new HuntLoopState();
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                await WaitIfPausedAsync(cancellationToken);
+                if (cancellationToken.IsCancellationRequested) break;
+
+                var outcome = await HuntIterationAsync(account, logger, cancellationToken, accountId, sessionState, state);
+                if (outcome.Flow == HuntFlow.Finish) return outcome.Result;
+                if (outcome.Flow == HuntFlow.EndLoop) break;
+            }
+            return null;
+        }
+
+        private async Task<HuntOutcome> HuntIterationAsync(
+            AccountSettings account, LogService logger, CancellationToken cancellationToken, string accountId,
+            AutoHuntSessionState sessionState, HuntLoopState state)
+        {
+            // Check if we are already in hunt mode from a previous action
+            bool isAlreadyInHuntMode = SkipMapViewChecks.GetOrAdd(accountId, false);
+
+            int availableMarches = await CountMarchesForIterationAsync(account, logger, cancellationToken, accountId, isAlreadyInHuntMode);
+            if (!isAlreadyInHuntMode && availableMarches == -1)
+            {
+                return new HuntOutcome(HuntFlow.Finish, new TaskExecutionDetails(true, message: "Stamina depleted while waiting for marches"));
+            }
+
+            // Enter hunt mode if not already in it
+            if (!isAlreadyInHuntMode && !await EnterHuntModeAndTapIntelAsync(account, logger, cancellationToken))
+            {
+                return new HuntOutcome(HuntFlow.Finish, TaskExecutionDetails.Failed("Could not enter hunt mode"));
+            }
+
+            // Detect targets - directly implemented in coordinator
+            var targets = await DetectAllTargetsDirectly(account, logger, cancellationToken, accountId);
+            if (targets.Any())
+            {
+                var targetsOrderedByConfidence = targets.OrderByDescending(t => t.Confidence).ToList();
+                logger.LogInfo($"[{account.AccountName}] Target selection order by confidence: {string.Join(", ", targetsOrderedByConfidence.Select(t => $"{t.Type}({t.Confidence:F3})"))}");
+            }
+
+            // Prioritize target
+            var context = new TargetPrioritizationContext(sessionState, availableMarches, accountId);
+            var target = _targetDetectionService.PrioritizeTarget(targets, context, out bool noMarchesAvailable);
+
+            if (target == null)
+            {
+                return await HandleNoTargetAsync(account, logger, cancellationToken, accountId, noMarchesAvailable, state);
+            }
+
+            // Process the target
+            var result = await ProcessTargetByType(target, sessionState, account, logger, cancellationToken, accountId);
+            return await HandleTargetResultAsync(account, logger, cancellationToken, accountId, target, result, availableMarches, state);
+        }
+
+        private async Task<HuntOutcome> HandleTargetResultAsync(
+            AccountSettings account, LogService logger, CancellationToken cancellationToken, string accountId,
+            HuntTarget target, TargetProcessResult result, int availableMarches, HuntLoopState state)
+        {
+            if (result.StaminaDepleted)
+            {
+                logger.LogInfo($"[{account.AccountName}] Stamina depleted, ending hunt session");
+                await ReturnToMapViewDirectly(account, logger, cancellationToken);
+                return new HuntOutcome(HuntFlow.Finish, new TaskExecutionDetails(true, message: "Stamina depleted, moving to next module"));
+            }
+
+            if (!result.Success && target.RequiresMarch)
+            {
+                if (await ReleaseFailedTargetAsync(account, logger, cancellationToken, accountId, target, result, state))
+                {
+                    return new HuntOutcome(HuntFlow.EndLoop);
+                }
+            }
+            else if (result.Success)
+            {
+                state.ConsecutiveFailures = 0;
+            }
+
+            if (result.Success && target.RequiresMarch)
+            {
+                availableMarches--;
+                logger.LogInfo($"[{account.AccountName}] March used. Remaining: {availableMarches}");
+
+                if (availableMarches <= 0)
+                {
+                    logger.LogInfo($"[{account.AccountName}] No more marches available, waiting for marches...");
+                }
+            }
+            return new HuntOutcome(HuntFlow.Next);
+        }
+
+        private async Task<bool> EnterHuntModeAndTapIntelAsync(AccountSettings account, LogService logger, CancellationToken cancellationToken)
+        {
+            if (!await EnterHuntModeDirectly(account, logger, cancellationToken))
+            {
+                return false;
+            }
+            await Task.Delay(2000, cancellationToken);
+            await TapIntelAgentAsync(account, logger, cancellationToken);
+            return true;
+        }
+
+        private async Task<int> CountMarchesForIterationAsync(
+            AccountSettings account, LogService logger, CancellationToken cancellationToken, string accountId, bool isAlreadyInHuntMode)
+        {
+            if (!isAlreadyInHuntMode)
+            {
+                // Check marches at the start of every iteration
+                return await WaitForAvailableMarchesDirectly(account, logger, cancellationToken);
+            }
+
+            logger.LogInfo($"[{account.AccountName}] Already in hunt mode, skipping map view and march wait checks.");
+            int availableMarches = await GetAvailableMarchesDirectly(account, logger);
+            logger.LogInfo($"[{account.AccountName}] Current available marches: {availableMarches}");
+
+            // Reset the flag for the next iteration
+            SkipMapViewChecks.AddOrUpdate(accountId, false, (_, __) => false);
+            return availableMarches;
+        }
+
+        private async Task<HuntOutcome> HandleNoTargetAsync(
+            AccountSettings account, LogService logger, CancellationToken cancellationToken, string accountId, bool noMarchesAvailable, HuntLoopState state)
+        {
+            if (noMarchesAvailable)
+            {
+                logger.LogInfo($"[{account.AccountName}] Found targets but no marches available, waiting for marches...");
+                return new HuntOutcome(HuntFlow.Next);
+            }
+
+            // Targets with a march on the way stay blocked until their tick is cleared, and new
+            // intel missions only show up once those are done: wait for the marches instead of leaving
+            var predictionFailed = PredictionFailedAreas.GetOrAdd(accountId, _ => new HashSet<Rectangle>());
+            if (state.BlockedTargetWaits < MaxBlockedTargetWaits &&
+                GetAutoHuntSettings(account).GetUsedTargetAreas(accountId).Any(area => !predictionFailed.Contains(area)))
+            {
+                state.BlockedTargetWaits++;
+                logger.LogInfo($"[{account.AccountName}] Only targets with a march on the way left, waiting {BlockedTargetWaitMs / 1000}s for them to finish ({state.BlockedTargetWaits}/{MaxBlockedTargetWaits})");
+                await ReturnToMapViewDirectly(account, logger, cancellationToken);
+                await Task.Delay(BlockedTargetWaitMs, cancellationToken);
+                return new HuntOutcome(HuntFlow.Next);
+            }
+
+            logger.LogInfo($"[{account.AccountName}] No suitable targets available, returning to map view");
+            await ReturnToMapViewDirectly(account, logger, cancellationToken);
+            return new HuntOutcome(HuntFlow.EndLoop);
+        }
+
+        /// <summary>No march went out for this target. Returns true when too many attacks failed in a row and the hunt should end.</summary>
+        private async Task<bool> ReleaseFailedTargetAsync(
+            AccountSettings account, LogService logger, CancellationToken cancellationToken, string accountId,
+            HuntTarget target, TargetProcessResult result, HuntLoopState state)
+        {
+            // No march went out (e.g. the deploy screen did not open while every march was busy):
+            // release the area, unless the target is marching already or was predicted to fail
+            bool keepBlocked = result.Message == "Target already marching" || result.Message.StartsWith("Prediction");
+            if (!keepBlocked)
+            {
+                var settings = GetAutoHuntSettings(account);
+                settings.RemoveUsedTargetArea(accountId, target.TargetArea);
+                SaveAutoHuntSettings(account, settings);
+                logger.LogInfo($"[{account.AccountName}] {target.Type} not attacked ({result.Message}), area released");
+            }
+
+            if (++state.ConsecutiveFailures < MaxConsecutiveFailures)
+            {
+                return false;
+            }
+
+            logger.LogInfo($"[{account.AccountName}] {state.ConsecutiveFailures} failed attacks in a row, ending the hunt for this run");
+            await ReturnToMapViewDirectly(account, logger, cancellationToken);
+            return true;
+        }
+
+        private static void LogBlockedAreaSummary(AccountSettings account, LogService logger, string accountId)
+        {
+            var finalSettings = GetAutoHuntSettings(account);
+            var blockedAreas = finalSettings.GetUsedTargetAreas(accountId);
+            var predictionFailedAreas = PredictionFailedAreas.GetOrAdd(accountId, _ => new HashSet<Rectangle>());
+
+            if (!blockedAreas.Any())
+            {
+                logger.LogInfo($"[{account.AccountName}] 🎯 AutoHunt completed. No blocked areas.");
+                return;
+            }
+
+            var nonPredictionBlocks = blockedAreas.Where(area => !predictionFailedAreas.Contains(area)).ToList();
+            if (nonPredictionBlocks.Any())
+            {
+                logger.LogInfo($"[{account.AccountName}] 🎯 AutoHunt completed. {nonPredictionBlocks.Count} temporary blocks, {predictionFailedAreas.Count} prediction failures.");
+                logger.LogInfo($"[{account.AccountName}] 📋 Moving to next module (blocked areas will expire individually).");
+            }
+            else
+            {
+                logger.LogInfo($"[{account.AccountName}] 🚫 All {predictionFailedAreas.Count} blocked areas are prediction failures. Moving to next module.");
             }
         }
 
@@ -315,6 +372,111 @@ namespace Bot.Core.Tasks.Modules.AutoHunt
 
         #region Target Processors
 
+        /// <summary>
+        /// Clicks the view button of the target. When it is missing, works out why: the target is already marching,
+        /// or the screen went back to hunt mode. Returns the failure, or null once the button was clicked.
+        /// </summary>
+        private async Task<TargetProcessResult?> ClickViewButtonAsync(
+            HuntTarget target, AccountSettings account, LogService logger, string accountId, string targetLabel, bool checkMarching)
+        {
+            if (await FindAndClickImageAsync("view-button.png", account.InstanceNumber, logger))
+            {
+                return null;
+            }
+
+            // Check if it's because there's already a march
+            if (checkMarching && await IsTargetMarchingDirectly(account, logger))
+            {
+                logger.LogInfo($"[{account.AccountName}] Target already marching - area remains blocked: {target.TargetArea}");
+                SkipMapViewChecks.AddOrUpdate(accountId, true, (_, __) => true);
+                return TargetProcessResult.Failed("Target already marching");
+            }
+
+            // Check for stamina icon to see if we're back in hunt mode
+            logger.LogInfo($"[{account.AccountName}] No view button found for {targetLabel} target, checking for stamina icon...");
+            var staminaScreenshot = await TakeScreenshotAsync(account.InstanceNumber, logger);
+            if (staminaScreenshot != null)
+            {
+                var (staminaFound, _, _) = _templateMatcher.MatchTemplate(
+                    staminaScreenshot,
+                    Path.Combine(ImageTemplateFolder, "hunt-stamina.png"),
+                    account.InstanceNumber,
+                    threshold: 0.8,
+                    searchArea: AutoHuntConstants.StaminaArea,
+                    isUIElement: false
+                );
+
+                if (staminaFound)
+                {
+                    logger.LogInfo($"[{account.AccountName}] Found stamina icon, likely back in hunt mode - will look for targets again");
+                    SkipMapViewChecks.AddOrUpdate(accountId, true, (_, __) => true);
+                    return TargetProcessResult.Failed("Back in hunt mode");
+                }
+            }
+
+            return TargetProcessResult.Failed("No view button found");
+        }
+
+        private static bool IsPredictedToFail(string prediction)
+        {
+            return prediction.Contains("not likely to prevail", StringComparison.OrdinalIgnoreCase) ||
+                   prediction.Contains("almost certain to fail", StringComparison.OrdinalIgnoreCase) ||
+                   prediction.Contains("certain to fail", StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>The attack is predicted to fail: remember the area as a prediction failure and leave the deploy screen.</summary>
+        private async Task BlockPredictedFailureAsync(HuntTarget target, AccountSettings account, LogService logger, CancellationToken cancellationToken, string accountId)
+        {
+            // Track as prediction failure
+            var predictionFailedAreas = PredictionFailedAreas.GetOrAdd(accountId, _ => new HashSet<Rectangle>());
+            predictionFailedAreas.Add(target.TargetArea);
+
+            // Click deploy-back to return to hunt view
+            if (await FindAndClickImageAsync("deploy-back.png", account.InstanceNumber, logger))
+            {
+                logger.LogInfo($"[{account.AccountName}] Clicked deploy-back button to return to hunt view");
+                await Task.Delay(1000, cancellationToken);
+            }
+        }
+
+        /// <summary>Reads the stamina warning after a click. True when the stamina is gone; a claimed refill only gets logged.</summary>
+        private async Task<bool> IsStaminaDepletedAsync(AccountSettings account, LogService logger, string retryMessage)
+        {
+            var staminaCheckScreenshot = await TakeScreenshotAsync(account.InstanceNumber, logger);
+            if (staminaCheckScreenshot == null)
+            {
+                return false;
+            }
+
+            var staminaResult = await CheckForStaminaLowDirectly(staminaCheckScreenshot, account, logger);
+            if (staminaResult == StaminaCheckResult.StaminaDepleted)
+            {
+                return true;
+            }
+            if (staminaResult == StaminaCheckResult.StaminaClaimed_Retry)
+            {
+                logger.LogInfo($"[{account.AccountName}] {retryMessage}");
+            }
+            return false;
+        }
+
+        /// <summary>Clicks equalize when the settings ask for it. False: the button could not be clicked.</summary>
+        private async Task<bool> ClickEqualizeIfEnabledAsync(AccountSettings account, LogService logger, CancellationToken cancellationToken)
+        {
+            var huntSettings = GetAutoHuntSettings(account);
+            if (!huntSettings.UseEqualize)
+            {
+                logger.LogInfo($"[{account.AccountName}] Equalize disabled - skipping equalize button");
+                return true;
+            }
+
+            logger.LogInfo($"[{account.AccountName}] Equalize enabled - clicking equalize button");
+            if (!await FindAndClickImageAsync("equalize.png", account.InstanceNumber, logger))
+                return false;
+            await Task.Delay(1000, cancellationToken);
+            return true;
+        }
+
         private async Task<TargetProcessResult> ProcessKingTarget(
             HuntTarget target,
             AccountSettings account,
@@ -330,41 +492,8 @@ namespace Bot.Core.Tasks.Modules.AutoHunt
                 await Task.Delay(2000, cancellationToken);
 
                 // Click view button
-                if (!await FindAndClickImageAsync("view-button.png", account.InstanceNumber, logger))
-                {
-                    // Check if it's because there's already a march
-                    if (await IsTargetMarchingDirectly(account, logger))
-                    {
-                        logger.LogInfo($"[{account.AccountName}] Target already marching - area remains blocked: {target.TargetArea}");
-                        // Handle marching target logic here
-                        SkipMapViewChecks.AddOrUpdate(accountId, true, (_, __) => true);
-                        return TargetProcessResult.Failed("Target already marching");
-                    }
-
-                    // Check for stamina icon to see if we're back in hunt mode
-                    logger.LogInfo($"[{account.AccountName}] No view button found for king target, checking for stamina icon...");
-                    var staminaScreenshot = await TakeScreenshotAsync(account.InstanceNumber, logger);
-                    if (staminaScreenshot != null)
-                    {
-                        var (staminaFound, _, _) = _templateMatcher.MatchTemplate(
-                            staminaScreenshot,
-                            Path.Combine(ImageTemplateFolder, "hunt-stamina.png"),
-                            account.InstanceNumber,
-                            threshold: 0.8,
-                            searchArea: AutoHuntConstants.StaminaArea,
-                            isUIElement: false
-                        );
-
-                        if (staminaFound)
-                        {
-                            logger.LogInfo($"[{account.AccountName}] Found stamina icon, likely back in hunt mode - will look for targets again");
-                            SkipMapViewChecks.AddOrUpdate(accountId, true, (_, __) => true);
-                            return TargetProcessResult.Failed("Back in hunt mode");
-                        }
-                    }
-
-                    return TargetProcessResult.Failed("No view button found");
-                }
+                var viewFailure = await ClickViewButtonAsync(target, account, logger, accountId, "king", true);
+                if (viewFailure != null) return viewFailure;
                 await Task.Delay(1500, cancellationToken);
 
                 // Click attack button
@@ -374,23 +503,10 @@ namespace Bot.Core.Tasks.Modules.AutoHunt
 
                 // Check prediction text before proceeding
                 var prediction = await ReadPredictionText(account, logger);
-                if (prediction.Contains("not likely to prevail", StringComparison.OrdinalIgnoreCase) ||
-                    prediction.Contains("almost certain to fail", StringComparison.OrdinalIgnoreCase) ||
-                    prediction.Contains("certain to fail", StringComparison.OrdinalIgnoreCase))
+                if (IsPredictedToFail(prediction))
                 {
                     logger.LogInfo($"[{account.AccountName}] King attack predicted to fail - '{prediction}', blocking target area for session");
-                    
-                    // Track as prediction failure
-                    var predictionFailedAreas = PredictionFailedAreas.GetOrAdd(accountId, _ => new HashSet<Rectangle>());
-                    predictionFailedAreas.Add(target.TargetArea);
-                    
-                    // Click deploy-back to return to hunt view
-                    if (await FindAndClickImageAsync("deploy-back.png", account.InstanceNumber, logger))
-                    {
-                        logger.LogInfo($"[{account.AccountName}] Clicked deploy-back button to return to hunt view");
-                        await Task.Delay(1000, cancellationToken);
-                    }
-                    
+                    await BlockPredictedFailureAsync(target, account, logger, cancellationToken, accountId);
                     return TargetProcessResult.Failed("Prediction indicates failure");
                 }
 
@@ -440,40 +556,8 @@ namespace Bot.Core.Tasks.Modules.AutoHunt
                 await Task.Delay(1000, cancellationToken);
 
                 // Click view button
-                if (!await FindAndClickImageAsync("view-button.png", account.InstanceNumber, logger))
-                {
-                    // Check if it's because there's already a march
-                    if (await IsTargetMarchingDirectly(account, logger))
-                    {
-                        logger.LogInfo($"[{account.AccountName}] Target already marching - area remains blocked: {target.TargetArea}");
-                        SkipMapViewChecks.AddOrUpdate(accountId, true, (_, __) => true);
-                        return TargetProcessResult.Failed("Target already marching");
-                    }
-
-                    // Check for stamina icon to see if we're back in hunt mode
-                    logger.LogInfo($"[{account.AccountName}] No view button found for bear target, checking for stamina icon...");
-                    var staminaScreenshot = await TakeScreenshotAsync(account.InstanceNumber, logger);
-                    if (staminaScreenshot != null)
-                    {
-                        var (staminaFound, _, _) = _templateMatcher.MatchTemplate(
-                            staminaScreenshot,
-                            Path.Combine(ImageTemplateFolder, "hunt-stamina.png"),
-                            account.InstanceNumber,
-                            threshold: 0.8,
-                            searchArea: AutoHuntConstants.StaminaArea,
-                            isUIElement: false
-                        );
-
-                        if (staminaFound)
-                        {
-                            logger.LogInfo($"[{account.AccountName}] Found stamina icon, likely back in hunt mode - will look for targets again");
-                            SkipMapViewChecks.AddOrUpdate(accountId, true, (_, __) => true);
-                            return TargetProcessResult.Failed("Back in hunt mode");
-                        }
-                    }
-
-                    return TargetProcessResult.Failed("No view button found");
-                }
+                var viewFailure = await ClickViewButtonAsync(target, account, logger, accountId, "bear", true);
+                if (viewFailure != null) return viewFailure;
                 await Task.Delay(1000, cancellationToken);
 
                 // Click attack button
@@ -483,61 +567,25 @@ namespace Bot.Core.Tasks.Modules.AutoHunt
 
                 // Check prediction text before equalize
                 var initialPrediction = await ReadPredictionText(account, logger);
-                if (initialPrediction.Contains("not likely to prevail", StringComparison.OrdinalIgnoreCase) ||
-                    initialPrediction.Contains("almost certain to fail", StringComparison.OrdinalIgnoreCase) ||
-                    initialPrediction.Contains("certain to fail", StringComparison.OrdinalIgnoreCase))
+                if (IsPredictedToFail(initialPrediction))
                 {
                     sessionState.CanAttackBear = false;
                     logger.LogInfo($"[{account.AccountName}] Bear attack predicted to fail before equalize - '{initialPrediction}', blocking target area for session");
-                    
-                    // Track as prediction failure
-                    var predictionFailedAreas = PredictionFailedAreas.GetOrAdd(accountId, _ => new HashSet<Rectangle>());
-                    predictionFailedAreas.Add(target.TargetArea);
-                    
-                    // Click deploy-back to return to hunt view
-                    if (await FindAndClickImageAsync("deploy-back.png", account.InstanceNumber, logger))
-                    {
-                        logger.LogInfo($"[{account.AccountName}] Clicked deploy-back button to return to hunt view");
-                        await Task.Delay(1000, cancellationToken);
-                    }
-                    
+                    await BlockPredictedFailureAsync(target, account, logger, cancellationToken, accountId);
                     return TargetProcessResult.Failed("Prediction indicates failure before equalize");
                 }
 
                 // Click equalize (if enabled in settings)
-                var huntSettings = GetAutoHuntSettings(account);
-                if (huntSettings.UseEqualize)
-                {
-                    logger.LogInfo($"[{account.AccountName}] Equalize enabled - clicking equalize button");
-                    if (!await FindAndClickImageAsync("equalize.png", account.InstanceNumber, logger))
-                        return TargetProcessResult.Failed("Failed to click equalize button");
-                    await Task.Delay(1000, cancellationToken);
-                }
-                else
-                {
-                    logger.LogInfo($"[{account.AccountName}] Equalize disabled - skipping equalize button");
-                }
+                if (!await ClickEqualizeIfEnabledAsync(account, logger, cancellationToken))
+                    return TargetProcessResult.Failed("Failed to click equalize button");
 
                 // Check prediction text after equalize
                 var prediction = await ReadPredictionText(account, logger);
-                if (prediction.Contains("not likely to prevail", StringComparison.OrdinalIgnoreCase) ||
-                    prediction.Contains("almost certain to fail", StringComparison.OrdinalIgnoreCase) ||
-                    prediction.Contains("certain to fail", StringComparison.OrdinalIgnoreCase))
+                if (IsPredictedToFail(prediction))
                 {
                     sessionState.CanAttackBear = false;
                     logger.LogInfo($"[{account.AccountName}] Bear attack predicted to fail after equalize - '{prediction}', blocking target area for session");
-                    
-                    // Track as prediction failure
-                    var predictionFailedAreas = PredictionFailedAreas.GetOrAdd(accountId, _ => new HashSet<Rectangle>());
-                    predictionFailedAreas.Add(target.TargetArea);
-                    
-                    // Click deploy-back to return to hunt view
-                    if (await FindAndClickImageAsync("deploy-back.png", account.InstanceNumber, logger))
-                    {
-                        logger.LogInfo($"[{account.AccountName}] Clicked deploy-back button to return to hunt view");
-                        await Task.Delay(1000, cancellationToken);
-                    }
-                    
+                    await BlockPredictedFailureAsync(target, account, logger, cancellationToken, accountId);
                     return TargetProcessResult.Failed("Prediction indicates failure after equalize");
                 }
 
@@ -584,32 +632,8 @@ namespace Bot.Core.Tasks.Modules.AutoHunt
                 await Task.Delay(1000, cancellationToken);
 
                 // Click view button
-                if (!await FindAndClickImageAsync("view-button.png", account.InstanceNumber, logger))
-                {
-                    // Check for stamina icon to see if we're back in hunt mode
-                    logger.LogInfo($"[{account.AccountName}] No view button found for scout target, checking for stamina icon...");
-                    var staminaScreenshot = await TakeScreenshotAsync(account.InstanceNumber, logger);
-                    if (staminaScreenshot != null)
-                    {
-                        var (staminaFound, _, _) = _templateMatcher.MatchTemplate(
-                            staminaScreenshot,
-                            Path.Combine(ImageTemplateFolder, "hunt-stamina.png"),
-                            account.InstanceNumber,
-                            threshold: 0.8,
-                            searchArea: AutoHuntConstants.StaminaArea,
-                            isUIElement: false
-                        );
-
-                        if (staminaFound)
-                        {
-                            logger.LogInfo($"[{account.AccountName}] Found stamina icon, likely back in hunt mode - will look for targets again");
-                            SkipMapViewChecks.AddOrUpdate(accountId, true, (_, __) => true);
-                            return TargetProcessResult.Failed("Back in hunt mode");
-                        }
-                    }
-
-                    return TargetProcessResult.Failed("No view button found");
-                }
+                var viewFailure = await ClickViewButtonAsync(target, account, logger, accountId, "scout", false);
+                if (viewFailure != null) return viewFailure;
                 await Task.Delay(1000, cancellationToken);
 
                 // Click rescue
@@ -618,18 +642,9 @@ namespace Bot.Core.Tasks.Modules.AutoHunt
 
                 // Check for stamina
                 await Task.Delay(1000, cancellationToken);
-                var staminaCheckScreenshot = await TakeScreenshotAsync(account.InstanceNumber, logger);
-                if (staminaCheckScreenshot != null)
+                if (await IsStaminaDepletedAsync(account, logger, "Stamina claimed, retrying scout rescue"))
                 {
-                    var staminaResult = await CheckForStaminaLowDirectly(staminaCheckScreenshot, account, logger);
-                    if (staminaResult == StaminaCheckResult.StaminaDepleted)
-                    {
-                        return TargetProcessResult.StaminaEmpty("Stamina depleted during scout rescue");
-                    }
-                    else if (staminaResult == StaminaCheckResult.StaminaClaimed_Retry)
-                    {
-                        logger.LogInfo($"[{account.AccountName}] Stamina claimed, retrying scout rescue");
-                    }
+                    return TargetProcessResult.StaminaEmpty("Stamina depleted during scout rescue");
                 }
 
                 logger.LogInfo($"[{account.AccountName}] No stamina-low detected after rescue, continuing module");
@@ -658,40 +673,8 @@ namespace Bot.Core.Tasks.Modules.AutoHunt
                 await Task.Delay(1000, cancellationToken);
 
                 // Click view button
-                if (!await FindAndClickImageAsync("view-button.png", account.InstanceNumber, logger))
-                {
-                    // Check if it's because there's already a march
-                    if (await IsTargetMarchingDirectly(account, logger))
-                    {
-                        logger.LogInfo($"[{account.AccountName}] Target already marching - area remains blocked: {target.TargetArea}");
-                        SkipMapViewChecks.AddOrUpdate(accountId, true, (_, __) => true);
-                        return TargetProcessResult.Failed("Target already marching");
-                    }
-
-                    // Check for stamina icon to see if we're back in hunt mode
-                    logger.LogInfo($"[{account.AccountName}] No view button found for attack target, checking for stamina icon...");
-                    var staminaScreenshot = await TakeScreenshotAsync(account.InstanceNumber, logger);
-                    if (staminaScreenshot != null)
-                    {
-                        var (staminaFound, _, _) = _templateMatcher.MatchTemplate(
-                            staminaScreenshot,
-                            Path.Combine(ImageTemplateFolder, "hunt-stamina.png"),
-                            account.InstanceNumber,
-                            threshold: 0.8,
-                            searchArea: AutoHuntConstants.StaminaArea,
-                            isUIElement: false
-                        );
-
-                        if (staminaFound)
-                        {
-                            logger.LogInfo($"[{account.AccountName}] Found stamina icon, likely back in hunt mode - will look for targets again");
-                            SkipMapViewChecks.AddOrUpdate(accountId, true, (_, __) => true);
-                            return TargetProcessResult.Failed("Back in hunt mode");
-                        }
-                    }
-
-                    return TargetProcessResult.Failed("No view button found");
-                }
+                var viewFailure = await ClickViewButtonAsync(target, account, logger, accountId, "attack", true);
+                if (viewFailure != null) return viewFailure;
                 await Task.Delay(1000, cancellationToken);
 
                 // Click conquer
@@ -700,18 +683,9 @@ namespace Bot.Core.Tasks.Modules.AutoHunt
                 await Task.Delay(1000, cancellationToken);
 
                 // Check for stamina
-                var staminaCheckScreenshot = await TakeScreenshotAsync(account.InstanceNumber, logger);
-                if (staminaCheckScreenshot != null)
+                if (await IsStaminaDepletedAsync(account, logger, "Stamina claimed, retrying attack deployment"))
                 {
-                    var staminaResult = await CheckForStaminaLowDirectly(staminaCheckScreenshot, account, logger);
-                    if (staminaResult == StaminaCheckResult.StaminaDepleted)
-                    {
-                        return TargetProcessResult.StaminaEmpty("Stamina depleted during attack");
-                    }
-                    else if (staminaResult == StaminaCheckResult.StaminaClaimed_Retry)
-                    {
-                        logger.LogInfo($"[{account.AccountName}] Stamina claimed, retrying attack deployment");
-                    }
+                    return TargetProcessResult.StaminaEmpty("Stamina depleted during attack");
                 }
 
                 // Try to find and click quick-deploy
@@ -726,73 +700,13 @@ namespace Bot.Core.Tasks.Modules.AutoHunt
                 // Wait for battle result
                 await Task.Delay(3000, cancellationToken);
 
-                DateTime startTime = DateTime.UtcNow;
-                bool resultFound = false;
-                bool wasVictory = false;
-
-                logger.LogInfo($"[{account.AccountName}] Waiting 5 seconds before checking battle result...");
-                await Task.Delay(5000, cancellationToken);
-                
-                logger.LogInfo($"[{account.AccountName}] Now checking for battle result using OCR (up to 20 seconds)...");
-
-                // Battle result text area: 211,360 to 515,454
-                var battleResultArea = new Rectangle(211, 360, 304, 94);
-
-                int checkCount = 0;
-                while ((DateTime.UtcNow - startTime).TotalSeconds < 20 && !resultFound)
-                {
-                    checkCount++;
-                    var battleScreenshot = await TakeScreenshotAsync(account.InstanceNumber, logger);
-                    if (battleScreenshot == null) continue;
-
-                    try
-                    {
-                        var ocrService = new OcrService(logger);
-                        var text = ocrService.ExtractTextFromScreenArea(battleScreenshot, battleResultArea);
-                        if (!string.IsNullOrEmpty(text))
-                        {
-                            text = text.ToLower().Trim();
-                            logger.LogInfo($"[{account.AccountName}] Battle result OCR check #{checkCount}: '{text}'");
-
-                            // Check for victory text
-                            if (text.Contains("victory"))
-                            {
-                                logger.LogInfo($"[{account.AccountName}] ✅ Victory detected via OCR: '{text}' after {checkCount} checks in {(DateTime.UtcNow - startTime).TotalSeconds:F1}s");
-                                resultFound = true;
-                                wasVictory = true;
-                                break;
-                            }
-
-                            // Check for defeat text
-                            if (text.Contains("defeat"))
-                            {
-                                logger.LogInfo($"[{account.AccountName}] ❌ Defeat detected via OCR: '{text}' after {checkCount} checks in {(DateTime.UtcNow - startTime).TotalSeconds:F1}s");
-                                resultFound = true;
-                                wasVictory = false;
-                                break;
-                            }
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        logger.LogWarning($"[{account.AccountName}] OCR error on check #{checkCount}: {ex.Message}");
-                    }
-
-                    // Log progress every 3 checks or every 2 seconds
-                    if (checkCount % 3 == 0 || (DateTime.UtcNow - startTime).TotalSeconds >= checkCount * 2)
-                    {
-                        var elapsed = (DateTime.UtcNow - startTime).TotalSeconds;
-                        logger.LogInfo($"[{account.AccountName}] Battle result OCR progress: {elapsed:F1}s elapsed, {checkCount} checks completed");
-                    }
-
-                    await Task.Delay(500, cancellationToken);
-                }
-
-                if (!resultFound)
+                var battleResult = await WaitForBattleResultAsync(account, logger, cancellationToken);
+                if (battleResult == null)
                 {
                     logger.LogError($"[{account.AccountName}] Could not detect battle result via OCR after 20 seconds");
                     return TargetProcessResult.Failed("Could not detect battle result");
                 }
+                bool wasVictory = battleResult.Value;
 
                 // Click result area
                 await ClickRandomInRectAsync(account.InstanceNumber, logger, AutoHuntConstants.VictoryDefeatClickArea);
@@ -812,6 +726,76 @@ namespace Bot.Core.Tasks.Modules.AutoHunt
                 logger.LogError($"[{account.AccountName}] Error processing attack target: {ex.Message}");
                 return TargetProcessResult.Failed($"Exception: {ex.Message}");
             }
+        }
+
+        /// <summary>Reads the battle result text via OCR for up to 20 seconds. True: victory, false: defeat, null: no result seen.</summary>
+        private async Task<bool?> WaitForBattleResultAsync(AccountSettings account, LogService logger, CancellationToken cancellationToken)
+        {
+            DateTime startTime = DateTime.UtcNow;
+
+            logger.LogInfo($"[{account.AccountName}] Waiting 5 seconds before checking battle result...");
+            await Task.Delay(5000, cancellationToken);
+
+            logger.LogInfo($"[{account.AccountName}] Now checking for battle result using OCR (up to 20 seconds)...");
+
+            // Battle result text area: 211,360 to 515,454
+            var battleResultArea = new Rectangle(211, 360, 304, 94);
+
+            int checkCount = 0;
+            while ((DateTime.UtcNow - startTime).TotalSeconds < 20)
+            {
+                checkCount++;
+                var battleScreenshot = await TakeScreenshotAsync(account.InstanceNumber, logger);
+                if (battleScreenshot == null) continue;
+
+                var result = ReadBattleResult(account, logger, battleScreenshot, battleResultArea, checkCount, startTime);
+                if (result.HasValue) return result;
+
+                // Log progress every 3 checks or every 2 seconds
+                if (checkCount % 3 == 0 || (DateTime.UtcNow - startTime).TotalSeconds >= checkCount * 2)
+                {
+                    var elapsed = (DateTime.UtcNow - startTime).TotalSeconds;
+                    logger.LogInfo($"[{account.AccountName}] Battle result OCR progress: {elapsed:F1}s elapsed, {checkCount} checks completed");
+                }
+
+                await Task.Delay(500, cancellationToken);
+            }
+            return null;
+        }
+
+        private static bool? ReadBattleResult(AccountSettings account, LogService logger, byte[] battleScreenshot, Rectangle battleResultArea, int checkCount, DateTime startTime)
+        {
+            try
+            {
+                var ocrService = new OcrService(logger);
+                var text = ocrService.ExtractTextFromScreenArea(battleScreenshot, battleResultArea);
+                if (string.IsNullOrEmpty(text))
+                {
+                    return null;
+                }
+
+                text = text.ToLower().Trim();
+                logger.LogInfo($"[{account.AccountName}] Battle result OCR check #{checkCount}: '{text}'");
+
+                // Check for victory text
+                if (text.Contains("victory"))
+                {
+                    logger.LogInfo($"[{account.AccountName}] ✅ Victory detected via OCR: '{text}' after {checkCount} checks in {(DateTime.UtcNow - startTime).TotalSeconds:F1}s");
+                    return true;
+                }
+
+                // Check for defeat text
+                if (text.Contains("defeat"))
+                {
+                    logger.LogInfo($"[{account.AccountName}] ❌ Defeat detected via OCR: '{text}' after {checkCount} checks in {(DateTime.UtcNow - startTime).TotalSeconds:F1}s");
+                    return false;
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning($"[{account.AccountName}] OCR error on check #{checkCount}: {ex.Message}");
+            }
+            return null;
         }
 
         #endregion
@@ -1033,6 +1017,28 @@ namespace Bot.Core.Tasks.Modules.AutoHunt
             SaveAutoHuntSettings(account, settings);
         }
 
+        private static void RecordDetection(
+            AccountSettings account, LogService logger,
+            Dictionary<string, List<(Rectangle location, double confidence)>> bestConfidences,
+            string imageName, Rectangle matchRect, double confidence)
+        {
+            if (!bestConfidences.ContainsKey(imageName))
+            {
+                bestConfidences[imageName] = new List<(Rectangle, double)>();
+            }
+
+            // Check if we already have a similar location
+            bool isDuplicate = bestConfidences[imageName].Any(existing =>
+                Math.Abs(existing.location.X - matchRect.X) < AutoHuntConstants.TARGET_AREA_PADDING &&
+                Math.Abs(existing.location.Y - matchRect.Y) < AutoHuntConstants.TARGET_AREA_PADDING);
+
+            if (!isDuplicate)
+            {
+                bestConfidences[imageName].Add((matchRect, confidence));
+                logger.LogInfo($"[{account.AccountName}] Found potential {imageName} at {matchRect} with confidence {confidence:F3}");
+            }
+        }
+
         private async Task ScanForTargets(
             AccountSettings account, 
             LogService logger, 
@@ -1078,23 +1084,9 @@ namespace Bot.Core.Tasks.Modules.AutoHunt
                     // Track all detections with confidence > 0.5
                     if (confidence > 0.5)
                     {
-                        if (!bestConfidences.ContainsKey(imageName))
-                        {
-                            bestConfidences[imageName] = new List<(Rectangle, double)>();
-                        }
-
-                        // Check if we already have a similar location
-                        bool isDuplicate = bestConfidences[imageName].Any(existing =>
-                            Math.Abs(existing.location.X - matchRect.X) < AutoHuntConstants.TARGET_AREA_PADDING &&
-                            Math.Abs(existing.location.Y - matchRect.Y) < AutoHuntConstants.TARGET_AREA_PADDING);
-
-                        if (!isDuplicate)
-                        {
-                            bestConfidences[imageName].Add((matchRect, confidence));
-                            logger.LogInfo($"[{account.AccountName}] Found potential {imageName} at {matchRect} with confidence {confidence:F3}");
-                        }
+                        RecordDetection(account, logger, bestConfidences, imageName, matchRect, confidence);
                     }
-                }
+}
 
                 // If we have found at least one high-confidence target, we can break early
                 if (bestConfidences.Any(kv => kv.Value.Any(v => v.confidence >= 0.8)))
@@ -1469,6 +1461,31 @@ namespace Bot.Core.Tasks.Modules.AutoHunt
 
         #region Stamina Management
 
+        /// <summary>Why the OCR text says the stamina is gone, or null when it does not.</summary>
+        private static string? FindStaminaDepletion(string text)
+        {
+            // Check for traditional stamina low messages
+            if (text.Contains("stamina") && text.Contains("low"))
+            {
+                return "Stamina low detected";
+            }
+
+            if (text.Contains("not enough") || text.Contains("insufficient"))
+            {
+                return "Insufficient stamina detected";
+            }
+
+            // Check for stamina restoration/replenishment dialogs
+            if (text.Contains("stamina-replenishing") ||
+                text.Contains("restore") && text.Contains("stamina") ||
+                text.Contains("governor stamina") ||
+                text.Contains("storehouse feast"))
+            {
+                return "Stamina restoration dialog detected";
+            }
+            return null;
+        }
+
         private static async Task<StaminaCheckResult> CheckForStaminaLowDirectly(
             byte[]? screenshot,
             AccountSettings account,
@@ -1490,26 +1507,10 @@ namespace Bot.Core.Tasks.Modules.AutoHunt
                     text = text.ToLower().Trim();
                     logger.LogInfo($"[{account.AccountName}] Full screen OCR text for stamina check: '{text}'");
 
-                    // Check for traditional stamina low messages
-                    if (text.Contains("stamina") && text.Contains("low"))
+                    var depletionReason = FindStaminaDepletion(text);
+                    if (depletionReason != null)
                     {
-                        logger.LogWarning($"[{account.AccountName}] Stamina low detected: '{text}'");
-                        return StaminaCheckResult.StaminaDepleted;
-                    }
-
-                    if (text.Contains("not enough") || text.Contains("insufficient"))
-                    {
-                        logger.LogWarning($"[{account.AccountName}] Insufficient stamina detected: '{text}'");
-                        return StaminaCheckResult.StaminaDepleted;
-                    }
-
-                    // Check for stamina restoration/replenishment dialogs
-                    if (text.Contains("stamina-replenishing") ||
-                        text.Contains("restore") && text.Contains("stamina") ||
-                        text.Contains("governor stamina") ||
-                        text.Contains("storehouse feast"))
-                    {
-                        logger.LogWarning($"[{account.AccountName}] Stamina restoration dialog detected: '{text}'");
+                        logger.LogWarning($"[{account.AccountName}] {depletionReason}: '{text}'");
                         return StaminaCheckResult.StaminaDepleted;
                     }
                 }

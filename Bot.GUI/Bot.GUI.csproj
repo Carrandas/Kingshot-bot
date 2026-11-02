@@ -24,7 +24,6 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <AssemblyName>KingshotAuto</AssemblyName>
     <ApplicationIcon>Resources\kingshot.ico</ApplicationIcon>
-    <NoWarn>$(NoWarn);CS8600;CS8602;CS8603</NoWarn>
     
     <!-- Build Configuration -->
     <PublishSingleFile>false</PublishSingleFile>

@@ -25,6 +25,8 @@ namespace Bot.GUI.Views
     {
         public MainViewModel ViewModel { get; } = null!;
 
+        // Bound from XAML ({Binding Version}), so it has to stay an instance property
+#pragma warning disable S2325
         public string Version
         {
             get
@@ -40,65 +42,25 @@ namespace Bot.GUI.Views
                 return "1.0.0";
             }
         }
+#pragma warning restore S2325
 
         public MainWindow()
         {
-            // Get the current UI culture for localization
-            var currentCulture = Thread.CurrentThread.CurrentUICulture;
-            
             // Check if running as administrator
             if (!IsRunningAsAdministrator())
             {
-                // Localized messages based on culture
-                string title = GetLocalizedString(
-                    "Administrator Rights Required",
-                    "管理者権限が必要です", // Japanese
-                    "需要管理员权限", // Simplified Chinese
-                    "需要管理員權限", // Traditional Chinese
-                    "Administratorrechte erforderlich", // German
-                    "Droits d'administrateur requis" // French
-                );
-
-                string message = GetLocalizedString(
-                    "This application requires administrator privileges to function properly. Please run as administrator.",
-                    "このアプリケーションは管理者権限で実行する必要があります。",
-                    "此应用程序需要管理员权限才能正常运行。请以管理员身份运行。",
-                    "此應用程序需要管理員權限才能正常運行。請以管理員身份運行。",
-                    "Diese Anwendung benötigt Administratorrechte, um ordnungsgemäß zu funktionieren. Bitte als Administrator ausführen.",
-                    "Cette application nécessite des privilèges administrateur pour fonctionner correctement. Veuillez exécuter en tant qu'administrateur."
-                );
-
-                WPFMessageBox.Show(message, title, MessageBoxButton.OK, MessageBoxImage.Warning);
-                WPFApplication.Current.Shutdown();
+                ShowAdministratorRequired();
                 return;
             }
 
             try
             {
                 ViewModel = MainViewModel.Instance;
-                
+
                 // Debug: Check if resources are available before InitializeComponent
-                Console.WriteLine("=== Checking Resources Before InitializeComponent ===");
-                Console.WriteLine("App Resources:");
-                foreach (var key in WPFApplication.Current.Resources.Keys)
-                {
-                    Console.WriteLine($"  App Resource: {key}");
-                }
-                
-                try
-                {
-                    InitializeComponent();
-                }
-                catch (Exception initEx)
-                {
-                    Console.WriteLine($"InitializeComponent failed: {initEx}");
-                    if (initEx.InnerException != null)
-                    {
-                        Console.WriteLine($"Inner Exception: {initEx.InnerException}");
-                    }
-                    throw;
-                }
-                
+                LogAppResources();
+                InitializeComponentWithDiagnostics();
+
                 DataContext = this;
 
                 // Set up the ConfigEditorView DataContext after window loads
@@ -106,87 +68,143 @@ namespace Bot.GUI.Views
 
                 // Ensure proper cleanup when window closes
                 this.Closing += MainWindow_Closing;
-                
+
                 // Initialize English language banner visibility
                 InitializeLanguageBannerVisibility();
-                
+
                 // Start UI thread monitoring in debug mode
                 #if DEBUG
                 UIThreadMonitor.StartMonitoring();
                 #endif
-                
+
                 // Bind the logs to the TextBox with optimized formatting
-                ViewModel.PropertyChanged += (s, e) =>
-                {
-                    if (e.PropertyName == nameof(ViewModel.CurrentLogMessage))
-                    {
-                        var msg = ViewModel.CurrentLogMessage;
-                        if (!string.IsNullOrEmpty(msg))
-                        {
-                            // Process log message on background thread, then update UI
-                            _ = Task.Run(() =>
-                            {
-                                var processingThreadId = Thread.CurrentThread.ManagedThreadId;
-                                Debug.WriteLine($"UI Log Processing: Background thread {processingThreadId}");
-                                string formattedMsg;
-                                if (msg == "__CLEAR_LOGS__")
-                                {
-                                    formattedMsg = "__CLEAR_LOGS__";
-                                }
-                                else
-                                {
-                                    // Parse and format the message for better readability on background thread
-                                    formattedMsg = FormatLogMessage(msg);
-                                }
-                                
-                                // Now update UI on UI thread using BeginInvoke (non-blocking)
-                                Dispatcher.BeginInvoke(() =>
-                                {
-                                    var uiThreadId = Thread.CurrentThread.ManagedThreadId;
-                                    Debug.WriteLine($"UI Log Update: UI thread {uiThreadId}");
-                                    if (formattedMsg == "__CLEAR_LOGS__")
-                                    {
-                                        LogTextBox.Text = "[LOGS CLEARED]\n";
-                                    }
-                                    else
-                                    {
-                                        LogTextBox.Text += formattedMsg + "\n";
-                                        LogTextBox.ScrollToEnd();
-                                        
-                                        // Keep only last 1000 lines
-                                        var lines = LogTextBox.Text.Split('\n');
-                                        if (lines.Length > 1000)
-                                        {
-                                            LogTextBox.Text = string.Join("\n", lines.Skip(lines.Length - 900));
-                                        }
-                                    }
-                                });
-                            });
-                        }
-                    }
-                };
+                ViewModel.PropertyChanged += ViewModel_PropertyChanged;
             }
             catch (Exception ex)
             {
-                string errorTitle = GetLocalizedString(
-                    "Initialization Error",
-                    "初期化エラー",
-                    "初始化错误",
-                    "初始化錯誤",
-                    "Initialisierungsfehler",
-                    "Erreur d'initialisation"
-                );
-
-                WPFMessageBox.Show($"Error: {ex.Message}\n\nDetails: {ex.ToString()}", 
-                    errorTitle,
-                    MessageBoxButton.OK, 
-                    MessageBoxImage.Error
-                );
-                WPFApplication.Current.Shutdown();
+                ShowInitializationError(ex);
             }
         }
 
-        private string GetLocalizedString(string english, string japanese, string simplifiedChinese, 
+        private static void ShowAdministratorRequired()
+        {
+            // Localized messages based on culture
+            string title = GetLocalizedString(
+                "Administrator Rights Required",
+                "管理者権限が必要です", // Japanese
+                "需要管理员权限", // Simplified Chinese
+                "需要管理員權限", // Traditional Chinese
+                "Administratorrechte erforderlich", // German
+                "Droits d'administrateur requis" // French
+            );
+
+            string message = GetLocalizedString(
+                "This application requires administrator privileges to function properly. Please run as administrator.",
+                "このアプリケーションは管理者権限で実行する必要があります。",
+                "此应用程序需要管理员权限才能正常运行。请以管理员身份运行。",
+                "此應用程序需要管理員權限才能正常運行。請以管理員身份運行。",
+                "Diese Anwendung benötigt Administratorrechte, um ordnungsgemäß zu funktionieren. Bitte als Administrator ausführen.",
+                "Cette application nécessite des privilèges administrateur pour fonctionner correctement. Veuillez exécuter en tant qu'administrateur."
+            );
+
+            WPFMessageBox.Show(message, title, MessageBoxButton.OK, MessageBoxImage.Warning);
+            WPFApplication.Current.Shutdown();
+        }
+
+        private static void ShowInitializationError(Exception ex)
+        {
+            string errorTitle = GetLocalizedString(
+                "Initialization Error",
+                "初期化エラー",
+                "初始化错误",
+                "初始化錯誤",
+                "Initialisierungsfehler",
+                "Erreur d'initialisation"
+            );
+
+            WPFMessageBox.Show($"Error: {ex.Message}\n\nDetails: {ex.ToString()}",
+                errorTitle,
+                MessageBoxButton.OK,
+                MessageBoxImage.Error
+            );
+            WPFApplication.Current.Shutdown();
+        }
+
+        private static void LogAppResources()
+        {
+            Console.WriteLine("=== Checking Resources Before InitializeComponent ===");
+            Console.WriteLine("App Resources:");
+            foreach (var key in WPFApplication.Current.Resources.Keys)
+            {
+                Console.WriteLine($"  App Resource: {key}");
+            }
+        }
+
+        private void InitializeComponentWithDiagnostics()
+        {
+            try
+            {
+                InitializeComponent();
+            }
+            catch (Exception initEx)
+            {
+                Console.WriteLine($"InitializeComponent failed: {initEx}");
+                if (initEx.InnerException != null)
+                {
+                    Console.WriteLine($"Inner Exception: {initEx.InnerException}");
+                }
+                throw;
+            }
+        }
+
+        private void ViewModel_PropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName != nameof(ViewModel.CurrentLogMessage))
+            {
+                return;
+            }
+
+            var msg = ViewModel.CurrentLogMessage;
+            if (string.IsNullOrEmpty(msg))
+            {
+                return;
+            }
+
+            // Process log message on background thread, then update UI
+            _ = Task.Run(() =>
+            {
+                var processingThreadId = Thread.CurrentThread.ManagedThreadId;
+                Debug.WriteLine($"UI Log Processing: Background thread {processingThreadId}");
+                // Parse and format the message for better readability on background thread
+                string formattedMsg = msg == "__CLEAR_LOGS__" ? "__CLEAR_LOGS__" : FormatLogMessage(msg);
+
+                // Now update UI on UI thread using BeginInvoke (non-blocking)
+                Dispatcher.BeginInvoke(() => AppendFormattedLog(formattedMsg));
+            });
+        }
+
+        private void AppendFormattedLog(string formattedMsg)
+        {
+            var uiThreadId = Thread.CurrentThread.ManagedThreadId;
+            Debug.WriteLine($"UI Log Update: UI thread {uiThreadId}");
+            if (formattedMsg == "__CLEAR_LOGS__")
+            {
+                LogTextBox.Text = "[LOGS CLEARED]\n";
+                return;
+            }
+
+            LogTextBox.Text += formattedMsg + "\n";
+            LogTextBox.ScrollToEnd();
+
+            // Keep only last 1000 lines
+            var lines = LogTextBox.Text.Split('\n');
+            if (lines.Length > 1000)
+            {
+                LogTextBox.Text = string.Join("\n", lines.Skip(lines.Length - 900));
+            }
+        }
+
+        private static string GetLocalizedString(string english, string japanese, string simplifiedChinese, 
             string traditionalChinese, string german, string french)
         {
             var culture = Thread.CurrentThread.CurrentUICulture;
@@ -200,7 +218,7 @@ namespace Bot.GUI.Views
             };
         }
 
-        private bool IsRunningAsAdministrator()
+        private static bool IsRunningAsAdministrator()
         {
             try
             {
@@ -347,7 +365,7 @@ namespace Bot.GUI.Views
                 dialog.ShowNewFolderButton = false;
                 
                 // Try to set initial directory to a common location
-                var commonPath = @"C:\LDPlayer";
+                var commonPath = Path.Combine(Path.GetPathRoot(Environment.SystemDirectory) !, "LDPlayer");
                 if (Directory.Exists(commonPath))
                 {
                     dialog.SelectedPath = commonPath;
@@ -487,16 +505,35 @@ namespace Bot.GUI.Views
             LDPlayerPathStatusBorder.Visibility = Visibility.Visible;
             
             // Auto-hide status after 5 seconds
-            var timer = new System.Threading.Timer(_ =>
+            _ = Task.Delay(5000).ContinueWith(_ =>
             {
                 Dispatcher.BeginInvoke(() =>
                 {
                     LDPlayerPathStatusBorder.Visibility = Visibility.Collapsed;
                 });
-            }, null, 5000, System.Threading.Timeout.Infinite);
+            }, TaskScheduler.Default);
         }
         
-        private string FormatLogMessage(string logMessage)
+        private static readonly Dictionary<string, string> LogLevelIndicators = new()
+        {
+            ["ERROR"] = "❌",
+            ["WARNING"] = "⚠️",
+            ["INFO"] = "ℹ️",
+        };
+
+        private static readonly Dictionary<string, string> NotificationIndicators = new()
+        {
+            ["Error"] = "❌",
+            ["Warning"] = "⚠️",
+            ["Success"] = "✅",
+            ["Info"] = "ℹ️",
+            ["Progress"] = "⏳",
+        };
+
+        private static string Indicator(Dictionary<string, string> indicators, string key) =>
+            indicators.TryGetValue(key, out var indicator) ? indicator : "•";
+
+        private static string FormatLogMessage(string logMessage)
         {
             var stopwatch = Stopwatch.StartNew();
             try
@@ -511,42 +548,21 @@ namespace Bot.GUI.Views
                     var message = string.Join("|", parts.Skip(4));
 
                     // Create a formatted string with visual indicators
-                    var levelIndicator = level switch
-                    {
-                        "ERROR" => "❌",
-                        "WARNING" => "⚠️",
-                        "INFO" => "ℹ️",
-                        _ => "•"
-                    };
-
                     var categoryPart = category != "General" ? $"[{category}] " : "";
-                    return $"[{timestamp}] {levelIndicator} {categoryPart}{message}";
+                    return $"[{timestamp}] {Indicator(LogLevelIndicators, level)} {categoryPart}{message}";
                 }
                 // Handle USER notifications format: |USER|NotificationType|timestamp|message
-                else if (parts.Length >= 5 && parts[1] == "USER")
+                if (parts.Length >= 5 && parts[1] == "USER")
                 {
                     var notificationType = parts[2];
                     var timestamp = parts[3];
                     var message = string.Join("|", parts.Skip(4));
-                    
-                    var levelIndicator = notificationType switch
-                    {
-                        "Error" => "❌",
-                        "Warning" => "⚠️",
-                        "Success" => "✅",
-                        "Info" => "ℹ️",
-                        "Progress" => "⏳",
-                        _ => "•"
-                    };
-                    
-                    return $"[{timestamp}] {levelIndicator} {message}";
+
+                    return $"[{timestamp}] {Indicator(NotificationIndicators, notificationType)} {message}";
                 }
-                else
-                {
-                    // Fallback for non-formatted messages - add timestamp
-                    var timestamp = DateTime.Now.ToString("HH:mm:ss");
-                    return $"[{timestamp}] • {logMessage}";
-                }
+
+                // Fallback for non-formatted messages - add timestamp
+                return $"[{DateTime.Now:HH:mm:ss}] • {logMessage}";
             }
             catch
             {
@@ -628,7 +644,7 @@ namespace Bot.GUI.Views
             }
         }
 
-        private string GetUserSetting(string key, string defaultValue)
+        private static string GetUserSetting(string key, string defaultValue)
         {
             try
             {
@@ -658,7 +674,7 @@ namespace Bot.GUI.Views
             }
         }
 
-        private void SaveUserSetting(string key, string value)
+        private static void SaveUserSetting(string key, string value)
         {
             try
             {

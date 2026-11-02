@@ -29,7 +29,7 @@ namespace Bot.Core.Logging
         // Destructuring policies to mask sensitive data
         private sealed class SensitiveDataDestructuringPolicy : IDestructuringPolicy
         {
-            public bool TryDestructure(object? value, ILogEventPropertyValueFactory propertyValueFactory, out LogEventPropertyValue? result)
+            public bool TryDestructure(object? value, ILogEventPropertyValueFactory propertyValueFactory, [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out LogEventPropertyValue? result)
             {
                 if (value is string stringValue)
                 {

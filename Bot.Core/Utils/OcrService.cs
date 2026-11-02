@@ -120,6 +120,50 @@ namespace Bot.Core.Utils
             }
         }
 
+        private void AddNativeDirsToPath(string baseDir, string x64Dir, string x86Dir, string currentPath)
+        {
+            var pathsToAdd = new List<string>();
+            if (Directory.Exists(x64Dir) && !currentPath.Contains(x64Dir))
+            {
+                pathsToAdd.Add(x64Dir);
+            }
+            if (Directory.Exists(x86Dir) && !currentPath.Contains(x86Dir))
+            {
+                pathsToAdd.Add(x86Dir);
+            }
+            if (!currentPath.Contains(baseDir))
+            {
+                pathsToAdd.Add(baseDir);
+            }
+
+            if (pathsToAdd.Any())
+            {
+                var newPath = string.Join(";", pathsToAdd) + ";" + currentPath;
+                Environment.SetEnvironmentVariable("PATH", newPath);
+                _logger.LogInfo($"Updated process PATH to: {newPath}");
+            }
+        }
+
+        private TesseractEngine CreateEngine()
+        {
+            try
+            {
+                return new TesseractEngine(_tessdataPath, "eng", EngineMode.LstmOnly);
+            }
+            catch (DllNotFoundException dllEx)
+            {
+                _logger.LogError($"DLL not found: {dllEx.Message}");
+                _logger.LogError($"This usually means a required DLL is missing or cannot be found in the search path");
+                throw;
+            }
+            catch (BadImageFormatException imgEx)
+            {
+                _logger.LogError($"Bad image format (wrong architecture?): {imgEx.Message}");
+                _logger.LogError($"This usually means the DLL architecture (32/64-bit) doesn't match the application");
+                throw;
+            }
+        }
+
         private void InitializeTesseract()
         {
             try
@@ -133,44 +177,10 @@ namespace Bot.Core.Utils
                 // Try to preload the DLLs to ensure they're available
                 TryPreloadNativeDlls(baseDir, x64Dir, x86Dir);
                 
-                var pathsToAdd = new List<string>();
-                if (Directory.Exists(x64Dir) && !currentPath.Contains(x64Dir))
-                {
-                    pathsToAdd.Add(x64Dir);
-                }
-                if (Directory.Exists(x86Dir) && !currentPath.Contains(x86Dir))
-                {
-                    pathsToAdd.Add(x86Dir);
-                }
-                if (!currentPath.Contains(baseDir))
-                {
-                    pathsToAdd.Add(baseDir);
-                }
+                AddNativeDirsToPath(baseDir, x64Dir, x86Dir, currentPath);
 
-                if (pathsToAdd.Any())
-                {
-                    var newPath = string.Join(";", pathsToAdd) + ";" + currentPath;
-                    Environment.SetEnvironmentVariable("PATH", newPath);
-                    _logger.LogInfo($"Updated process PATH to: {newPath}");
-                }
+                _engine = CreateEngine();
 
-                try
-                {
-                    _engine = new TesseractEngine(_tessdataPath, "eng", EngineMode.LstmOnly);
-                }
-                catch (DllNotFoundException dllEx)
-                {
-                    _logger.LogError($"DLL not found: {dllEx.Message}");
-                    _logger.LogError($"This usually means a required DLL is missing or cannot be found in the search path");
-                    throw;
-                }
-                catch (BadImageFormatException imgEx)
-                {
-                    _logger.LogError($"Bad image format (wrong architecture?): {imgEx.Message}");
-                    _logger.LogError($"This usually means the DLL architecture (32/64-bit) doesn't match the application");
-                    throw;
-                }
-                
                 if (_config.PageSegMode.HasValue)
                 {
                     _engine.DefaultPageSegMode = _config.PageSegMode.Value;

@@ -18,8 +18,8 @@ namespace Bot.Core.Tests
     [Explicit("Drives LDPlayer: run by hand only")]
     public class InstanceManagerIntegrationTests
     {
-        private InstanceManager _instanceManager;
-        private LogService _logger;
+        private InstanceManager _instanceManager = null!;
+        private LogService _logger = null!;
 
         [SetUp]
         public void Setup()
@@ -132,7 +132,7 @@ namespace Bot.Core.Tests
                 // If successful, verify the instance is indeed ready
                 var finalStatus = await _instanceManager.GetInstanceDetailedStatusAsync(instanceNumber);
                 ClassicAssert.IsNotNull(finalStatus);
-                ClassicAssert.IsTrue(finalStatus.IsFullyBooted, "Instance should be fully booted after successful wait");
+                ClassicAssert.IsTrue(finalStatus!.IsFullyBooted, "Instance should be fully booted after successful wait");
                 
                 Console.WriteLine($"Final status: {finalStatus.StatusDescription}");
             }
@@ -168,7 +168,7 @@ namespace Bot.Core.Tests
                     "Cache size should remain same for second call");
                 
                 // Status objects should be equivalent (same data)
-                ClassicAssert.AreEqual(status1.Index, status2.Index);
+                ClassicAssert.AreEqual(status1.Index, status2!.Index);
                 ClassicAssert.AreEqual(status1.IsRunning, status2.IsRunning);
                 ClassicAssert.AreEqual(status1.AndroidStarted, status2.AndroidStarted);
             }

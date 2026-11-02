@@ -24,7 +24,6 @@ namespace Bot.GUI.ViewModels
         private readonly CycleManagementService _cycleService;
         private readonly TaskManager _taskManager;
         private readonly ConfigViewModel _configVM;
-        private readonly DispatcherTimer _timer;
         private bool _singleRunActive;
         private string? _followedName;
 
@@ -58,9 +57,9 @@ namespace Bot.GUI.ViewModels
             TaskRunHistory.Changed += () => OnUi(Refresh);
 
             // Relative times ("in 12 min") go stale: redraw twice a minute
-            _timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(30) };
-            _timer.Tick += (_, _) => Refresh();
-            _timer.Start();
+            var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(30) };
+            timer.Tick += (_, _) => Refresh();
+            timer.Start();
 
             // A config reload refills Accounts with new objects: keep the same instance selected
             Accounts.CollectionChanged += (_, _) => OnUi(() =>
@@ -122,8 +121,8 @@ namespace Bot.GUI.ViewModels
         private void RebuildCharacters()
         {
             var keep = _selectedCharacter?.Name;
-            foreach (var c in Characters)
-                if (c.Entry != null) c.Entry.PropertyChanged -= OnCharacterEntryChanged;
+            foreach (var entry in Characters.Select(c => c.Entry).Where(e => e != null))
+                entry!.PropertyChanged -= OnCharacterEntryChanged;
             Characters.Clear();
             if (_selectedAccount != null)
             {
@@ -170,7 +169,8 @@ namespace Bot.GUI.ViewModels
             var activeName = CharacterRoster.GetActiveName(instance);
             bool isActive = entry == null || (activeName != null && CharacterRoster.SameName(activeName, entry.Name));
             var cached = AccountDetectionTask.GetCachedAccountId(instance);
-            return isActive && cached.Length > 0 ? cached : entry == null ? Schedule.AccountKey(cached, _selectedAccount) : null;
+            if (isActive && cached.Length > 0) return cached;
+            return entry == null ? Schedule.AccountKey(cached, _selectedAccount) : null;
         }
 
         /// <summary>
@@ -211,33 +211,27 @@ namespace Bot.GUI.ViewModels
             bool cycleRunning = _cycleService.IsRunning && nextCycle == null;
 
             var current = _selectedAccount != null ? TaskRunHistory.GetCurrent(_selectedAccount.InstanceNumber) : null;
-            string runningText = current != null ? $": {TaskTypeToDisplayNameConverter.GetDisplayName(current.Value)}" : "";
-
-            if (_singleRunActive) CycleStatus = SingleRunText;
-            else if (cycleRunning) CycleStatus = $"Cycle {_cycleService.CurrentCycle} running{runningText}";
-            else if (nextCycle != null) CycleStatus = $"Next cycle at {Local(nextCycle.Value)} ({Relative(nextCycle.Value)})";
-            else CycleStatus = $"Stopped. Run on schedule: a cycle now, then every {min}-{max} min after it finishes";
+            CycleStatus = BuildCycleStatus(min, max, nextCycle, cycleRunning, current);
 
             if (_selectedAccount == null) return;
             OnPropertyChanged(nameof(SwitchCharacters));
             var activeName = ActiveCharacterName();
-            ActiveCharacterText = activeName != null ? $"Active in game: {activeName}"
-                : SwitchCharacters ? "Active character not seen yet" : "Active character unknown: switch characters is off";
+            ActiveCharacterText = BuildActiveCharacterText(activeName);
 
-            // Follow the run: when a task runs on another character than the one shown, show that character
-            // (once per character switch, so picking another character by hand during a run sticks)
-            if (current != null && activeName != null && activeName != _followedName)
-            {
-                _followedName = activeName;
-                var running = Characters.FirstOrDefault(c => c.Entry != null && CharacterRoster.SameName(c.Entry.Name, activeName));
-                if (running != null && running != _selectedCharacter)
-                {
-                    SelectedCharacter = running;  // rebuilds the rows and refreshes again
-                    return;
-                }
-            }
+            if (FollowRunningCharacter(current, activeName)) return;
             if (current == null) _followedName = null;
 
+            RefreshTaskRows(_selectedAccount, current, activeName, cycleRunning, nextCycle);
+        }
+
+        private string BuildActiveCharacterText(string? activeName)
+        {
+            string noActiveText = SwitchCharacters ? "Active character not seen yet" : "Active character unknown: switch characters is off";
+            return activeName != null ? $"Active in game: {activeName}" : noActiveText;
+        }
+
+        private void RefreshTaskRows(AccountSettings account, TaskType? current, string? activeName, bool cycleRunning, DateTime? nextCycle)
+        {
             var key = SelectedAccountKey();
             // Active character unknown (Change Account off): assume the shown one, so the running row still lights up
             bool selectedIsActive = _selectedCharacter?.Entry == null || activeName == null ||
@@ -247,24 +241,70 @@ namespace Bot.GUI.ViewModels
 
             foreach (var row in Tasks)
             {
-                row.IsRunningNow = current == row.Type && selectedIsActive;
-                if (row.IsRunningNow) RunningRow = row;
-                var record = key != null ? TaskRunHistory.Get(key, row.Type) : null;
-                row.SetLastRun(record);
-
-                if (row.IsRunningNow) { row.NextRunText = "running now"; continue; }
-                if (!row.Enabled || !characterEnabled) { row.NextRunText = "not in the cycle"; continue; }
-
-                DateTime? gate = key != null && _taskManager.GetTask(row.Type) is IScheduledTask scheduled
-                    ? scheduled.GetNextRunUtc(key, _selectedAccount) : null;
-                if (cycleRunning)
-                    row.NextRunText = gate != null ? $"waits until {Local(gate.Value)}" : "this cycle";
-                else if (nextCycle != null)
-                    row.NextRunText = Local(gate != null && gate > nextCycle ? gate.Value : nextCycle.Value)
-                                      + (gate != null && gate > nextCycle ? " (first cycle after)" : "");
-                else
-                    row.NextRunText = gate != null ? $"from {Local(gate.Value)}" : "next cycle";
+                UpdateTaskRow(row, account, current, selectedIsActive, characterEnabled, key, cycleRunning, nextCycle);
             }
+        }
+
+        private string BuildCycleStatus(int min, int max, DateTime? nextCycle, bool cycleRunning, TaskType? current)
+        {
+            string runningText = current != null ? $": {TaskTypeToDisplayNameConverter.GetDisplayName(current.Value)}" : "";
+
+            if (_singleRunActive) return SingleRunText;
+            if (cycleRunning) return $"Cycle {_cycleService.CurrentCycle} running{runningText}";
+            if (nextCycle != null) return $"Next cycle at {Local(nextCycle.Value)} ({Relative(nextCycle.Value)})";
+            return $"Stopped. Run on schedule: a cycle now, then every {min}-{max} min after it finishes";
+        }
+
+        /// <summary>
+        /// Follow the run: when a task runs on another character than the one shown, show that character
+        /// (once per character switch, so picking another character by hand during a run sticks).
+        /// True when the selection changed (it rebuilds the rows and refreshes again).
+        /// </summary>
+        private bool FollowRunningCharacter(TaskType? current, string? activeName)
+        {
+            if (current == null || activeName == null || activeName == _followedName)
+            {
+                return false;
+            }
+
+            _followedName = activeName;
+            var running = Characters.FirstOrDefault(c => c.Entry != null && CharacterRoster.SameName(c.Entry.Name, activeName));
+            if (running == null || running == _selectedCharacter)
+            {
+                return false;
+            }
+
+            SelectedCharacter = running;
+            return true;
+        }
+
+        private void UpdateTaskRow(
+            TaskRow row, AccountSettings account, TaskType? current, bool selectedIsActive, bool characterEnabled,
+            string? key, bool cycleRunning, DateTime? nextCycle)
+        {
+            row.IsRunningNow = current == row.Type && selectedIsActive;
+            if (row.IsRunningNow) RunningRow = row;
+            var record = key != null ? TaskRunHistory.Get(key, row.Type) : null;
+            row.SetLastRun(record);
+
+            if (row.IsRunningNow) { row.NextRunText = "running now"; return; }
+            if (!row.Enabled || !characterEnabled) { row.NextRunText = "not in the cycle"; return; }
+
+            DateTime? gate = key != null && _taskManager.GetTask(row.Type) is IScheduledTask scheduled
+                ? scheduled.GetNextRunUtc(key, account) : null;
+            row.NextRunText = BuildNextRunText(gate, cycleRunning, nextCycle);
+        }
+
+        private static string BuildNextRunText(DateTime? gate, bool cycleRunning, DateTime? nextCycle)
+        {
+            if (cycleRunning)
+                return gate != null ? $"waits until {Local(gate.Value)}" : "this cycle";
+            if (nextCycle != null)
+            {
+                bool gateAfterCycle = gate != null && gate > nextCycle;
+                return Local(gateAfterCycle ? gate!.Value : nextCycle.Value) + (gateAfterCycle ? " (first cycle after)" : "");
+            }
+            return gate != null ? $"from {Local(gate.Value)}" : "next cycle";
         }
 
         private async System.Threading.Tasks.Task RunSingleAsync(TaskRow? row)
@@ -328,7 +368,10 @@ namespace Bot.GUI.ViewModels
         {
             var span = utc - DateTime.UtcNow;
             var minutes = (int)Math.Round(Math.Abs(span.TotalMinutes));
-            string amount = minutes < 1 ? "<1 min" : minutes < 90 ? $"{minutes} min" : $"{Math.Abs(span.TotalHours):0.#} h";
+            string amount;
+            if (minutes < 1) amount = "<1 min";
+            else if (minutes < 90) amount = $"{minutes} min";
+            else amount = $"{Math.Abs(span.TotalHours):0.#} h";
             return span >= TimeSpan.Zero ? $"in {amount}" : $"{amount} ago";
         }
 
@@ -410,10 +453,21 @@ namespace Bot.GUI.ViewModels
                 LastRunState = "none";
             }
 
-            var tip = record?.LastRunUtc != null ? $"Last run: {(record.LastRunOk ? "ok" : "failed")}{(string.IsNullOrEmpty(record.LastRunMessage) ? "" : $" - {record.LastRunMessage}")}" : "No run recorded";
+            LastRunTooltip = BuildLastRunTooltip(record);
+        }
+
+        private static string BuildLastRunTooltip(TaskRunHistory.Record? record)
+        {
+            string tip = "No run recorded";
+            if (record?.LastRunUtc != null)
+            {
+                var runResult = record.LastRunOk ? "ok" : "failed";
+                var runMessage = string.IsNullOrEmpty(record.LastRunMessage) ? "" : $" - {record.LastRunMessage}";
+                tip = $"Last run: {runResult}{runMessage}";
+            }
             if (record?.LastCheckUtc is DateTime check && check != record.LastRunUtc)
                 tip += $"\nLast check {TaskDashboardViewModel.Local(check)}: {record.LastCheckMessage}";
-            LastRunTooltip = tip;
+            return tip;
         }
 
         public event PropertyChangedEventHandler? PropertyChanged;

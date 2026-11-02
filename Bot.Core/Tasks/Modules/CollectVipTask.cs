@@ -47,10 +47,6 @@ namespace Bot.Core.Tasks.Modules
                 _instanceLogger = logger;
                 var locatorService = new LocatorService(logger, account, TaskType);
                 
-                // Reset VIP reward tracking flags
-                var vipRewardsClicked = false;
-                var vipRewards2Clicked = false;
-                
                 // The VIP rewards reset at 00:00 UTC: one run a day per character
                 string accountKey = Schedule.AccountKey(AccountDetectionTask.GetCachedAccountId(account.InstanceNumber), account);
                 if (DailyGate.DoneToday(TaskType, accountKey))
@@ -78,145 +74,14 @@ namespace Bot.Core.Tasks.Modules
 
                 // Step 2.5: Check if VIP interface loaded properly by looking for VIP chest or VIP claim
                 logger.LogInfo($"[{account.AccountName}] Checking if VIP interface loaded...");
-                var screenshot = await TakeScreenshotAsync(account.InstanceNumber, logger);
-                if (screenshot != null && _templateMatcher != null)
-                {
-                    // First check for VIP chest
-                    var vipChestPath = Path.Combine(ImageTemplateFolder, "vip-chest.png");
-                    bool vipChestFound = false;
-                    if (File.Exists(vipChestPath))
-                    {
-                        var vipChestResult = _templateMatcher.MatchTemplate(
-                            screenshot,
-                            vipChestPath,
-                            account.InstanceNumber,
-                            threshold: GameCoordinates.Thresholds.StandardConfidence,
-                            scales: UnifiedTemplateMatchingService.StandardScales,
-                            verboseLogging: false,
-                            searchArea: VipChestSearchArea
-                        );
-                        vipChestFound = vipChestResult.found;
-                    }
-                    
-                    // If VIP chest not found, check for VIP claim
-                    bool vipClaimFound = false;
-                    if (!vipChestFound)
-                    {
-                        var vipClaimPath = Path.Combine(ImageTemplateFolder, "vip-claim.png");
-                        if (File.Exists(vipClaimPath))
-                        {
-                            var vipClaimResult = _templateMatcher.MatchTemplate(
-                                screenshot,
-                                vipClaimPath,
-                                account.InstanceNumber,
-                                threshold: GameCoordinates.Thresholds.StandardConfidence,
-                                scales: UnifiedTemplateMatchingService.StandardScales,
-                                verboseLogging: false,
-                                searchArea: VipClaimSearchArea
-                            );
-                            vipClaimFound = vipClaimResult.found;
-                        }
-                    }
-                    
-                    // If neither VIP chest nor VIP claim found, click back button
-                    if (!vipChestFound && !vipClaimFound)
-                    {
-                        logger.LogWarning($"[{account.AccountName}] VIP interface did not load properly (neither chest nor claim found) - clicking deploy-back button");
-                        if (await FindAndClickButtonImageAsync("deploy-back.png", account.InstanceNumber, logger))
-                        {
-                            logger.LogInfo($"[{account.AccountName}] Successfully clicked deploy-back button");
-                            return TaskExecutionDetails.Failed("VIP interface did not load - returned to base");
-                        }
-                        return TaskExecutionDetails.Failed("VIP interface did not load and could not return to base");
-                    }
-                }
+                var interfaceFailure = await CheckVipInterfaceLoadedAsync(account, logger);
+                if (interfaceFailure != null) return interfaceFailure;
 
                 // Step 3: Find and click VIP chest (with color template matching in specific area)
-                logger.LogInfo($"[{account.AccountName}] Looking for VIP chest in area {VipChestSearchArea}...");
-                // vip-chest.png is the red dot on the daily sign-in chest; no dot means it was already claimed today
-                bool chestClicked = await FindAndClickImageWithColorAsync("vip-chest.png", account.InstanceNumber, logger, VipChestSearchArea);
-                if (!chestClicked)
-                {
-                    logger.LogInfo($"[{account.AccountName}] VIP chest has no red dot (already claimed), continuing with the daily bundle...");
-                }
-                else
-                {
-                    await Task.Delay(1000, cancellationToken); // Wait for chest interface to load
-
-                    // Step 3.5: Check for vip-rewards.png after clicking vip-chest (with 5-second timeout, the popup can take >2 s to appear)
-                    logger.LogInfo($"[{account.AccountName}] Looking for VIP rewards template: templates\\images\\collectvip\\vip-rewards.png (up to 5 seconds)...");
-                    bool vipRewardsFound = false;
-                    var vipRewardsStartTime = DateTime.UtcNow;
-                    int attemptCount = 0;
-
-                    while (!vipRewardsFound && (DateTime.UtcNow - vipRewardsStartTime).TotalSeconds < 5)
-                    {
-                        attemptCount++;
-                        logger.LogInfo($"[{account.AccountName}] Searching for vip-rewards.png - Attempt {attemptCount}");
-                        
-                        if (await FindAndClickImageAsync("vip-rewards.png", account.InstanceNumber, logger, threshold: 0.8, useEnhancedMatching: true))
-                        {
-                            logger.LogInfo($"[{account.AccountName}] ✅ VIP rewards found and clicked at attempt {attemptCount}");
-                            vipRewardsClicked = true; // Track that we clicked vip-rewards
-                            vipRewardsFound = true;
-                            await Task.Delay(1000, cancellationToken); // Wait for rewards to be collected
-                        }
-                        else if (!vipRewardsFound)
-                        {
-                            logger.LogInfo($"[{account.AccountName}] VIP rewards not found in attempt {attemptCount}, waiting 200ms before retry");
-                            await Task.Delay(200, cancellationToken); // Wait 200ms before retry
-                        }
-                    }
-                    
-                    if (!vipRewardsFound)
-                    {
-                        logger.LogInfo($"[{account.AccountName}] ❌ VIP rewards (templates\\images\\collectvip\\vip-rewards.png) not found after {attemptCount} attempts in 5 seconds, continuing...");
-                    }
-
-                    // A popup other than "Rewards" can stay over the VIP screen and hide Claim and +; tap it away
-                    for (int i = 0; i < 4 && !await IsVipScreenShownAsync(account.InstanceNumber, logger); i++)
-                    {
-                        logger.LogInfo($"[{account.AccountName}] VIP screen covered after the chest, tapping the title bar to close the popup");
-                        await ClickAsync(account.InstanceNumber, logger, VipTitleBarPoint);
-                        await Task.Delay(1000, cancellationToken);
-                    }
-                }
+                var vipRewardsClicked = await ClaimVipChestAsync(account, logger, cancellationToken);
 
                 // Step 4: Find and click VIP claim button (regular template matching in specific area)
-                logger.LogInfo($"[{account.AccountName}] Looking for VIP claim button in area {VipClaimSearchArea}...");
-                if (!await FindAndClickImageInAreaAsync("vip-claim.png", account.InstanceNumber, logger, VipClaimSearchArea))
-                {
-                    logger.LogWarning($"[{account.AccountName}] VIP claim button not found in search area, continuing to next step...");
-                }
-                else
-                {
-                    await Task.Delay(1000, cancellationToken); // Wait for claim to process
-
-                    // Step 4.5: Check for vip-rewards2.png after clicking vip-claim (5 s, the popup animates in late)
-                    logger.LogInfo($"[{account.AccountName}] Looking for VIP rewards 2 (up to 5 seconds)...");
-                    bool vipRewards2Found = false;
-                    var vipRewards2StartTime = DateTime.UtcNow;
-                    
-                    while (!vipRewards2Found && (DateTime.UtcNow - vipRewards2StartTime).TotalSeconds < 5)
-                    {
-                        if (await FindAndClickImageAsync("vip-rewards2.png", account.InstanceNumber, logger, threshold: 0.8, useEnhancedMatching: true))
-                        {
-                            logger.LogInfo($"[{account.AccountName}] VIP rewards 2 clicked");
-                            vipRewards2Clicked = true; // Track that we clicked vip-rewards2
-                            vipRewards2Found = true;
-                            await Task.Delay(1000, cancellationToken); // Wait for rewards to be collected
-                        }
-                        else if (!vipRewards2Found)
-                        {
-                            await Task.Delay(200, cancellationToken); // Wait 200ms before retry
-                        }
-                    }
-                    
-                    if (!vipRewards2Found)
-                    {
-                        logger.LogInfo($"[{account.AccountName}] VIP rewards 2 not found after 5 seconds, continuing...");
-                    }
-                }
+                var vipRewards2Clicked = await ClaimVipRewardsAsync(account, logger, cancellationToken);
 
                 // Step 5: Find and click VIP plus button
                 logger.LogInfo($"[{account.AccountName}] Looking for VIP plus button...");
@@ -231,49 +96,8 @@ namespace Bot.Core.Tasks.Modules
 
                 await Task.Delay(1000, cancellationToken); // Wait for plus interface to load
 
-                // Step 6: use the VIP XP items we own. Tap the green Use once; a "xN" (use all) bubble then appears
-                // to its left, and tapping that bubble uses every remaining item of the row in one go.
-                // SAFETY: the orange "Buy & Use" rows (and their orange gem-cost bubbles) spend gems and are never tapped;
-                // the bubble is only tapped when the spot is verified green.
-                logger.LogInfo($"[{account.AccountName}] Starting VIP use step...");
-                int useCount = 0;
-                const int maxUseRounds = 4; // one round per owned item row (10 / 100 / 1K XP ...)
-
-                for (int round = 0; round < maxUseRounds; round++)
-                {
-                    cancellationToken.ThrowIfCancellationRequested();
-
-                    var use = await FindVipUseButtonAsync(account.InstanceNumber, logger);
-                    if (!use.found)
-                    {
-                        logger.LogInfo($"[{account.AccountName}] No green VIP use button left, done");
-                        break;
-                    }
-
-                    var useCenter = new Point(use.rect.X + use.rect.Width / 2, use.rect.Y + use.rect.Height / 2);
-                    logger.LogInfo($"[{account.AccountName}] Tapping Use once (round {round + 1})...");
-                    await ClickAsync(account.InstanceNumber, logger, useCenter);
-                    await Task.Delay(1000, cancellationToken); // the bubble appears next to the row
-
-                    // bubble: ~200px left of Use; verify it is green (not an orange gem-cost bubble) along its top edge,
-                    // above the "VIP XP×10 obtained" toast that covers the middle of the row
-                    var bubbleTap = new Point(useCenter.X - 200, useCenter.Y);
-                    var probe = new Point(useCenter.X - 200, useCenter.Y - 24);
-                    if (await IsGreenAtAsync(account.InstanceNumber, logger, probe))
-                    {
-                        logger.LogInfo($"[{account.AccountName}] Green use-all bubble found, tapping it...");
-                        await ClickAsync(account.InstanceNumber, logger, bubbleTap);
-                        useCount++;
-                        await Task.Delay(1500, cancellationToken); // toast + the list re-lays out
-                    }
-                    else
-                    {
-                        logger.LogInfo($"[{account.AccountName}] No green use-all bubble next to this row (single item or already used)");
-                        await Task.Delay(1500, cancellationToken);
-                    }
-                }
-
-                logger.LogInfo($"[{account.AccountName}] VIP use step finished: used {useCount} stack(s) with the bubble");
+                // Step 6: use the VIP XP items we own
+                await UseVipItemsAsync(account, logger, cancellationToken);
 
                 // Step 7: Close level dialog
                 logger.LogInfo($"[{account.AccountName}] Looking for level close button...");
@@ -311,6 +135,192 @@ namespace Bot.Core.Tasks.Modules
             }
         }
 
+
+        /// <summary>True when the template matches in the area of the screenshot (a missing template file counts as not found).</summary>
+        private bool IsTemplateFound(byte[] screenshot, string templateName, Rectangle searchArea, int instanceNumber)
+        {
+            var path = Path.Combine(ImageTemplateFolder, templateName);
+            if (!File.Exists(path) || _templateMatcher == null)
+            {
+                return false;
+            }
+
+            return _templateMatcher.MatchTemplate(
+                screenshot,
+                path,
+                instanceNumber,
+                threshold: GameCoordinates.Thresholds.StandardConfidence,
+                scales: UnifiedTemplateMatchingService.StandardScales,
+                verboseLogging: false,
+                searchArea: searchArea
+            ).found;
+        }
+
+        /// <summary>Step 2.5: the VIP screen shows either the chest dot or the Claim button. Returns the failure when neither does.</summary>
+        private async Task<TaskExecutionDetails?> CheckVipInterfaceLoadedAsync(AccountSettings account, LogService logger)
+        {
+            var screenshot = await TakeScreenshotAsync(account.InstanceNumber, logger);
+            if (screenshot == null || _templateMatcher == null)
+            {
+                return null;
+            }
+
+            // First check for VIP chest, then for VIP claim
+            bool vipChestFound = IsTemplateFound(screenshot, "vip-chest.png", VipChestSearchArea, account.InstanceNumber);
+            bool vipClaimFound = !vipChestFound && IsTemplateFound(screenshot, "vip-claim.png", VipClaimSearchArea, account.InstanceNumber);
+            if (vipChestFound || vipClaimFound)
+            {
+                return null;
+            }
+
+            // If neither VIP chest nor VIP claim found, click back button
+            logger.LogWarning($"[{account.AccountName}] VIP interface did not load properly (neither chest nor claim found) - clicking deploy-back button");
+            if (await FindAndClickButtonImageAsync("deploy-back.png", account.InstanceNumber, logger))
+            {
+                logger.LogInfo($"[{account.AccountName}] Successfully clicked deploy-back button");
+                return TaskExecutionDetails.Failed("VIP interface did not load - returned to base");
+            }
+            return TaskExecutionDetails.Failed("VIP interface did not load and could not return to base");
+        }
+
+        /// <summary>Step 3: taps the chest (a red dot means it can be claimed) and the Rewards popup. True when the popup was tapped.</summary>
+        private async Task<bool> ClaimVipChestAsync(AccountSettings account, LogService logger, CancellationToken cancellationToken)
+        {
+            logger.LogInfo($"[{account.AccountName}] Looking for VIP chest in area {VipChestSearchArea}...");
+            // vip-chest.png is the red dot on the daily sign-in chest; no dot means it was already claimed today
+            bool chestClicked = await FindAndClickImageWithColorAsync("vip-chest.png", account.InstanceNumber, logger, VipChestSearchArea);
+            if (!chestClicked)
+            {
+                logger.LogInfo($"[{account.AccountName}] VIP chest has no red dot (already claimed), continuing with the daily bundle...");
+                return false;
+            }
+
+            await Task.Delay(1000, cancellationToken); // Wait for chest interface to load
+
+            // Step 3.5: Check for vip-rewards.png after clicking vip-chest (with 5-second timeout, the popup can take >2 s to appear)
+            logger.LogInfo($"[{account.AccountName}] Looking for VIP rewards template: templates\\images\\collectvip\\vip-rewards.png (up to 5 seconds)...");
+            bool vipRewardsFound = false;
+            var vipRewardsStartTime = DateTime.UtcNow;
+            int attemptCount = 0;
+
+            while (!vipRewardsFound && (DateTime.UtcNow - vipRewardsStartTime).TotalSeconds < 5)
+            {
+                attemptCount++;
+                logger.LogInfo($"[{account.AccountName}] Searching for vip-rewards.png - Attempt {attemptCount}");
+
+                if (await FindAndClickImageAsync("vip-rewards.png", account.InstanceNumber, logger, threshold: 0.8, useEnhancedMatching: true))
+                {
+                    logger.LogInfo($"[{account.AccountName}] ✅ VIP rewards found and clicked at attempt {attemptCount}");
+                    vipRewardsFound = true;
+                    await Task.Delay(1000, cancellationToken); // Wait for rewards to be collected
+                }
+                else
+                {
+                    logger.LogInfo($"[{account.AccountName}] VIP rewards not found in attempt {attemptCount}, waiting 200ms before retry");
+                    await Task.Delay(200, cancellationToken); // Wait 200ms before retry
+                }
+            }
+
+            if (!vipRewardsFound)
+            {
+                logger.LogInfo($"[{account.AccountName}] ❌ VIP rewards (templates\\images\\collectvip\\vip-rewards.png) not found after {attemptCount} attempts in 5 seconds, continuing...");
+            }
+
+            // A popup other than "Rewards" can stay over the VIP screen and hide Claim and +; tap it away
+            for (int i = 0; i < 4 && !await IsVipScreenShownAsync(account.InstanceNumber, logger); i++)
+            {
+                logger.LogInfo($"[{account.AccountName}] VIP screen covered after the chest, tapping the title bar to close the popup");
+                await ClickAsync(account.InstanceNumber, logger, VipTitleBarPoint);
+                await Task.Delay(1000, cancellationToken);
+            }
+            return vipRewardsFound;
+        }
+
+        /// <summary>Step 4: presses the VIP Claim button and the second Rewards popup. True when that popup was tapped.</summary>
+        private async Task<bool> ClaimVipRewardsAsync(AccountSettings account, LogService logger, CancellationToken cancellationToken)
+        {
+            logger.LogInfo($"[{account.AccountName}] Looking for VIP claim button in area {VipClaimSearchArea}...");
+            if (!await FindAndClickImageInAreaAsync("vip-claim.png", account.InstanceNumber, logger, VipClaimSearchArea))
+            {
+                logger.LogWarning($"[{account.AccountName}] VIP claim button not found in search area, continuing to next step...");
+                return false;
+            }
+
+            await Task.Delay(1000, cancellationToken); // Wait for claim to process
+
+            // Step 4.5: Check for vip-rewards2.png after clicking vip-claim (5 s, the popup animates in late)
+            logger.LogInfo($"[{account.AccountName}] Looking for VIP rewards 2 (up to 5 seconds)...");
+            bool vipRewards2Found = false;
+            var vipRewards2StartTime = DateTime.UtcNow;
+
+            while (!vipRewards2Found && (DateTime.UtcNow - vipRewards2StartTime).TotalSeconds < 5)
+            {
+                if (await FindAndClickImageAsync("vip-rewards2.png", account.InstanceNumber, logger, threshold: 0.8, useEnhancedMatching: true))
+                {
+                    logger.LogInfo($"[{account.AccountName}] VIP rewards 2 clicked");
+                    vipRewards2Found = true;
+                    await Task.Delay(1000, cancellationToken); // Wait for rewards to be collected
+                }
+                else
+                {
+                    await Task.Delay(200, cancellationToken); // Wait 200ms before retry
+                }
+            }
+
+            if (!vipRewards2Found)
+            {
+                logger.LogInfo($"[{account.AccountName}] VIP rewards 2 not found after 5 seconds, continuing...");
+            }
+            return vipRewards2Found;
+        }
+
+        /// <summary>
+        /// Step 6: use the VIP XP items we own. Tap the green Use once; a "xN" (use all) bubble then appears
+        /// to its left, and tapping that bubble uses every remaining item of the row in one go.
+        /// SAFETY: the orange "Buy & Use" rows (and their orange gem-cost bubbles) spend gems and are never tapped;
+        /// the bubble is only tapped when the spot is verified green.
+        /// </summary>
+        private async Task UseVipItemsAsync(AccountSettings account, LogService logger, CancellationToken cancellationToken)
+        {
+            logger.LogInfo($"[{account.AccountName}] Starting VIP use step...");
+            int useCount = 0;
+            const int maxUseRounds = 4; // one round per owned item row (10 / 100 / 1K XP ...)
+
+            for (int round = 0; round < maxUseRounds; round++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                var use = await FindVipUseButtonAsync(account.InstanceNumber, logger);
+                if (!use.found)
+                {
+                    logger.LogInfo($"[{account.AccountName}] No green VIP use button left, done");
+                    break;
+                }
+
+                var useCenter = new Point(use.rect.X + use.rect.Width / 2, use.rect.Y + use.rect.Height / 2);
+                logger.LogInfo($"[{account.AccountName}] Tapping Use once (round {round + 1})...");
+                await ClickAsync(account.InstanceNumber, logger, useCenter);
+                await Task.Delay(1000, cancellationToken); // the bubble appears next to the row
+
+                // bubble: ~200px left of Use; verify it is green (not an orange gem-cost bubble) along its top edge,
+                // above the "VIP XP×10 obtained" toast that covers the middle of the row
+                var bubbleTap = new Point(useCenter.X - 200, useCenter.Y);
+                var probe = new Point(useCenter.X - 200, useCenter.Y - 24);
+                if (await IsGreenAtAsync(account.InstanceNumber, logger, probe))
+                {
+                    logger.LogInfo($"[{account.AccountName}] Green use-all bubble found, tapping it...");
+                    await ClickAsync(account.InstanceNumber, logger, bubbleTap);
+                    useCount++;
+                }
+                else
+                {
+                    logger.LogInfo($"[{account.AccountName}] No green use-all bubble next to this row (single item or already used)");
+                }
+                await Task.Delay(1500, cancellationToken); // toast + the list re-lays out
+            }
+
+            logger.LogInfo($"[{account.AccountName}] VIP use step finished: used {useCount} stack(s) with the bubble");
+        }
 
         /// <summary>True while the VIP screen itself is in front (its + button scores 1.00 there, 0.68 under a popup).</summary>
         private async Task<bool> IsVipScreenShownAsync(int instanceNumber, LogService logger)

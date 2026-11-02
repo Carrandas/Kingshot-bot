@@ -237,21 +237,7 @@ namespace Bot.Core.Tasks.Modules
                 return (false, 0);
             }
 
-            bool raided = false;
-            var raid = await MatchAsync(RaidButtonTemplate, BottomButtonArea, Threshold, instance, logger);
-            if (raid.found)
-            {
-                await ClickCenterInRectAsync(instance, logger, raid.rect);
-                await Task.Delay(2000, cancellationToken);
-                var claim = await MatchAsync(ClaimButtonTemplate, ClaimButtonArea, Threshold, instance, logger);
-                if (claim.found)
-                {
-                    await ClickCenterInRectAsync(instance, logger, claim.rect);
-                    await Task.Delay(2000, cancellationToken);
-                    raided = true;
-                    logger.LogInfo($"[{account.AccountName}] Mystic Trial: raid rewards claimed");
-                }
-            }
+            bool raided = await ClaimRaidRewardsAsync(account, logger, instance, cancellationToken);
 
             int battles = 0, won = 0;
             for (int round = 0; round < MaxRounds && battles < MaxBattles; round++)
@@ -266,32 +252,10 @@ namespace Bot.Core.Tasks.Modules
                 await Task.Delay(2500, cancellationToken);
                 if (!await DeployAsync(account, logger, instance, cancellationToken)) break;
 
-                bool backOnStage = false;
-                while (battles < MaxBattles)
-                {
-                    var result = await WaitForResultAsync(instance, logger, cancellationToken);
-                    if (result == BattleResult.StageScreen)
-                    {
-                        // Next after the last stage of a chapter opens the stage screen of the new one: Challenge again
-                        backOnStage = true;
-                        break;
-                    }
-                    if (result == BattleResult.Timeout)
-                    {
-                        logger.LogWarning($"[{account.AccountName}] Mystic Trial: no battle result after {BattleTimeoutSeconds}s");
-                        break;
-                    }
-                    battles++;
-                    if (result == BattleResult.Victory) won++;
-                    await Task.Delay(1500, cancellationToken);  // the buttons fade in after the title
-
-                    // Won: Next (the next stage, free). Lost: Retry, grey once the attempts are used up.
-                    var (colourArea, point) = result == BattleResult.Victory ? (NextColourArea, NextPoint) : (RetryColourArea, RetryPoint);
-                    if (await CountTealAsync(colourArea, instance, logger) < ActiveMinTealPixels) break;
-                    await ClickAsync(instance, logger, point);
-                    await Task.Delay(2000, cancellationToken);
-                }
-                if (!backOnStage)
+                var fought = await FightStagesAsync(account, logger, instance, battles, cancellationToken);
+                battles += fought.battles;
+                won += fought.won;
+                if (!fought.backOnStage)
                 {
                     await CloseResultScreenAsync(instance, logger, cancellationToken);
                     break;
@@ -299,6 +263,56 @@ namespace Bot.Core.Tasks.Modules
             }
             logger.LogInfo($"[{account.AccountName}] Mystic Trial: {battles} battle(s), {won} won");
             return (raided, battles);
+        }
+
+        private async Task<bool> ClaimRaidRewardsAsync(AccountSettings account, LogService logger, int instance, CancellationToken cancellationToken)
+        {
+            var raid = await MatchAsync(RaidButtonTemplate, BottomButtonArea, Threshold, instance, logger);
+            if (!raid.found) return false;
+
+            await ClickCenterInRectAsync(instance, logger, raid.rect);
+            await Task.Delay(2000, cancellationToken);
+            var claim = await MatchAsync(ClaimButtonTemplate, ClaimButtonArea, Threshold, instance, logger);
+            if (!claim.found) return false;
+
+            await ClickCenterInRectAsync(instance, logger, claim.rect);
+            await Task.Delay(2000, cancellationToken);
+            logger.LogInfo($"[{account.AccountName}] Mystic Trial: raid rewards claimed");
+            return true;
+        }
+
+        /// <summary>
+        /// Fights stage after stage (Next on a win, Retry on a loss) until the buttons go grey, the battle cap is reached or no result shows.
+        /// backOnStage: the stage screen of a new chapter opened, so Challenge can be pressed again.
+        /// </summary>
+        private async Task<(int battles, int won, bool backOnStage)> FightStagesAsync(
+            AccountSettings account, LogService logger, int instance, int battlesSoFar, CancellationToken cancellationToken)
+        {
+            int battles = 0, won = 0;
+            while (battlesSoFar + battles < MaxBattles)
+            {
+                var result = await WaitForResultAsync(instance, logger, cancellationToken);
+                if (result == BattleResult.StageScreen)
+                {
+                    // Next after the last stage of a chapter opens the stage screen of the new one: Challenge again
+                    return (battles, won, true);
+                }
+                if (result == BattleResult.Timeout)
+                {
+                    logger.LogWarning($"[{account.AccountName}] Mystic Trial: no battle result after {BattleTimeoutSeconds}s");
+                    break;
+                }
+                battles++;
+                if (result == BattleResult.Victory) won++;
+                await Task.Delay(1500, cancellationToken);  // the buttons fade in after the title
+
+                // Won: Next (the next stage, free). Lost: Retry, grey once the attempts are used up.
+                var (colourArea, point) = result == BattleResult.Victory ? (NextColourArea, NextPoint) : (RetryColourArea, RetryPoint);
+                if (await CountTealAsync(colourArea, instance, logger) < ActiveMinTealPixels) break;
+                await ClickAsync(instance, logger, point);
+                await Task.Delay(2000, cancellationToken);
+            }
+            return (battles, won, false);
         }
 
         /// <summary>

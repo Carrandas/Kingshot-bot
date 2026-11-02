@@ -141,7 +141,7 @@ namespace Bot.GUI.Views
             LogParagraph.Inlines.Add(run);
         }
 
-        private System.Windows.Media.Color GetLevelColor(string level)
+        private static System.Windows.Media.Color GetLevelColor(string level)
         {
             return level switch
             {
@@ -152,7 +152,7 @@ namespace Bot.GUI.Views
             };
         }
 
-        private System.Windows.Media.Color GetMessageColor(string level, string message)
+        private static System.Windows.Media.Color GetMessageColor(string level, string message)
         {
             // Success indicators
             if (message.Contains("✅") || message.Contains("SUCCESS") || message.Contains("completed successfully"))

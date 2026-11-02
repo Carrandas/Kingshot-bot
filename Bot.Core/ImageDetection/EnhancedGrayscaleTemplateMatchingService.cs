@@ -23,7 +23,7 @@ namespace Bot.Core.ImageDetection
         private readonly LogService _logger;
         
         // Byte-level cache for raw template data
-        private readonly ConcurrentDictionary<string, byte[]> _templateBytesCache;
+        private readonly ConcurrentDictionary<string, byte[]?> _templateBytesCache;
         
         // Mat cache for processed templates
         private readonly ConcurrentDictionary<string, (Mat Template, DateTime LastUsed, int RefCount)> _templateCache;
@@ -50,7 +50,7 @@ namespace Bot.Core.ImageDetection
         public EnhancedGrayscaleTemplateMatchingService(LogService logger)
         {
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-            _templateBytesCache = new ConcurrentDictionary<string, byte[]>();
+            _templateBytesCache = new ConcurrentDictionary<string, byte[]?>();
             _templateCache = new ConcurrentDictionary<string, (Mat Template, DateTime LastUsed, int RefCount)>();
             _scaledTemplateCache = new ConcurrentDictionary<(string, double), (Mat Mat, DateTime LastUsed, int RefCount)>();
             _cancellationTokenSource = new CancellationTokenSource();
@@ -207,77 +207,57 @@ namespace Bot.Core.ImageDetection
             {
                 lock (_cacheLock)
                 {
-                    // Clean up template cache
-                    while (_templateCache.Count > MAX_CACHE_SIZE)
-                    {
-                        var oldestKey = _templateCache
-                            .Where(kvp => kvp.Value.RefCount == 0)
-                            .OrderBy(kvp => kvp.Value.LastUsed)
-                            .Select(kvp => kvp.Key)
-                            .FirstOrDefault();
-                        
-                        if (!string.IsNullOrEmpty(oldestKey) && _templateCache.TryRemove(oldestKey, out var oldValue))
-                        {
-                            oldValue.Template?.Dispose();
-                        }
-                        else
-                        {
-                            break;
-                        }
-                    }
-
-                    // Clean up scaled template cache
-                    while (_scaledTemplateCache.Count > MAX_CACHE_SIZE)
-                    {
-                        var oldestKey = _scaledTemplateCache
-                            .Where(kvp => kvp.Value.RefCount == 0)
-                            .OrderBy(kvp => kvp.Value.LastUsed)
-                            .Select(kvp => kvp.Key)
-                            .FirstOrDefault();
-                        
-                        if (!oldestKey.Equals(default((string, double))) && _scaledTemplateCache.TryRemove(oldestKey, out var oldValue))
-                        {
-                            oldValue.Mat?.Dispose();
-                        }
-                        else
-                        {
-                            break;
-                        }
-                    }
+                    TrimToMaxSize(_templateCache, v => v.LastUsed, v => v.RefCount, v => v.Template?.Dispose());
+                    TrimToMaxSize(_scaledTemplateCache, v => v.LastUsed, v => v.RefCount, v => v.Mat?.Dispose());
 
                     // Remove old unused entries
                     var cutoff = DateTime.UtcNow.AddHours(-1);
-                    
-                    var expiredTemplateKeys = _templateCache
-                        .Where(kvp => kvp.Value.LastUsed < cutoff && kvp.Value.RefCount == 0)
-                        .Select(kvp => kvp.Key)
-                        .ToList();
-                    
-                    foreach (var key in expiredTemplateKeys)
-                    {
-                        if (_templateCache.TryRemove(key, out var oldValue))
-                        {
-                            oldValue.Template?.Dispose();
-                        }
-                    }
-
-                    var expiredScaledKeys = _scaledTemplateCache
-                        .Where(kvp => kvp.Value.LastUsed < cutoff && kvp.Value.RefCount == 0)
-                        .Select(kvp => kvp.Key)
-                        .ToList();
-
-                    foreach (var key in expiredScaledKeys)
-                    {
-                        if (_scaledTemplateCache.TryRemove(key, out var oldValue))
-                        {
-                            oldValue.Mat?.Dispose();
-                        }
-                    }
+                    RemoveExpired(_templateCache, cutoff, v => v.LastUsed, v => v.RefCount, v => v.Template?.Dispose());
+                    RemoveExpired(_scaledTemplateCache, cutoff, v => v.LastUsed, v => v.RefCount, v => v.Mat?.Dispose());
                 }
             }
             catch (Exception ex)
             {
                 _logger.LogError($"Error during enhanced cache cleanup: {ex.Message}");
+            }
+        }
+
+        private static void TrimToMaxSize<TKey, TValue>(
+            ConcurrentDictionary<TKey, TValue> cache, Func<TValue, DateTime> lastUsed, Func<TValue, int> refCount, Action<TValue> dispose)
+            where TKey : notnull
+        {
+            while (cache.Count > MAX_CACHE_SIZE)
+            {
+                var oldest = cache
+                    .Where(kvp => refCount(kvp.Value) == 0)
+                    .OrderBy(kvp => lastUsed(kvp.Value))
+                    .Select(kvp => kvp.Key)
+                    .Take(1)
+                    .ToList();
+
+                if (oldest.Count == 0 || !cache.TryRemove(oldest[0], out var removed))
+                {
+                    break;
+                }
+                dispose(removed);
+            }
+        }
+
+        private static void RemoveExpired<TKey, TValue>(
+            ConcurrentDictionary<TKey, TValue> cache, DateTime cutoff, Func<TValue, DateTime> lastUsed, Func<TValue, int> refCount, Action<TValue> dispose)
+            where TKey : notnull
+        {
+            var expiredKeys = cache
+                .Where(kvp => lastUsed(kvp.Value) < cutoff && refCount(kvp.Value) == 0)
+                .Select(kvp => kvp.Key)
+                .ToList();
+
+            foreach (var key in expiredKeys)
+            {
+                if (cache.TryRemove(key, out var removed))
+                {
+                    dispose(removed);
+                }
             }
         }
 
@@ -345,8 +325,8 @@ namespace Bot.Core.ImageDetection
                 return (false, Rectangle.Empty, 0);
             }
 
-            Mat screenshotGray = null;
-            Mat sourceMat = null;
+            Mat? screenshotGray = null;
+            Mat? sourceMat = null;
 
             try
             {
@@ -354,43 +334,11 @@ namespace Bot.Core.ImageDetection
                 using var bmp = new Bitmap(ms);
                 sourceMat = BitmapConverter.ToMat(bmp);
 
-                if (sourceMat.Channels() == 4)
-                {
-                    var temp = new Mat();
-                    Cv2.CvtColor(sourceMat, temp, ColorConversionCodes.BGRA2BGR);
-                    screenshotGray = new Mat();
-                    Cv2.CvtColor(temp, screenshotGray, ColorConversionCodes.BGR2GRAY);
-                    temp.Dispose();
-                }
-                else if (sourceMat.Channels() == 3)
-                {
-                    screenshotGray = new Mat();
-                    Cv2.CvtColor(sourceMat, screenshotGray, ColorConversionCodes.BGR2GRAY);
-                }
-                else
-                {
-                    screenshotGray = sourceMat.Clone();
-                }
+                screenshotGray = ToGray(sourceMat);
 
                 if (searchArea.HasValue)
                 {
-                    var rect = searchArea.Value;
-                    var ocvRect = new Rect(rect.X, rect.Y, rect.Width, rect.Height);
-                    if (ocvRect.Right > screenshotGray.Width || ocvRect.Bottom > screenshotGray.Height || ocvRect.X < 0 || ocvRect.Y < 0)
-                    {
-                        _logger.LogWarning($"Invalid search area: {rect}. Screenshot size: {screenshotGray.Width}x{screenshotGray.Height}. Using full image.");
-                        return ExecuteEnhancedMatching(screenshotGray, templatePath, threshold, scales, verboseLogging);
-                    }
-                    using var croppedSource = new Mat(screenshotGray, ocvRect);
-                    var result = ExecuteEnhancedMatching(croppedSource, templatePath, threshold, scales, verboseLogging);
-                    if (result.found)
-                    {
-                        return (true,
-                            new Rectangle(result.matchRect.X + rect.X, result.matchRect.Y + rect.Y,
-                                result.matchRect.Width, result.matchRect.Height),
-                            result.confidence);
-                    }
-                    return (false, Rectangle.Empty, result.confidence);
+                    return MatchInSearchArea(screenshotGray, searchArea.Value, templatePath, threshold, scales, verboseLogging);
                 }
 
                 return ExecuteEnhancedMatching(screenshotGray, templatePath, threshold, scales, verboseLogging);
@@ -413,6 +361,46 @@ namespace Bot.Core.ImageDetection
             }
         }
 
+        private static Mat ToGray(Mat sourceMat)
+        {
+            if (sourceMat.Channels() == 4)
+            {
+                using var temp = new Mat();
+                Cv2.CvtColor(sourceMat, temp, ColorConversionCodes.BGRA2BGR);
+                var gray = new Mat();
+                Cv2.CvtColor(temp, gray, ColorConversionCodes.BGR2GRAY);
+                return gray;
+            }
+            if (sourceMat.Channels() == 3)
+            {
+                var gray = new Mat();
+                Cv2.CvtColor(sourceMat, gray, ColorConversionCodes.BGR2GRAY);
+                return gray;
+            }
+            return sourceMat.Clone();
+        }
+
+        private (bool found, Rectangle matchRect, double confidence) MatchInSearchArea(
+            Mat screenshotGray, Rectangle rect, string templatePath, double threshold, double[] scales, bool verboseLogging)
+        {
+            var ocvRect = new Rect(rect.X, rect.Y, rect.Width, rect.Height);
+            if (ocvRect.Right > screenshotGray.Width || ocvRect.Bottom > screenshotGray.Height || ocvRect.X < 0 || ocvRect.Y < 0)
+            {
+                _logger.LogWarning($"Invalid search area: {rect}. Screenshot size: {screenshotGray.Width}x{screenshotGray.Height}. Using full image.");
+                return ExecuteEnhancedMatching(screenshotGray, templatePath, threshold, scales, verboseLogging);
+            }
+            using var croppedSource = new Mat(screenshotGray, ocvRect);
+            var result = ExecuteEnhancedMatching(croppedSource, templatePath, threshold, scales, verboseLogging);
+            if (result.found)
+            {
+                return (true,
+                    new Rectangle(result.matchRect.X + rect.X, result.matchRect.Y + rect.Y,
+                        result.matchRect.Width, result.matchRect.Height),
+                    result.confidence);
+            }
+            return (false, Rectangle.Empty, result.confidence);
+        }
+
         private (bool found, Rectangle matchRect, double confidence) ExecuteEnhancedMatching(
             Mat screenshotGray, string templatePath, double threshold, double[] scales, bool verboseLogging)
         {
@@ -422,7 +410,7 @@ namespace Bot.Core.ImageDetection
                 return (false, Rectangle.Empty, 0);
             }
 
-            Mat templateGray = null;
+            Mat? templateGray = null;
             
             try
             {
@@ -460,59 +448,35 @@ namespace Bot.Core.ImageDetection
             {
                 int newWidth = (int)(template.Width * scale);
                 int newHeight = (int)(template.Height * scale);
-                return newWidth >= 1 && newHeight >= 1 && 
+                return newWidth >= 1 && newHeight >= 1 &&
                        newWidth <= screenshotImg.Width && newHeight <= screenshotImg.Height;
             }).ToArray();
 
             var results = new ConcurrentBag<(double confidence, Rectangle rect, double scale)>();
             var matsToDispose = new ConcurrentBag<Mat>();
 
-            Action<double> processScale = scale =>
-            {
-                Mat scaledTemplate = null;
-                Mat result = null;
-
-                try
-                {
-                    scaledTemplate = GetOrCreateScaledTemplate(templatePath, template, scale);
-                    result = new Mat();
-                    matsToDispose.Add(result);
-
-                    Cv2.MatchTemplate(screenshotImg, scaledTemplate, result, TemplateMatchModes.CCoeffNormed);
-                    Cv2.MinMaxLoc(result, out _, out var maxVal, out _, out var maxLoc);
-
-                    results.Add((maxVal, new Rectangle(maxLoc.X, maxLoc.Y, scaledTemplate.Width, scaledTemplate.Height), scale));
-
-                    if (verboseLogging)
-                    {
-                        _logger.LogInfo($"Scale {scale:F2}: confidence {maxVal:F4}");
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError($"Error in enhanced scale {scale:F2}: {ex.Message}");
-                }
-            };
+            void ProcessScale(double scale) =>
+                MatchAtScale(screenshotImg, template, templatePath, scale, verboseLogging, results, matsToDispose);
 
             try
             {
                 if (useParallel)
                 {
                     // Use custom task scheduler for OpenCV operations
-                    var tasks = validScales.Select(scale => 
-                        Task.Factory.StartNew(() => processScale(scale), 
+                    var tasks = validScales.Select(scale =>
+                        Task.Factory.StartNew(() => ProcessScale(scale),
                             _cancellationTokenSource.Token,
                             TaskCreationOptions.None,
                             _openCvTaskScheduler)
                     ).ToArray();
-                    
+
                     Task.WaitAll(tasks, _cancellationTokenSource.Token);
                 }
                 else
                 {
                     foreach (var scale in validScales)
                     {
-                        processScale(scale);
+                        ProcessScale(scale);
                     }
                 }
 
@@ -532,17 +496,48 @@ namespace Bot.Core.ImageDetection
             }
             finally
             {
-                // Enhanced cleanup - dispose all Mats explicitly
-                foreach (var mat in matsToDispose)
+                DisposeMats(matsToDispose);
+            }
+        }
+
+        private void MatchAtScale(
+            Mat screenshotImg, Mat template, string templatePath, double scale, bool verboseLogging,
+            ConcurrentBag<(double confidence, Rectangle rect, double scale)> results, ConcurrentBag<Mat> matsToDispose)
+        {
+            try
+            {
+                var scaledTemplate = GetOrCreateScaledTemplate(templatePath, template, scale);
+                var result = new Mat();
+                matsToDispose.Add(result);
+
+                Cv2.MatchTemplate(screenshotImg, scaledTemplate, result, TemplateMatchModes.CCoeffNormed);
+                Cv2.MinMaxLoc(result, out _, out var maxVal, out _, out var maxLoc);
+
+                results.Add((maxVal, new Rectangle(maxLoc.X, maxLoc.Y, scaledTemplate.Width, scaledTemplate.Height), scale));
+
+                if (verboseLogging)
                 {
-                    try
-                    {
-                        mat?.Dispose();
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogError($"Error disposing Mat in enhanced matching: {ex.Message}");
-                    }
+                    _logger.LogInfo($"Scale {scale:F2}: confidence {maxVal:F4}");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError($"Error in enhanced scale {scale:F2}: {ex.Message}");
+            }
+        }
+
+        private void DisposeMats(IEnumerable<Mat> mats)
+        {
+            // Enhanced cleanup - dispose all Mats explicitly
+            foreach (var mat in mats)
+            {
+                try
+                {
+                    mat?.Dispose();
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError($"Error disposing Mat in enhanced matching: {ex.Message}");
                 }
             }
         }
@@ -605,8 +600,8 @@ namespace Bot.Core.ImageDetection
                 return results;
             }
 
-            Mat screenshotGray = null;
-            Mat sourceMat = null;
+            Mat? screenshotGray = null;
+            Mat? sourceMat = null;
 
             try
             {
@@ -615,49 +610,12 @@ namespace Bot.Core.ImageDetection
                 sourceMat = BitmapConverter.ToMat(bmp);
 
                 // Convert to grayscale
-                if (sourceMat.Channels() == 4)
-                {
-                    var temp = new Mat();
-                    Cv2.CvtColor(sourceMat, temp, ColorConversionCodes.BGRA2BGR);
-                    screenshotGray = new Mat();
-                    Cv2.CvtColor(temp, screenshotGray, ColorConversionCodes.BGR2GRAY);
-                    temp.Dispose();
-                }
-                else if (sourceMat.Channels() == 3)
-                {
-                    screenshotGray = new Mat();
-                    Cv2.CvtColor(sourceMat, screenshotGray, ColorConversionCodes.BGR2GRAY);
-                }
-                else
-                {
-                    screenshotGray = sourceMat.Clone();
-                }
+                screenshotGray = ToGray(sourceMat);
 
                 // Handle search area
-                if (searchArea.HasValue)
+                if (searchArea.HasValue && TrySearchInArea(screenshotGray, searchArea.Value, templatePath, threshold, maxResults, scales, out var areaResults))
                 {
-                    var rect = searchArea.Value;
-                    var ocvRect = new Rect(rect.X, rect.Y, rect.Width, rect.Height);
-                    if (ocvRect.Right <= screenshotGray.Width && ocvRect.Bottom <= screenshotGray.Height && ocvRect.X >= 0 && ocvRect.Y >= 0)
-                    {
-                        using var croppedSource = new Mat(screenshotGray, ocvRect);
-                        var croppedResults = ExecuteMultipleMatching(croppedSource, templatePath, threshold, maxResults, scales);
-                        
-                        // Adjust coordinates back to original image
-                        foreach (var result in croppedResults)
-                        {
-                            if (result.found)
-                            {
-                                var adjustedRect = new Rectangle(
-                                    result.matchRect.X + rect.X,
-                                    result.matchRect.Y + rect.Y,
-                                    result.matchRect.Width,
-                                    result.matchRect.Height);
-                                results.Add((true, adjustedRect, result.confidence));
-                            }
-                        }
-                        return results;
-                    }
+                    return areaResults;
                 }
 
                 return ExecuteMultipleMatching(screenshotGray, templatePath, threshold, maxResults, scales);
@@ -674,6 +632,33 @@ namespace Bot.Core.ImageDetection
             }
         }
 
+        private bool TrySearchInArea(
+            Mat screenshotGray, Rectangle rect, string templatePath, double threshold, int maxResults, double[] scales,
+            out List<(bool found, Rectangle matchRect, double confidence)> results)
+        {
+            results = new List<(bool found, Rectangle matchRect, double confidence)>();
+            var ocvRect = new Rect(rect.X, rect.Y, rect.Width, rect.Height);
+            if (ocvRect.Right > screenshotGray.Width || ocvRect.Bottom > screenshotGray.Height || ocvRect.X < 0 || ocvRect.Y < 0)
+            {
+                return false;
+            }
+
+            using var croppedSource = new Mat(screenshotGray, ocvRect);
+            var croppedResults = ExecuteMultipleMatching(croppedSource, templatePath, threshold, maxResults, scales);
+
+            // Adjust coordinates back to original image
+            foreach (var result in croppedResults.Where(r => r.found))
+            {
+                var adjustedRect = new Rectangle(
+                    result.matchRect.X + rect.X,
+                    result.matchRect.Y + rect.Y,
+                    result.matchRect.Width,
+                    result.matchRect.Height);
+                results.Add((true, adjustedRect, result.confidence));
+            }
+            return true;
+        }
+
         private List<(bool found, Rectangle matchRect, double confidence)> ExecuteMultipleMatching(
             Mat screenshotGray, string templatePath, double threshold, int maxResults, double[] scales)
         {
@@ -684,7 +669,7 @@ namespace Bot.Core.ImageDetection
                 return results;
             }
 
-            Mat templateGray = null;
+            Mat? templateGray = null;
             
             try
             {
@@ -725,8 +710,8 @@ namespace Bot.Core.ImageDetection
                     continue;
                 }
 
-                Mat scaledTemplate = null;
-                Mat matchResult = null;
+                Mat? scaledTemplate = null;
+                Mat? matchResult = null;
 
                 try
                 {

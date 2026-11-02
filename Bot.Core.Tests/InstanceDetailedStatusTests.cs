@@ -19,7 +19,7 @@ namespace Bot.Core.Tests
 
             // Assert
             ClassicAssert.IsNotNull(status);
-            ClassicAssert.AreEqual(0, status.Index);
+            ClassicAssert.AreEqual(0, status!.Index);
             ClassicAssert.AreEqual("LDPlayer", status.Title);
             ClassicAssert.AreEqual(2032678, status.TopWindowHandle);
             ClassicAssert.AreEqual(1704928, status.BindWindowHandle);
@@ -41,7 +41,7 @@ namespace Bot.Core.Tests
 
             // Assert
             ClassicAssert.IsNotNull(status);
-            ClassicAssert.AreEqual(1, status.Index);
+            ClassicAssert.AreEqual(1, status!.Index);
             ClassicAssert.IsTrue(status.IsRunning); // Process is running
             ClassicAssert.IsFalse(status.AndroidStarted); // But Android not started
             ClassicAssert.IsFalse(status.IsFullyBooted); // Therefore not fully booted
@@ -59,7 +59,7 @@ namespace Bot.Core.Tests
 
             // Assert
             ClassicAssert.IsNotNull(status);
-            ClassicAssert.AreEqual(2, status.Index);
+            ClassicAssert.AreEqual(2, status!.Index);
             ClassicAssert.IsFalse(status.IsRunning);
             ClassicAssert.IsFalse(status.AndroidStarted);
             ClassicAssert.IsFalse(status.IsFullyBooted);
@@ -101,7 +101,7 @@ namespace Bot.Core.Tests
             var status = InstanceDetailedStatus.FromList2Parts(parts);
 
             // Act
-            var readiness = status.ReadinessLevel;
+            var readiness = status!.ReadinessLevel;
 
             // Assert
             ClassicAssert.AreEqual(InstanceReadiness.NotRunning, readiness);
@@ -115,7 +115,7 @@ namespace Bot.Core.Tests
             var status = InstanceDetailedStatus.FromList2Parts(parts);
 
             // Act
-            var readiness = status.ReadinessLevel;
+            var readiness = status!.ReadinessLevel;
 
             // Assert
             ClassicAssert.AreEqual(InstanceReadiness.Booting, readiness);
@@ -129,7 +129,7 @@ namespace Bot.Core.Tests
             var status = InstanceDetailedStatus.FromList2Parts(parts);
 
             // Act
-            var readiness = status.ReadinessLevel;
+            var readiness = status!.ReadinessLevel;
 
             // Assert
             ClassicAssert.AreEqual(InstanceReadiness.Starting, readiness);
@@ -143,7 +143,7 @@ namespace Bot.Core.Tests
             var status = InstanceDetailedStatus.FromList2Parts(parts);
 
             // Act
-            var readiness = status.ReadinessLevel;
+            var readiness = status!.ReadinessLevel;
 
             // Assert
             ClassicAssert.AreEqual(InstanceReadiness.Ready, readiness);
@@ -157,7 +157,7 @@ namespace Bot.Core.Tests
             var status = InstanceDetailedStatus.FromList2Parts(parts);
             
             // Simulate old timestamp (6 minutes ago)
-            status.LastUpdated = DateTime.UtcNow.AddMinutes(-6);
+            status!.LastUpdated = DateTime.UtcNow.AddMinutes(-6);
 
             // Act
             var needsRecovery = status.NeedsRecovery;
@@ -174,7 +174,7 @@ namespace Bot.Core.Tests
             var status = InstanceDetailedStatus.FromList2Parts(parts);
             
             // Recent update (1 minute ago)
-            status.LastUpdated = DateTime.UtcNow.AddMinutes(-1);
+            status!.LastUpdated = DateTime.UtcNow.AddMinutes(-1);
 
             // Act
             var needsRecovery = status.NeedsRecovery;
@@ -191,7 +191,7 @@ namespace Bot.Core.Tests
             var status = InstanceDetailedStatus.FromList2Parts(parts);
 
             // Act
-            var stringValue = status.ToString();
+            var stringValue = status!.ToString();
 
             // Assert
             ClassicAssert.IsNotNull(stringValue);

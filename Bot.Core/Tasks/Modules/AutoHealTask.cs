@@ -27,6 +27,73 @@ namespace Bot.Core.Tasks.Modules
             _templateFolder = Path.Combine(AppContext.BaseDirectory, "templates", "images", "autoheal");
         }
 
+        private enum TapResult { Tapped, NotFound, GaveUpEarly }
+
+        /// <summary>Looks for the template for up to 5 seconds and taps its center. With giveUpEarly the search stops after 4.5 seconds.</summary>
+        private async Task<TapResult> TapTemplateAsync(
+            object adbController, AccountSettings account, LogService logger, string templatePath, Rectangle searchArea,
+            string description, string logSuffix, bool giveUpEarly, CancellationToken cancellationToken)
+        {
+            var startTime = DateTime.UtcNow;
+
+            while ((DateTime.UtcNow - startTime).TotalSeconds < 5 && !cancellationToken.IsCancellationRequested)
+            {
+                var screenshot = await AdbMigrationHelper.TakeScreenshotAsync(adbController, logger, cancellationToken);
+                var (isFound, rect, confidence) = _templateMatcher.MatchTemplate(
+                    screenshot,
+                    templatePath,
+                    account.InstanceNumber,
+                    TEMPLATE_MATCH_THRESHOLD,
+                    searchArea: searchArea);
+
+                if (isFound)
+                {
+                    var clickPoint = rect.GetCenter();
+                    logger.LogInfo($"[AutoHeal] Found {description} at ({clickPoint.X}, {clickPoint.Y}) with confidence {confidence:F3}{logSuffix}");
+                    await AdbMigrationHelper.TapAsync(adbController, clickPoint.X, clickPoint.Y, logger, cancellationToken);
+                    await Task.Delay(500, cancellationToken); // Short delay after click
+                    return TapResult.Tapped;
+                }
+
+                // If it's the first template (heal.png) and we can't find it, exit early
+                if (giveUpEarly && (DateTime.UtcNow - startTime).TotalSeconds >= 4.5)
+                {
+                    return TapResult.GaveUpEarly;
+                }
+
+                await Task.Delay(200, cancellationToken);
+            }
+            return TapResult.NotFound;
+        }
+
+        /// <summary>The template was missing: let the locator restore the map view and look once more. Returns the failure, or null when the template was tapped.</summary>
+        private async Task<TaskExecutionDetails?> RecoverAndRetryTapAsync(
+            object adbController, AccountSettings account, LogService logger, string templatePath, Rectangle searchArea,
+            string description, CancellationToken cancellationToken)
+        {
+            logger.LogError($"[{account.AccountName}] Error: Failed to find {Path.GetFileName(templatePath)}, calling locator module for recovery");
+            var healLocator = new LocatorService(logger, account);
+            try
+            {
+                await healLocator.EnsureViewAsync(ViewType.MapView, account.InstanceNumber, cancellationToken);
+                logger.LogInfo($"[{account.AccountName}] Locator service completed view recovery, retrying {description} detection");
+
+                // Retry the template matching after locator service
+                var retryResult = await TapTemplateAsync(adbController, account, logger, templatePath, searchArea, description, " after locator recovery", false, cancellationToken);
+                if (retryResult != TapResult.Tapped)
+                {
+                    logger.LogError($"[{account.AccountName}] Could not find {description} even after locator recovery");
+                    return FailDetection($"Step: Finding {description}", description, recoveryNeeded: true);
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.LogError($"[{account.AccountName}] Locator service failed: {ex.Message}");
+                return FailDetection($"Step: Finding {description}", description, recoveryNeeded: true);
+            }
+            return null;
+        }
+
         protected override async Task<TaskExecutionDetails> ExecuteTaskLogicAsync(
             AccountSettings account,
             LogService logger,
@@ -75,83 +142,18 @@ namespace Bot.Core.Tasks.Modules
                     }
 
                     // Give each template up to 5 seconds to appear
-                    var startTime = DateTime.UtcNow;
-                    bool found = false;
+                    var tapResult = await TapTemplateAsync(adbController, account, logger, templatePath, searchArea, description, "", description == "heal icon", cancellationToken);
 
-                    while ((DateTime.UtcNow - startTime).TotalSeconds < 5 && !found && !cancellationToken.IsCancellationRequested)
+                    if (tapResult == TapResult.GaveUpEarly)
                     {
-                        var screenshot = await AdbMigrationHelper.TakeScreenshotAsync(adbController, logger, cancellationToken);
-                        var (isFound, rect, confidence) = _templateMatcher.MatchTemplate(
-                            screenshot,
-                            templatePath,
-                            account.InstanceNumber,
-                            TEMPLATE_MATCH_THRESHOLD,
-                            searchArea: searchArea);
-
-                        if (isFound)
-                        {
-                            found = true;
-                            var clickPoint = rect.GetCenter();
-                            logger.LogInfo($"[AutoHeal] Found {description} at ({clickPoint.X}, {clickPoint.Y}) with confidence {confidence:F3}");
-                            await AdbMigrationHelper.TapAsync(adbController, clickPoint.X, clickPoint.Y, logger, cancellationToken);
-                            await Task.Delay(500, cancellationToken); // Short delay after click
-                            break;
-                        }
-
-                        // If it's the first template (heal.png) and we can't find it, exit early
-                        if (description == "heal icon" && (DateTime.UtcNow - startTime).TotalSeconds >= 4.5)
-                        {
-                            logger.LogInfo("[AutoHeal] Heal icon not found, skipping healing process");
-                            return TaskExecutionDetails.Succeeded("No healing needed");
-                        }
-
-                        await Task.Delay(200, cancellationToken);
+                        logger.LogInfo("[AutoHeal] Heal icon not found, skipping healing process");
+                        return TaskExecutionDetails.Succeeded("No healing needed");
                     }
 
-                    if (!found && description != "heal icon")
+                    if (tapResult == TapResult.NotFound && description != "heal icon")
                     {
-                        logger.LogError($"[{account.AccountName}] Error: Failed to find {Path.GetFileName(templatePath)}, calling locator module for recovery");
-                        var healLocator = new LocatorService(logger, account);
-                        try
-                        {
-                            await healLocator.EnsureViewAsync(ViewType.MapView, account.InstanceNumber, cancellationToken);
-                            logger.LogInfo($"[{account.AccountName}] Locator service completed view recovery, retrying {description} detection");
-                            
-                            // Retry the template matching after locator service
-                            var retryStartTime = DateTime.UtcNow;
-                            while ((DateTime.UtcNow - retryStartTime).TotalSeconds < 5 && !found && !cancellationToken.IsCancellationRequested)
-                            {
-                                var retryScreenshot = await AdbMigrationHelper.TakeScreenshotAsync(adbController, logger, cancellationToken);
-                                var (retryFound, retryRect, retryConfidence) = _templateMatcher.MatchTemplate(
-                                    retryScreenshot,
-                                    templatePath,
-                                    account.InstanceNumber,
-                                    TEMPLATE_MATCH_THRESHOLD,
-                                    searchArea: searchArea);
-
-                                if (retryFound)
-                                {
-                                    found = true;
-                                    var clickPoint = retryRect.GetCenter();
-                                    logger.LogInfo($"[AutoHeal] Found {description} at ({clickPoint.X}, {clickPoint.Y}) with confidence {retryConfidence:F3} after locator recovery");
-                                    await AdbMigrationHelper.TapAsync(adbController, clickPoint.X, clickPoint.Y, logger, cancellationToken);
-                                    await Task.Delay(500, cancellationToken);
-                                    break;
-                                }
-                                await Task.Delay(200, cancellationToken);
-                            }
-                            
-                            if (!found)
-                            {
-                                logger.LogError($"[{account.AccountName}] Could not find {description} even after locator recovery");
-                                return FailDetection($"Step: Finding {description}", description, recoveryNeeded: true);
-                            }
-                        }
-                        catch (Exception ex)
-                        {
-                            logger.LogError($"[{account.AccountName}] Locator service failed: {ex.Message}");
-                            return FailDetection($"Step: Finding {description}", description, recoveryNeeded: true);
-                        }
+                        var failure = await RecoverAndRetryTapAsync(adbController, account, logger, templatePath, searchArea, description, cancellationToken);
+                        if (failure != null) return failure;
                     }
                 }
 

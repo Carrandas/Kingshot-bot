@@ -61,20 +61,7 @@ namespace Bot.Core.Tasks.Modules
                 await Task.Delay(500, cancellationToken);
 
                 // Look for research-icon.png and click it (up to 2 seconds)
-                var researchIconFound = false;
-                var attempts = 0;
-                while (!researchIconFound && attempts < 4)
-                {
-                    researchIconFound = await FindAndClickImageAsync("research-icon.png", account.InstanceNumber, logger, 
-                        threshold: 0.7);
-                    if (!researchIconFound)
-                    {
-                        await Task.Delay(500, cancellationToken);
-                        attempts++;
-                    }
-                }
-
-                if (!researchIconFound)
+                if (!await ClickResearchIconAsync(account.InstanceNumber, logger, cancellationToken))
                 {
                     logger.LogError($"[{account.AccountName}] Could not find research-icon.png within 2 seconds");
                     return TaskExecutionDetails.Failed("Could not find research icon");
@@ -84,27 +71,13 @@ namespace Bot.Core.Tasks.Modules
                 await Task.Delay(1000, cancellationToken);
 
                 // Click on the appropriate research type based on user settings
-                Point researchTypeLocation;
-                string researchTypeName;
-
-                switch (settings.ResearchType)
+                var researchType = GetResearchTypeButton(settings.ResearchType);
+                if (researchType == null)
                 {
-                    case ResearchType.Growth:
-                        researchTypeLocation = new Point(130, 116);
-                        researchTypeName = "Growth";
-                        break;
-                    case ResearchType.Economy:
-                        researchTypeLocation = new Point(361, 123);
-                        researchTypeName = "Economy";
-                        break;
-                    case ResearchType.Battle:
-                        researchTypeLocation = new Point(585, 120);
-                        researchTypeName = "Battle";
-                        break;
-                    default:
-                        logger.LogError($"[{account.AccountName}] Invalid research type: {settings.ResearchType}");
-                        return TaskExecutionDetails.Failed("Invalid research type configured");
+                    logger.LogError($"[{account.AccountName}] Invalid research type: {settings.ResearchType}");
+                    return TaskExecutionDetails.Failed("Invalid research type configured");
                 }
+                var (researchTypeLocation, researchTypeName) = researchType.Value;
 
                 logger.LogInfo($"[{account.AccountName}] Clicking {researchTypeName} research type at {researchTypeLocation}");
                 await ClickAsync(account.InstanceNumber, logger, researchTypeLocation);
@@ -141,6 +114,154 @@ namespace Bot.Core.Tasks.Modules
             }
         }
 
+        private async Task<bool> ClickResearchIconAsync(int instanceNumber, LogService logger, CancellationToken cancellationToken)
+        {
+            var researchIconFound = false;
+            var attempts = 0;
+            while (!researchIconFound && attempts < 4)
+            {
+                researchIconFound = await FindAndClickImageAsync("research-icon.png", instanceNumber, logger,
+                    threshold: 0.7);
+                if (!researchIconFound)
+                {
+                    await Task.Delay(500, cancellationToken);
+                    attempts++;
+                }
+            }
+            return researchIconFound;
+        }
+
+        private static (Point location, string name)? GetResearchTypeButton(ResearchType researchType)
+        {
+            switch (researchType)
+            {
+                case ResearchType.Growth:
+                    return (new Point(130, 116), "Growth");
+                case ResearchType.Economy:
+                    return (new Point(361, 123), "Economy");
+                case ResearchType.Battle:
+                    return (new Point(585, 120), "Battle");
+                default:
+                    return null;
+            }
+        }
+
+        private static Point? ScanForHighestProgressPattern(Bitmap bitmap, OcrConfiguration ocrConfig, Regex regex, LogService logger)
+        {
+            Point? highestMatch = null;
+            int highestY = int.MaxValue;
+
+            // Scan in larger, more targeted regions
+            for (int y = 100; y < Math.Min(bitmap.Height - 100, 700); y += 60) // Larger steps
+            {
+                for (int x = 50; x < Math.Min(bitmap.Width - 150, 650); x += 80) // Larger regions
+                {
+                    var region = new Rectangle(x, y, 120, 50); // Larger OCR regions
+                    if (!IsProgressPatternAt(bitmap, region, ocrConfig, regex, logger, out var ocrText))
+                    {
+                        continue;
+                    }
+
+                    // Check if this is higher on screen (lower Y value)
+                    if (y < highestY)
+                    {
+                        highestY = y;
+                        highestMatch = new Point(x + region.Width / 2, y + region.Height / 2);
+                        logger.LogInfo($"🎯 New highest progress pattern at Y={y}: {ocrText}");
+                    }
+                }
+            }
+            return highestMatch;
+        }
+
+        /// <summary>OCRs one region and logs what it found. True when the text looks like an x/x progress pattern.</summary>
+        private static bool IsProgressPatternAt(Bitmap bitmap, Rectangle region, OcrConfiguration ocrConfig, Regex regex, LogService logger, out string ocrText)
+        {
+            ocrText = string.Empty;
+            try
+            {
+                ocrText = OcrBitmapRegion(bitmap, region, ocrConfig, logger);
+
+                if (string.IsNullOrEmpty(ocrText))
+                {
+                    // Log empty results occasionally for debugging scan coverage
+                    if ((region.X + region.Y) % 240 == 0) // Log every few empty regions
+                    {
+                        logger.LogInfo($"📋 Empty OCR result at {region}");
+                    }
+                    return false;
+                }
+
+                // Clean up the OCR text
+                string originalText = ocrText;
+                ocrText = ocrText.Trim().Replace(" ", "").Replace("\n", "").Replace("\r", "");
+
+                // Debug logging - show all non-empty OCR results
+                if (ocrText.Length > 0)
+                {
+                    logger.LogInfo($"OCR extracted text: '{ocrText}' (original: '{originalText}') at {region}");
+                }
+
+                if (regex.IsMatch(ocrText))
+                {
+                    logger.LogInfo($"✅ REGEX MATCH! Found progress pattern '{ocrText}' at region {region}");
+                    return true;
+                }
+
+                if (ocrText.Length > 0)
+                {
+                    LogPatternAnalysis(ocrText, region, logger);
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning($"OCR error at region {region}: {ex.Message}");
+            }
+            return false;
+        }
+
+        private static void LogPatternAnalysis(string ocrText, Rectangle region, LogService logger)
+        {
+            // Enhanced debugging for pattern analysis
+            bool hasSlash = ocrText.Contains("/");
+            bool hasDigit = ocrText.Any(char.IsDigit);
+            bool startsWithDigit = char.IsDigit(ocrText[0]);
+
+            logger.LogInfo($"📊 OCR Analysis: '{ocrText}' | HasSlash: {hasSlash} | HasDigit: {hasDigit} | StartsWithDigit: {startsWithDigit}");
+
+            // Try some pattern variations to see what might work
+            var relaxedPatterns = new[]
+            {
+                @"\d+/\d+",        // Basic x/x
+                @"\d+\/\d+",       // Escaped slash
+                @"\d+.\d+",        // Any character between digits
+                @"\d+[\s/]\d+",    // Space or slash between digits
+            };
+
+            foreach (var pattern in relaxedPatterns.Where(pattern => Regex.IsMatch(ocrText, pattern, RegexOptions.None, Bot.Core.Utils.RegexTimeouts.Default)))
+            {
+                logger.LogInfo($"🔍 Alternative pattern '{pattern}' matches: {ocrText}");
+            }
+
+            if (hasSlash || (hasDigit && ocrText.Length >= 3))
+            {
+                logger.LogInfo($"🔍 Potential pattern candidate: '{ocrText}' at {region}");
+            }
+        }
+
+        private static string OcrBitmapRegion(Bitmap bitmap, Rectangle region, OcrConfiguration ocrConfig, LogService logger)
+        {
+            using var ocr = new OcrService(logger, ocrConfig);
+
+            // Convert region to byte array for OCR
+            using var regionMs = new System.IO.MemoryStream();
+            using (var regionBitmap = bitmap.Clone(region, bitmap.PixelFormat))
+            {
+                regionBitmap.Save(regionMs, System.Drawing.Imaging.ImageFormat.Png);
+            }
+            return ocr.ExtractTextFromScreenArea(regionMs.ToArray(), new Rectangle(0, 0, region.Width, region.Height));
+        }
+
         private async Task<Point?> FindProgressPatternWithImprovedOCRAsync(int instanceNumber, LogService logger)
         {
             try
@@ -166,100 +287,10 @@ namespace Bot.Core.Tasks.Modules
                 };
 
                 var regex = new Regex(@"\b\d+/\d+\b", RegexOptions.IgnoreCase, Bot.Core.Utils.RegexTimeouts.Default);
-                Point? highestMatch = null;
-                int highestY = int.MaxValue;
 
                 logger.LogInfo($"Starting improved OCR scan for x/x patterns...");
 
-                // Scan in larger, more targeted regions
-                for (int y = 100; y < Math.Min(bitmap.Height - 100, 700); y += 60) // Larger steps
-                {
-                    for (int x = 50; x < Math.Min(bitmap.Width - 150, 650); x += 80) // Larger regions
-                    {
-                        var region = new Rectangle(x, y, 120, 50); // Larger OCR regions
-                        
-                        try
-                        {
-                            using var ocr = new OcrService(logger, ocrConfig);
-                            
-                            // Convert region to byte array for OCR
-                            using var regionMs = new System.IO.MemoryStream();
-                            using (var regionBitmap = bitmap.Clone(region, bitmap.PixelFormat))
-                            {
-                                regionBitmap.Save(regionMs, System.Drawing.Imaging.ImageFormat.Png);
-                            }
-                            var regionBytes = regionMs.ToArray();
-                            
-                            string ocrText = ocr.ExtractTextFromScreenArea(regionBytes, new Rectangle(0, 0, region.Width, region.Height));
-                            
-                            if (!string.IsNullOrEmpty(ocrText))
-                            {
-                                // Clean up the OCR text
-                                string originalText = ocrText;
-                                ocrText = ocrText.Trim().Replace(" ", "").Replace("\n", "").Replace("\r", "");
-                                
-                                // Debug logging - show all non-empty OCR results
-                                if (ocrText.Length > 0)
-                                {
-                                    logger.LogInfo($"OCR extracted text: '{ocrText}' (original: '{originalText}') at {region}");
-                                }
-                                
-                                if (regex.IsMatch(ocrText))
-                                {
-                                    logger.LogInfo($"✅ REGEX MATCH! Found progress pattern '{ocrText}' at region {region}");
-                                    
-                                    // Check if this is higher on screen (lower Y value)
-                                    if (y < highestY)
-                                    {
-                                        highestY = y;
-                                        highestMatch = new Point(x + region.Width / 2, y + region.Height / 2);
-                                        logger.LogInfo($"🎯 New highest progress pattern at Y={y}: {ocrText}");
-                                    }
-                                }
-                                else if (ocrText.Length > 0)
-                                {
-                                    // Enhanced debugging for pattern analysis
-                                    bool hasSlash = ocrText.Contains("/");
-                                    bool hasDigit = ocrText.Any(char.IsDigit);
-                                    bool startsWithDigit = char.IsDigit(ocrText[0]);
-                                    
-                                    logger.LogInfo($"📊 OCR Analysis: '{ocrText}' | HasSlash: {hasSlash} | HasDigit: {hasDigit} | StartsWithDigit: {startsWithDigit}");
-                                    
-                                    // Try some pattern variations to see what might work
-                                    var relaxedPatterns = new[]
-                                    {
-                                        @"\d+/\d+",        // Basic x/x
-                                        @"\d+\/\d+",       // Escaped slash
-                                        @"\d+.\d+",        // Any character between digits
-                                        @"\d+[\s/]\d+",    // Space or slash between digits
-                                    };
-                                    
-                                    foreach (var pattern in relaxedPatterns.Where(pattern => Regex.IsMatch(ocrText, pattern, RegexOptions.None, Bot.Core.Utils.RegexTimeouts.Default)))
-                                    {
-                                        logger.LogInfo($"🔍 Alternative pattern '{pattern}' matches: {ocrText}");
-                                    }
-                                    
-                                    if (hasSlash || (hasDigit && ocrText.Length >= 3))
-                                    {
-                                        logger.LogInfo($"🔍 Potential pattern candidate: '{ocrText}' at {region}");
-                                    }
-                                }
-                            }
-                            else
-                            {
-                                // Log empty results occasionally for debugging scan coverage
-                                if ((x + y) % 240 == 0) // Log every few empty regions
-                                {
-                                    logger.LogInfo($"📋 Empty OCR result at {region}");
-                                }
-                            }
-                        }
-                        catch (Exception ex)
-                        {
-                            logger.LogWarning($"OCR error at region {region}: {ex.Message}");
-                        }
-                    }
-                }
+                var highestMatch = ScanForHighestProgressPattern(bitmap, ocrConfig, regex, logger);
 
                 if (highestMatch.HasValue)
                 {
@@ -288,6 +319,44 @@ namespace Bot.Core.Tasks.Modules
                 logger.LogError($"Error in improved OCR progress pattern detection: {ex.Message}");
                 return null;
             }
+        }
+
+        private static Point? FindAdjacentPatternAt(Bitmap bitmap, int x, int y, OcrConfiguration numberOcrConfig, OcrConfiguration slashOcrConfig, LogService logger)
+        {
+            try
+            {
+                // Check three adjacent small regions: [num][/][num]
+                var leftRegion = new Rectangle(x, y, 30, 25);
+                var middleRegion = new Rectangle(x + 25, y, 20, 25);
+                var rightRegion = new Rectangle(x + 40, y, 30, 25);
+
+                string leftText = OcrBitmapRegion(bitmap, leftRegion, numberOcrConfig, logger).Trim(); // number
+                string middleText = OcrBitmapRegion(bitmap, middleRegion, slashOcrConfig, logger).Trim(); // slash
+                string rightText = OcrBitmapRegion(bitmap, rightRegion, numberOcrConfig, logger).Trim(); // number
+
+                // Check if we found a pattern
+                bool hasLeftNum = !string.IsNullOrEmpty(leftText) && leftText.All(char.IsDigit);
+                bool hasSlash = middleText.Contains("/");
+                bool hasRightNum = !string.IsNullOrEmpty(rightText) && rightText.All(char.IsDigit);
+
+                if (hasLeftNum || hasSlash || hasRightNum)
+                {
+                    logger.LogInfo($"🔍 Adjacent regions at Y={y}: Left='{leftText}' Middle='{middleText}' Right='{rightText}'");
+                    logger.LogInfo($"    Analysis: LeftNum={hasLeftNum} Slash={hasSlash} RightNum={hasRightNum}");
+                }
+
+                if (hasLeftNum && hasSlash && hasRightNum)
+                {
+                    string fullPattern = $"{leftText}/{rightText}";
+                    logger.LogInfo($"🎯 Found adjacent pattern: {fullPattern} at Y={y}");
+                    return new Point(x + 35, y + 12); // Center of the pattern
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning($"Error in adjacent pattern detection at {x},{y}: {ex.Message}");
+            }
+            return null;
         }
 
         private async Task<Point?> FindAdjacentNumberPatternsAsync(int instanceNumber, LogService logger)
@@ -325,73 +394,8 @@ namespace Bot.Core.Tasks.Modules
                 {
                     for (int x = 50; x < Math.Min(bitmap.Width - 150, 600); x += 60)
                     {
-                        try
-                        {
-                            // Check three adjacent small regions: [num][/][num]
-                            var leftRegion = new Rectangle(x, y, 30, 25);
-                            var middleRegion = new Rectangle(x + 25, y, 20, 25);
-                            var rightRegion = new Rectangle(x + 40, y, 30, 25);
-
-                            string leftText = "", middleText = "", rightText = "";
-
-                            // OCR left region (number)
-                            using (var leftOcr = new OcrService(logger, numberOcrConfig))
-                            {
-                                using var leftMs = new System.IO.MemoryStream();
-                                using (var leftBitmap = bitmap.Clone(leftRegion, bitmap.PixelFormat))
-                                {
-                                    leftBitmap.Save(leftMs, System.Drawing.Imaging.ImageFormat.Png);
-                                }
-                                leftText = leftOcr.ExtractTextFromScreenArea(leftMs.ToArray(), 
-                                    new Rectangle(0, 0, leftRegion.Width, leftRegion.Height)).Trim();
-                            }
-
-                            // OCR middle region (slash)
-                            using (var middleOcr = new OcrService(logger, slashOcrConfig))
-                            {
-                                using var middleMs = new System.IO.MemoryStream();
-                                using (var middleBitmap = bitmap.Clone(middleRegion, bitmap.PixelFormat))
-                                {
-                                    middleBitmap.Save(middleMs, System.Drawing.Imaging.ImageFormat.Png);
-                                }
-                                middleText = middleOcr.ExtractTextFromScreenArea(middleMs.ToArray(), 
-                                    new Rectangle(0, 0, middleRegion.Width, middleRegion.Height)).Trim();
-                            }
-
-                            // OCR right region (number)
-                            using (var rightOcr = new OcrService(logger, numberOcrConfig))
-                            {
-                                using var rightMs = new System.IO.MemoryStream();
-                                using (var rightBitmap = bitmap.Clone(rightRegion, bitmap.PixelFormat))
-                                {
-                                    rightBitmap.Save(rightMs, System.Drawing.Imaging.ImageFormat.Png);
-                                }
-                                rightText = rightOcr.ExtractTextFromScreenArea(rightMs.ToArray(), 
-                                    new Rectangle(0, 0, rightRegion.Width, rightRegion.Height)).Trim();
-                            }
-
-                            // Check if we found a pattern
-                            bool hasLeftNum = !string.IsNullOrEmpty(leftText) && leftText.All(char.IsDigit);
-                            bool hasSlash = middleText.Contains("/");
-                            bool hasRightNum = !string.IsNullOrEmpty(rightText) && rightText.All(char.IsDigit);
-
-                            if (hasLeftNum || hasSlash || hasRightNum)
-                            {
-                                logger.LogInfo($"🔍 Adjacent regions at Y={y}: Left='{leftText}' Middle='{middleText}' Right='{rightText}'");
-                                logger.LogInfo($"    Analysis: LeftNum={hasLeftNum} Slash={hasSlash} RightNum={hasRightNum}");
-                            }
-
-                            if (hasLeftNum && hasSlash && hasRightNum)
-                            {
-                                string fullPattern = $"{leftText}/{rightText}";
-                                logger.LogInfo($"🎯 Found adjacent pattern: {fullPattern} at Y={y}");
-                                return new Point(x + 35, y + 12); // Center of the pattern
-                            }
-                        }
-                        catch (Exception ex)
-                        {
-                            logger.LogWarning($"Error in adjacent pattern detection at {x},{y}: {ex.Message}");
-                        }
+                        var found = FindAdjacentPatternAt(bitmap, x, y, numberOcrConfig, slashOcrConfig, logger);
+                        if (found.HasValue) return found;
                     }
                 }
 

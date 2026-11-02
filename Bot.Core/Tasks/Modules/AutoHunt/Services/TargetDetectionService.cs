@@ -289,6 +289,28 @@ namespace Bot.Core.Tasks.Modules.AutoHunt.Services
             SaveAutoHuntSettings(account, settings);
         }
 
+        private static void RecordDetection(
+            AccountSettings account, LogService logger,
+            Dictionary<string, List<(Rectangle location, double confidence)>> bestConfidences,
+            string imageName, Rectangle matchRect, double confidence)
+        {
+            if (!bestConfidences.ContainsKey(imageName))
+            {
+                bestConfidences[imageName] = new List<(Rectangle, double)>();
+            }
+
+            // Check if we already have a similar location
+            bool isDuplicate = bestConfidences[imageName].Any(existing =>
+                Math.Abs(existing.location.X - matchRect.X) < AutoHuntConstants.TARGET_AREA_PADDING &&
+                Math.Abs(existing.location.Y - matchRect.Y) < AutoHuntConstants.TARGET_AREA_PADDING);
+
+            if (!isDuplicate)
+            {
+                bestConfidences[imageName].Add((matchRect, confidence));
+                logger.LogInfo($"[{account.AccountName}] Found potential {imageName} at {matchRect} with confidence {confidence:F3}");
+            }
+        }
+
         private async Task ScanForTargets(AccountSettings account, LogService logger, CancellationToken cancellationToken,
             Dictionary<string, List<(Rectangle location, double confidence)>> bestConfidences, bool huntModeFound)
         {
@@ -327,21 +349,7 @@ namespace Bot.Core.Tasks.Modules.AutoHunt.Services
                     // Track all detections with confidence > 0.5
                     if (confidence > 0.5)
                     {
-                        if (!bestConfidences.ContainsKey(imageName))
-                        {
-                            bestConfidences[imageName] = new List<(Rectangle, double)>();
-                        }
-
-                        // Check if we already have a similar location
-                        bool isDuplicate = bestConfidences[imageName].Any(existing =>
-                            Math.Abs(existing.location.X - matchRect.X) < AutoHuntConstants.TARGET_AREA_PADDING &&
-                            Math.Abs(existing.location.Y - matchRect.Y) < AutoHuntConstants.TARGET_AREA_PADDING);
-
-                        if (!isDuplicate)
-                        {
-                            bestConfidences[imageName].Add((matchRect, confidence));
-                            logger.LogInfo($"[{account.AccountName}] Found potential {imageName} at {matchRect} with confidence {confidence:F3}");
-                        }
+                        RecordDetection(account, logger, bestConfidences, imageName, matchRect, confidence);
                     }
                 }
 

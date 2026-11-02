@@ -31,10 +31,12 @@ namespace Bot.GUI.ViewModels
             _execute(parameter);
         }
 
+#pragma warning disable S2325 // callers use it through an instance
         public void RaiseCanExecuteChanged()
         {
             CommandManager.InvalidateRequerySuggested();
         }
+#pragma warning restore S2325
     }
 
     public class AsyncRelayCommand : ICommand
@@ -76,9 +78,11 @@ namespace Bot.GUI.ViewModels
             }
         }
 
+#pragma warning disable S2325 // callers use it through an instance
         public void RaiseCanExecuteChanged()
         {
             CommandManager.InvalidateRequerySuggested();
         }
+#pragma warning restore S2325
     }
 } 

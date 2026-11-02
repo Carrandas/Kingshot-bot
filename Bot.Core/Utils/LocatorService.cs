@@ -203,74 +203,110 @@ namespace Bot.Core.Utils
             
             // Try ad detection loop before triggering recovery
             const int MAX_AD_ATTEMPTS = 10; // Limit attempts to prevent infinite loop
-            const int AD_CHECK_DELAY = 2000; // 2 second delay between attempts
-            
+
             _logger.LogInfo($"[{_account.AccountName}] Starting ad detection loop (max {MAX_AD_ATTEMPTS} attempts)");
-            
+
             for (int attempt = 1; attempt <= MAX_AD_ATTEMPTS; attempt++)
             {
                 _logger.LogInfo($"[{_account.AccountName}] Ad detection attempt {attempt}/{MAX_AD_ATTEMPTS}");
-                
-                // Check for ads to close
-                if (await TryCloseAdsAsync())
+
+                var viewResult = await AdDetectionStepAsync();
+                if (viewResult != ViewType.Unknown)
                 {
-                    _logger.LogInfo($"[{_account.AccountName}] Closed ad, checking for views again...");
-                    await Task.Delay(AD_CHECK_DELAY);
-                    
-                    // Try detecting view again after closing ad
-                    var viewResult = await TryDetectViewAsync();
-                    if (viewResult != ViewType.Unknown)
-                    {
-                        _logger.LogInfo($"[{_account.AccountName}] ✅ Found {viewResult} view after closing ad!");
-                        return viewResult;
-                    }
-                }
-                else
-                {
-                    // No ads found, try view detection with current threshold
-                    var viewResult = await TryDetectViewAsync();
-                    if (viewResult != ViewType.Unknown)
-                    {
-                        _logger.LogInfo($"[{_account.AccountName}] ✅ Found {viewResult} view!");
-                        return viewResult;
-                    }
-                    
-                    _logger.LogInfo($"[{_account.AccountName}] No ads or views found, waiting before retry...");
-                    await Task.Delay(AD_CHECK_DELAY);
+                    return viewResult;
                 }
             }
-            
+
             // If still no success after all attempts, trigger recovery
             _logger.LogError($"[{_account.AccountName}] Failed to find views or ads after {MAX_AD_ATTEMPTS} attempts, falling back to recovery");
             if (await HandleMapNotFound( CancellationToken.None))
             {
                 // If recovery succeeded, try detecting view again
-                var adbController = await AdbConnectionManager.GetConnectionAsync(_account.InstanceNumber, _logger, CancellationToken.None);
-                if (adbController != null)
+                var recoveredView = await DetectBaseOrMapViewAsync();
+                if (recoveredView != ViewType.Unknown)
                 {
-                    var screenshot = await adbController.TakeScreenshotAsync(CancellationToken.None);
-                    if (screenshot != null && screenshot.Length > 0)
-                    {
-                        var baseViewPath = Path.Combine(_templateFolder, "base-view.png");
-                        var mapViewPath = Path.Combine(_templateFolder, "map-view.png");
-
-                        if (File.Exists(baseViewPath))
-                        {
-                            var (foundBase, _, _) = _templateMatcher.MatchTemplate(screenshot, baseViewPath, _account.InstanceNumber, 0.7);
-                            if (foundBase) return ViewType.BaseView;
-                        }
-
-                        if (File.Exists(mapViewPath))
-                        {
-                            var (foundMap, _, _) = _templateMatcher.MatchTemplate(screenshot, mapViewPath, _account.InstanceNumber, 0.7);
-                            if (foundMap) return ViewType.MapView;
-                        }
-                    }
+                    return recoveredView;
                 }
             }
 
             // If we get here, recovery failed or didn't find a view
             throw new BotLostException(errorMessage) { NeedsRecovery = true };
+        }
+
+        private const int AD_CHECK_DELAY = 2000; // 2 second delay between attempts
+        private const int KEYCODE_BACK = 4; // Android KeyEvent.KEYCODE_BACK
+
+        /// <summary>
+        /// One round of the ad detection loop: closes an ad if there is one, then looks for a known view.
+        /// Returns Unknown when no view was found yet.
+        /// </summary>
+        private async Task<ViewType> AdDetectionStepAsync()
+        {
+            // Check for ads to close
+            if (await TryCloseAdsAsync())
+            {
+                _logger.LogInfo($"[{_account.AccountName}] Closed ad, checking for views again...");
+                await Task.Delay(AD_CHECK_DELAY);
+
+                // Try detecting view again after closing ad
+                var viewResult = await TryDetectViewAsync();
+                if (viewResult != ViewType.Unknown)
+                {
+                    _logger.LogInfo($"[{_account.AccountName}] ✅ Found {viewResult} view after closing ad!");
+                }
+                return viewResult;
+            }
+
+            // No ads found, try view detection with current threshold
+            var currentView = await TryDetectViewAsync();
+            if (currentView != ViewType.Unknown)
+            {
+                _logger.LogInfo($"[{_account.AccountName}] ✅ Found {currentView} view!");
+                return currentView;
+            }
+
+            // No close button or back arrow: Back closes popups without one (e.g. "Palace Occupied!", which only
+            // has a View Tyrant Benefits button). Back on the bare base view opens "Quit game?", but that view is
+            // detected above, and a later Back cancels the dialog.
+            _logger.LogInfo($"[{_account.AccountName}] No ads or views found, pressing Back before retry...");
+            var adbController = await AdbConnectionManager.GetConnectionAsync(_account.InstanceNumber, _logger, CancellationToken.None);
+            if (adbController != null)
+            {
+                await adbController.InputKeyEventAsync(KEYCODE_BACK);
+            }
+            await Task.Delay(AD_CHECK_DELAY);
+            return ViewType.Unknown;
+        }
+
+        private async Task<ViewType> DetectBaseOrMapViewAsync()
+        {
+            var adbController = await AdbConnectionManager.GetConnectionAsync(_account.InstanceNumber, _logger, CancellationToken.None);
+            if (adbController == null)
+            {
+                return ViewType.Unknown;
+            }
+
+            var screenshot = await adbController.TakeScreenshotAsync(CancellationToken.None);
+            if (screenshot == null || screenshot.Length == 0)
+            {
+                return ViewType.Unknown;
+            }
+
+            var baseViewPath = Path.Combine(_templateFolder, "base-view.png");
+            var mapViewPath = Path.Combine(_templateFolder, "map-view.png");
+
+            if (File.Exists(baseViewPath))
+            {
+                var (foundBase, _, _) = _templateMatcher.MatchTemplate(screenshot, baseViewPath, _account.InstanceNumber, 0.7);
+                if (foundBase) return ViewType.BaseView;
+            }
+
+            if (File.Exists(mapViewPath))
+            {
+                var (foundMap, _, _) = _templateMatcher.MatchTemplate(screenshot, mapViewPath, _account.InstanceNumber, 0.7);
+                if (foundMap) return ViewType.MapView;
+            }
+            return ViewType.Unknown;
         }
 
         /// <summary>
@@ -307,7 +343,7 @@ namespace Bot.Core.Utils
                     _logger.LogError($"[Locator] ❌ Invalid navigation: {currentView} -> {desiredView}");
                     return false;
                 }
-                
+
                 var targetImagePath = Path.Combine(_templateFolder, targetImageName);
                 var verifyImagePath = Path.Combine(_templateFolder, verifyImageName);
 
@@ -331,39 +367,18 @@ namespace Bot.Core.Utils
                 var clickPoint = matchRect.GetCenter();
                 _logger.LogInfo($"[Locator] 🖱️ Clicking center location ({clickPoint.X}, {clickPoint.Y}) within {targetImageName} bounds {matchRect}");
                 await adbController.TapAsync(clickPoint.X, clickPoint.Y, cancellationToken);
-                
+
                 await Task.Delay(1000, cancellationToken);
 
                 _logger.LogInfo($"[Locator] 👀 Looking for {verifyImageName} for 5 seconds to verify navigation...");
-                
-                var stopwatch = System.Diagnostics.Stopwatch.StartNew();
-                while (stopwatch.Elapsed.TotalSeconds < 5)
+
+                if (await WaitForViewTemplateAsync(adbController, verifyImagePath, verifyImageName, instanceNumber, cancellationToken))
                 {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    screenshot = await adbController.TakeScreenshotAsync(cancellationToken);
-                    if (screenshot != null && screenshot.Length > 0)
-                    {
-                        var (foundVerify, _, confidenceVerify) = _templateMatcher.MatchTemplate(screenshot, verifyImagePath, instanceNumber, 0.7f);
-                        if (foundVerify)
-                        {
-                            _logger.LogInfo($"[Locator] ✅ Found {verifyImageName}! Navigation successful (confidence: {confidenceVerify:F3})");
-                            return true;
-                        }
-                        else if (stopwatch.Elapsed.TotalSeconds >= 4.5)
-                        {
-                            // Log confidence on last attempt before timeout
-                            _logger.LogWarning($"[Locator] {verifyImageName} not found - confidence: {confidenceVerify:F3} < threshold: 0.7");
-                        }
-                    }
-                    
-                    await Task.Delay(500, cancellationToken);
+                    return true;
                 }
 
                 _logger.LogError($"[Locator] ❌ Timed out waiting for {verifyImageName} after navigation");
-                if (screenshot != null)
-                {
-                    // await SaveDebugScreenshot(screenshot, instanceNumber, $"navigation_timeout_{verifyImageName}"); // DISABLED FOR PERFORMANCE
-                }
+                // await SaveDebugScreenshot(screenshot, instanceNumber, $"navigation_timeout_{verifyImageName}"); // DISABLED FOR PERFORMANCE
                 return await HandleMapNotFound( cancellationToken);
             }
             catch (Exception ex)
@@ -371,6 +386,34 @@ namespace Bot.Core.Utils
                 _logger.LogError($"[Locator] 💥 Error navigating view: {ex.Message}");
                 return false;
             }
+        }
+
+        private async Task<bool> WaitForViewTemplateAsync(
+            AdbController adbController, string verifyImagePath, string verifyImageName, int instanceNumber, CancellationToken cancellationToken)
+        {
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+            while (stopwatch.Elapsed.TotalSeconds < 5)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var screenshot = await adbController.TakeScreenshotAsync(cancellationToken);
+                if (screenshot != null && screenshot.Length > 0)
+                {
+                    var (foundVerify, _, confidenceVerify) = _templateMatcher.MatchTemplate(screenshot, verifyImagePath, instanceNumber, 0.7f);
+                    if (foundVerify)
+                    {
+                        _logger.LogInfo($"[Locator] ✅ Found {verifyImageName}! Navigation successful (confidence: {confidenceVerify:F3})");
+                        return true;
+                    }
+                    if (stopwatch.Elapsed.TotalSeconds >= 4.5)
+                    {
+                        // Log confidence on last attempt before timeout
+                        _logger.LogWarning($"[Locator] {verifyImageName} not found - confidence: {confidenceVerify:F3} < threshold: 0.7");
+                    }
+                }
+
+                await Task.Delay(500, cancellationToken);
+            }
+            return false;
         }
 
         /// <summary>

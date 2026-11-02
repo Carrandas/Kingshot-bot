@@ -19,7 +19,7 @@ namespace Bot.GUI.ViewModels
         private string _errorMessage = string.Empty;
 
         public ObservableCollection<LDPlayerInstance> AvailableInstances { get; } = new();
-        public List<LDPlayerInstance> SelectedInstances => AvailableInstances.Where(i => i.IsSelected).ToList();
+        public List<LDPlayerInstance> GetSelectedInstances() => AvailableInstances.Where(i => i.IsSelected).ToList();
 
         public bool IsLoading
         {
@@ -107,19 +107,16 @@ namespace Bot.GUI.ViewModels
 
         private void Instance_PropertyChanged(object? sender, PropertyChangedEventArgs e)
         {
-            if (e.PropertyName == nameof(LDPlayerInstance.IsSelected))
+            // Force the ConfirmCommand to re-evaluate its CanExecute status
+            if (e.PropertyName == nameof(LDPlayerInstance.IsSelected) && ConfirmCommand is RelayCommand command)
             {
-                // Force the ConfirmCommand to re-evaluate its CanExecute status
-                if (ConfirmCommand is RelayCommand command)
-                {
-                    command.RaiseCanExecuteChanged();
-                }
+                command.RaiseCanExecuteChanged();
             }
         }
 
         private bool CanConfirm()
         {
-            return SelectedInstances.Any() && !IsLoading;
+            return AvailableInstances.Any(i => i.IsSelected) && !IsLoading;
         }
 
         private void Confirm()

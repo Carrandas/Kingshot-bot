@@ -100,45 +100,13 @@ namespace Bot.Core.Tasks.Modules
                 }
 
                 // Step 4: Check and Process Chapter tab if notifications detected
-                bool chapterClaimAllUsed = false;
-                logger.LogInfo($"[{account.AccountName}] Checking Chapter tab for notifications...");
-                if (await DetectNotificationNumber(ChapterNotificationArea, account.InstanceNumber, logger, "Chapter"))
-                {
-                    logger.LogInfo($"[{account.AccountName}] Processing Chapter tab - notifications found");
-                    if (await FindAndClickTabAsync("chapter.png", account.InstanceNumber, logger, "Chapter"))
-                    {
-                        await Task.Delay(500, cancellationToken);
-                        chapterClaimAllUsed = await ProcessMissionsTabAsync("Chapter", account.InstanceNumber, logger, cancellationToken);
-                    }
-                    else
-                    {
-                        logger.LogWarning($"[{account.AccountName}] Failed to click Chapter tab, skipping");
-                    }
-                }
-                else
-                {
-                    logger.LogInfo($"[{account.AccountName}] Skipping Chapter tab - no notifications");
-                }
+                bool chapterClaimAllUsed = await ProcessChapterTabAsync(account, logger, cancellationToken);
 
                 // Handle case where Chapter claim-all takes bot back to base view
                 if (chapterClaimAllUsed)
                 {
-                    logger.LogInfo($"[{account.AccountName}] Chapter claim-all used - waiting 2 seconds and re-opening missions menu...");
-                    await Task.Delay(2000, cancellationToken);
-                    
-                    // Try to re-open missions menu
-                    if (!await ReopenMissionsMenuAsync(account, logger, cancellationToken))
-                    {
-                        logger.LogWarning($"[{account.AccountName}] Failed to re-open missions menu after Chapter claim-all - skipping remaining tabs");
-                        return TaskExecutionDetails.Succeeded("Chapter completed, remaining tabs skipped due to navigation failure");
-                    }
-                    
-                    // Verify missions interface loaded again
-                    if (!await VerifyMissionsInterfaceAsync(account.InstanceNumber, logger, cancellationToken))
-                    {
-                        logger.LogWarning($"[{account.AccountName}] Missions interface did not load after Chapter claim-all - skipping remaining tabs");
-                        return TaskExecutionDetails.Succeeded("Chapter completed, remaining tabs skipped due to interface failure");
-                    }
+                    var reopenFailure = await ReopenAfterChapterClaimAllAsync(account, logger, cancellationToken);
+                    if (reopenFailure != null) return reopenFailure;
                 }
 
                 // Step 5/6: Daily and Growth. The notification dots moved with the 2-tab layout, so both tabs are
@@ -178,6 +146,49 @@ namespace Bot.Core.Tasks.Modules
                 logger.LogError($"[{account.AccountName}] Error during claim missions: {ex.Message}");
                 return TaskExecutionDetails.Failed(ex.Message);
             }
+        }
+
+        /// <summary>Processes the Chapter tab when it shows notifications. True when claim-all was used.</summary>
+        private async Task<bool> ProcessChapterTabAsync(AccountSettings account, LogService logger, CancellationToken cancellationToken)
+        {
+            logger.LogInfo($"[{account.AccountName}] Checking Chapter tab for notifications...");
+            if (!await DetectNotificationNumber(ChapterNotificationArea, account.InstanceNumber, logger, "Chapter"))
+            {
+                logger.LogInfo($"[{account.AccountName}] Skipping Chapter tab - no notifications");
+                return false;
+            }
+
+            logger.LogInfo($"[{account.AccountName}] Processing Chapter tab - notifications found");
+            if (!await FindAndClickTabAsync("chapter.png", account.InstanceNumber, logger, "Chapter"))
+            {
+                logger.LogWarning($"[{account.AccountName}] Failed to click Chapter tab, skipping");
+                return false;
+            }
+
+            await Task.Delay(500, cancellationToken);
+            return await ProcessMissionsTabAsync("Chapter", account.InstanceNumber, logger, cancellationToken);
+        }
+
+        /// <summary>Chapter claim-all took the bot back to the base view: open the missions menu again. Returns a result when the remaining tabs have to be skipped.</summary>
+        private async Task<TaskExecutionDetails?> ReopenAfterChapterClaimAllAsync(AccountSettings account, LogService logger, CancellationToken cancellationToken)
+        {
+            logger.LogInfo($"[{account.AccountName}] Chapter claim-all used - waiting 2 seconds and re-opening missions menu...");
+            await Task.Delay(2000, cancellationToken);
+
+            // Try to re-open missions menu
+            if (!await ReopenMissionsMenuAsync(account, logger, cancellationToken))
+            {
+                logger.LogWarning($"[{account.AccountName}] Failed to re-open missions menu after Chapter claim-all - skipping remaining tabs");
+                return TaskExecutionDetails.Succeeded("Chapter completed, remaining tabs skipped due to navigation failure");
+            }
+
+            // Verify missions interface loaded again
+            if (!await VerifyMissionsInterfaceAsync(account.InstanceNumber, logger, cancellationToken))
+            {
+                logger.LogWarning($"[{account.AccountName}] Missions interface did not load after Chapter claim-all - skipping remaining tabs");
+                return TaskExecutionDetails.Succeeded("Chapter completed, remaining tabs skipped due to interface failure");
+            }
+            return null;
         }
 
         /// <summary>
@@ -226,140 +237,138 @@ namespace Bot.Core.Tasks.Modules
         private async Task<bool> ProcessMissionsTabAsync(string tabName, int instanceNumber, LogService logger, CancellationToken cancellationToken)
         {
             logger.LogInfo($"Processing {tabName} missions...");
-            
-            bool claimAllUsed = false;
-            
+
             // First check for claim-all button
-            logger.LogInfo($"Looking for claim-all button in {tabName} tab...");
-            bool claimAllFound = await WaitForImageAsync("claim-all.png", instanceNumber, logger, ImageWaitTimeSeconds, cancellationToken);
-            
-            if (claimAllFound)
-            {
-                logger.LogInfo($"Found claim-all button in {tabName} tab, verifying confidence...");
-                
-                // Double-check with strict 0.8 confidence before clicking
-                var screenshot = await TakeScreenshotAsync(instanceNumber, logger);
-                if (screenshot != null && _templateMatcher != null)
-                {
-                    var templatePath = Path.Combine(ImageTemplateFolder, "claim-all.png");
-                    logger.LogInfo($"Using template matching for claim-all.png (grayscale mode)");
-                    var (found, matchRect, confidence) = _templateMatcher.MatchTemplate(
-                        screenshot,
-                        templatePath,
-                        instanceNumber,
-                        threshold: 0.8,
-                        scales: UnifiedTemplateMatchingService.StandardScales,
-                        verboseLogging: true  // Enable verbose logging to confirm color matching
-                    );
-                    
-                    if (found && confidence >= CLAIM_BUTTON_CONFIDENCE_THRESHOLD)
-                    {
-                        logger.LogInfo($"Verified claim-all button with confidence {confidence:F3} >= {CLAIM_BUTTON_CONFIDENCE_THRESHOLD}, clicking...");
-                        if (await ClickRandomInRectAsync(instanceNumber, logger, matchRect))
-                        {
-                            await Task.Delay(1000, cancellationToken);
-                            
-                            // Look for reward-image after claim-all and keep clicking until not detected
-                            logger.LogInfo($"Looking for reward-image after claim-all in {tabName} tab...");
-                            await ProcessRewardImageAsync(instanceNumber, logger, cancellationToken, tabName);
-                            
-                            claimAllUsed = true;
-                        }
-                    }
-                    else
-                    {
-                        logger.LogWarning($"Claim-all button confidence {confidence:F3} is below {CLAIM_BUTTON_CONFIDENCE_THRESHOLD} threshold, will try individual claims");
-                    }
-                }
-            }
-            
+            bool claimAllUsed = await TryClaimAllAsync(tabName, instanceNumber, logger, cancellationToken);
+
             // If claim-all was not found or confidence was too low, look for individual claim buttons
             if (!claimAllUsed)
             {
-                logger.LogInfo($"Looking for individual claim buttons in {tabName} tab...");
-                
-                int claimCount = 0;
-                const int maxClaimAttempts = 50; // Increased to allow more claims
-                const int timeoutMs = 3000; // 3 seconds timeout when no buttons found
-                DateTime lastClaimTime = DateTime.UtcNow;
-                
-                while (claimCount < maxClaimAttempts)
-                {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    
-                    // Poll for claim button with a short wait time
-                    bool claimFound = await WaitForImageAsync("claim.png", instanceNumber, logger, 1000, cancellationToken);
-                    
-                    if (claimFound)
-                    {
-                        logger.LogInfo($"Found claim button #{claimCount + 1} in {tabName} tab, verifying confidence...");
-                        
-                        // Double-check with strict 0.8 confidence before clicking
-                        var screenshot = await TakeScreenshotAsync(instanceNumber, logger);
-                        if (screenshot != null && _templateMatcher != null)
-                        {
-                            var templatePath = Path.Combine(ImageTemplateFolder, "claim.png");
-                            logger.LogInfo($"Using color matching for claim.png (should show 'Using color matching mode' in next log)");
-                            var (found, matchRect, confidence) = _templateMatcher.MatchTemplate(
-                                screenshot,
-                                templatePath,
-                                instanceNumber,
-                                threshold: 0.8,
-                                scales: UnifiedTemplateMatchingService.StandardScales,
-                                verboseLogging: true  // Enable verbose logging to confirm color matching
-                            );
-                            
-                            if (found && confidence >= CLAIM_BUTTON_CONFIDENCE_THRESHOLD)
-                            {
-                                logger.LogInfo($"Verified claim button with confidence {confidence:F3} >= {CLAIM_BUTTON_CONFIDENCE_THRESHOLD}, clicking...");
-                                if (await ClickRandomInRectAsync(instanceNumber, logger, matchRect))
-                                {
-                                    claimCount++;
-                                    lastClaimTime = DateTime.UtcNow; // Reset timer on successful click
-                                    
-                                    // Wait 0.5s after clicking before looking for next claim button
-                                    await Task.Delay(500, cancellationToken);
-                                    continue;
-                                }
-                            }
-                            else
-                            {
-                                logger.LogWarning($"Claim button confidence {confidence:F3} is below {CLAIM_BUTTON_CONFIDENCE_THRESHOLD} threshold, skipping");
-                            }
-                        }
-                    }
-                    
-                    // No claim button found or failed to click, check if we've exceeded timeout
-                    if ((DateTime.UtcNow - lastClaimTime).TotalMilliseconds >= timeoutMs)
-                    {
-                        logger.LogInfo($"No claim buttons found for {timeoutMs}ms in {tabName} tab after {claimCount} claims, moving on");
-                        break;
-                    }
-                    
-                    // Wait a bit before checking again
-                    await Task.Delay(200, cancellationToken);
-                }
-                
-                if (claimCount >= maxClaimAttempts)
-                {
-                    logger.LogWarning($"Reached maximum claim attempts ({maxClaimAttempts}) in {tabName} tab");
-                }
-                else if (claimCount > 0)
-                {
-                    logger.LogInfo($"Completed individual claims in {tabName} tab: {claimCount} claims processed");
-                    
-                    // Check for reward-image only after all claim buttons have been processed
-                    logger.LogInfo($"No more claim buttons found in {tabName} tab, looking for reward-image...");
-                    await ProcessRewardImageAsync(instanceNumber, logger, cancellationToken, $"{tabName} after {claimCount} claims");
-                }
-                else
-                {
-                    logger.LogInfo($"No claim buttons found in {tabName} tab");
-                }
+                await ClaimIndividuallyAsync(tabName, instanceNumber, logger, cancellationToken);
             }
-            
+
             // Return true if claim-all was used
             return claimAllUsed;
+        }
+
+        private async Task<bool> TryClaimAllAsync(string tabName, int instanceNumber, LogService logger, CancellationToken cancellationToken)
+        {
+            logger.LogInfo($"Looking for claim-all button in {tabName} tab...");
+            if (!await WaitForImageAsync("claim-all.png", instanceNumber, logger, ImageWaitTimeSeconds, cancellationToken))
+            {
+                return false;
+            }
+
+            logger.LogInfo($"Found claim-all button in {tabName} tab, verifying confidence...");
+
+            // Double-check with strict 0.8 confidence before clicking
+            if (!await ClickVerifiedClaimAsync("claim-all.png", "Using template matching for claim-all.png (grayscale mode)",
+                    "claim-all button", "Claim-all button", "will try individual claims", instanceNumber, logger))
+            {
+                return false;
+            }
+
+            await Task.Delay(1000, cancellationToken);
+
+            // Look for reward-image after claim-all and keep clicking until not detected
+            logger.LogInfo($"Looking for reward-image after claim-all in {tabName} tab...");
+            await ProcessRewardImageAsync(instanceNumber, logger, cancellationToken, tabName);
+            return true;
+        }
+
+        /// <summary>
+        /// Matches the claim template again with the strict 0.8 threshold and clicks it.
+        /// False when there is no screenshot, the confidence is too low or the click failed.
+        /// </summary>
+        private async Task<bool> ClickVerifiedClaimAsync(
+            string imageName, string modeMessage, string buttonLabel, string capitalizedLabel, string belowThresholdAction,
+            int instanceNumber, LogService logger)
+        {
+            var screenshot = await TakeScreenshotAsync(instanceNumber, logger);
+            if (screenshot == null || _templateMatcher == null)
+            {
+                return false;
+            }
+
+            var templatePath = Path.Combine(ImageTemplateFolder, imageName);
+            logger.LogInfo(modeMessage);
+            var (found, matchRect, confidence) = _templateMatcher.MatchTemplate(
+                screenshot,
+                templatePath,
+                instanceNumber,
+                threshold: 0.8,
+                scales: UnifiedTemplateMatchingService.StandardScales,
+                verboseLogging: true  // Enable verbose logging to confirm color matching
+            );
+
+            if (!found || confidence < CLAIM_BUTTON_CONFIDENCE_THRESHOLD)
+            {
+                logger.LogWarning($"{capitalizedLabel} confidence {confidence:F3} is below {CLAIM_BUTTON_CONFIDENCE_THRESHOLD} threshold, {belowThresholdAction}");
+                return false;
+            }
+
+            logger.LogInfo($"Verified {buttonLabel} with confidence {confidence:F3} >= {CLAIM_BUTTON_CONFIDENCE_THRESHOLD}, clicking...");
+            return await ClickRandomInRectAsync(instanceNumber, logger, matchRect);
+        }
+
+        private async Task ClaimIndividuallyAsync(string tabName, int instanceNumber, LogService logger, CancellationToken cancellationToken)
+        {
+            logger.LogInfo($"Looking for individual claim buttons in {tabName} tab...");
+
+            int claimCount = 0;
+            const int maxClaimAttempts = 50; // Increased to allow more claims
+            const int timeoutMs = 3000; // 3 seconds timeout when no buttons found
+            DateTime lastClaimTime = DateTime.UtcNow;
+
+            while (claimCount < maxClaimAttempts)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                // Poll for claim button with a short wait time
+                if (await WaitForImageAsync("claim.png", instanceNumber, logger, 1000, cancellationToken))
+                {
+                    logger.LogInfo($"Found claim button #{claimCount + 1} in {tabName} tab, verifying confidence...");
+
+                    // Double-check with strict 0.8 confidence before clicking
+                    if (await ClickVerifiedClaimAsync("claim.png", "Using color matching for claim.png (should show 'Using color matching mode' in next log)",
+                            "claim button", "Claim button", "skipping", instanceNumber, logger))
+                    {
+                        claimCount++;
+                        lastClaimTime = DateTime.UtcNow; // Reset timer on successful click
+
+                        // Wait 0.5s after clicking before looking for next claim button
+                        await Task.Delay(500, cancellationToken);
+                        continue;
+                    }
+                }
+
+                // No claim button found or failed to click, check if we've exceeded timeout
+                if ((DateTime.UtcNow - lastClaimTime).TotalMilliseconds >= timeoutMs)
+                {
+                    logger.LogInfo($"No claim buttons found for {timeoutMs}ms in {tabName} tab after {claimCount} claims, moving on");
+                    break;
+                }
+
+                // Wait a bit before checking again
+                await Task.Delay(200, cancellationToken);
+            }
+
+            if (claimCount >= maxClaimAttempts)
+            {
+                logger.LogWarning($"Reached maximum claim attempts ({maxClaimAttempts}) in {tabName} tab");
+            }
+            else if (claimCount > 0)
+            {
+                logger.LogInfo($"Completed individual claims in {tabName} tab: {claimCount} claims processed");
+
+                // Check for reward-image only after all claim buttons have been processed
+                logger.LogInfo($"No more claim buttons found in {tabName} tab, looking for reward-image...");
+                await ProcessRewardImageAsync(instanceNumber, logger, cancellationToken, $"{tabName} after {claimCount} claims");
+            }
+            else
+            {
+                logger.LogInfo($"No claim buttons found in {tabName} tab");
+            }
         }
 
         private async Task<bool> WaitForImageAsync(string imageName, int instanceNumber, LogService logger, int timeoutMs, CancellationToken cancellationToken)
@@ -534,6 +543,52 @@ namespace Bot.Core.Tasks.Modules
             return await WaitForAndClickImageAsync("missions-scroll.png", account.InstanceNumber, logger, ImageWaitTimeSeconds, cancellationToken);
         }
 
+        /// <summary>Tries the OCR configurations in turn; returns the text of the first one that finds digits, or null.</summary>
+        private static async Task<string?> ReadNotificationNumberAsync(
+            byte[] screenshot, Rectangle area, string tabName, LogService logger, bool debugMode, string debugFolder)
+        {
+            // Test reduced OCR configurations for better performance
+            var configs = new[]
+            {
+                new OcrConfiguration { CharacterWhitelist = "0123456789", ScaleFactor = 2.0f, PageSegMode = PageSegMode.SingleChar },
+                new OcrConfiguration { CharacterWhitelist = "0123456789", ScaleFactor = 3.0f, PageSegMode = PageSegMode.SingleChar },
+            };
+
+            for (int i = 0; i < configs.Length; i++)
+            {
+                var config = configs[i];
+
+                try
+                {
+                    using var ocrService = new OcrService(logger, config);
+                    var text = ocrService.ExtractTextFromScreenArea(screenshot, area);
+
+                    // Check if any digits were found; stop after the first valid result to improve performance
+                    if (!string.IsNullOrWhiteSpace(text) && text.Any(char.IsDigit))
+                    {
+                        return text.Trim();
+                    }
+
+                    // Save debug preprocessed image for this config if enabled
+                    if (debugMode)
+                    {
+                        string timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss_fff");
+                        await SaveDebugPreprocessedImageAsync(screenshot, area, config,
+                            Path.Combine(debugFolder, $"{timestamp}_config{i + 1}_scale{config.ScaleFactor}_seg{config.PageSegMode}.png"), logger);
+                    }
+                }
+                catch (Exception configEx)
+                {
+                    // Only log OCR failures in debug mode
+                    if (debugMode)
+                    {
+                        logger.LogWarning($"[{tabName}] OCR config {i + 1} failed: {configEx.Message}");
+                    }
+                }
+            }
+            return null;
+        }
+
         /// <summary>
         /// Detects if there are notification numbers in the specified area using OCR with enhanced debugging
         /// </summary>
@@ -562,57 +617,9 @@ namespace Bot.Core.Tasks.Modules
                     await SaveDebugImageAsync(screenshot, area, Path.Combine(debugFolder, $"{timestamp}_original.png"), logger);
                 }
 
-                // Test reduced OCR configurations for better performance
-                var configs = new[]
-                {
-                    new OcrConfiguration { CharacterWhitelist = "0123456789", ScaleFactor = 2.0f, PageSegMode = PageSegMode.SingleChar },
-                    new OcrConfiguration { CharacterWhitelist = "0123456789", ScaleFactor = 3.0f, PageSegMode = PageSegMode.SingleChar },
-                };
+                string? bestResult = await ReadNotificationNumberAsync(screenshot, area, tabName, logger, debugMode, debugFolder);
+                bool anyNumbersDetected = bestResult != null;
 
-                bool anyNumbersDetected = false;
-                string bestResult = "";
-                
-                for (int i = 0; i < configs.Length; i++)
-                {
-                    var config = configs[i];
-                    
-                    try
-                    {
-                        using var ocrService = new OcrService(logger, config);
-                        var text = ocrService.ExtractTextFromScreenArea(screenshot, area);
-                        
-                        // Check if any digits were found
-                        bool hasNumbers = !string.IsNullOrWhiteSpace(text) && text.Any(char.IsDigit);
-                        
-                        if (hasNumbers)
-                        {
-                            anyNumbersDetected = true;
-                            if (string.IsNullOrEmpty(bestResult) || text.Trim().Length > bestResult.Length)
-                            {
-                                bestResult = text.Trim();
-                            }
-                            // Stop after finding valid result to improve performance
-                            break;
-                        }
-                        
-                        // Save debug preprocessed image for this config if enabled
-                        if (debugMode)
-                        {
-                            string timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss_fff");
-                            await SaveDebugPreprocessedImageAsync(screenshot, area, config, 
-                                Path.Combine(debugFolder, $"{timestamp}_config{i + 1}_scale{config.ScaleFactor}_seg{config.PageSegMode}.png"), logger);
-                        }
-                    }
-                    catch (Exception configEx)
-                    {
-                        // Only log OCR failures in debug mode
-                        if (debugMode)
-                        {
-                            logger.LogWarning($"[{tabName}] OCR config {i + 1} failed: {configEx.Message}");
-                        }
-                    }
-                }
-                
                 // Log simplified results
                 if (anyNumbersDetected)
                 {
@@ -621,7 +628,7 @@ namespace Bot.Core.Tasks.Modules
                 else
                 {
                     logger.LogInfo($"[{tabName}] No notifications detected");
-                    
+
                     // Additional debugging for failed detection (only in debug mode)
                     if (debugMode)
                     {
@@ -638,6 +645,59 @@ namespace Bot.Core.Tasks.Modules
             }
         }
 
+        private async Task ClickRewardImageAsync(int instanceNumber, LogService logger, CancellationToken cancellationToken, int clickCount, double confidence)
+        {
+            logger.LogInfo($"Detected reward-image (click #{clickCount}) with confidence {confidence:F3}, clicking it...");
+
+            if (await FindAndClickRewardImageAsync(instanceNumber, logger))
+            {
+                logger.LogInfo($"Successfully clicked reward-image #{clickCount}");
+                await Task.Delay(500, cancellationToken); // Wait 0.5s after clicking
+            }
+            else
+            {
+                logger.LogWarning($"Failed to click reward-image on attempt #{clickCount}");
+            }
+        }
+
+        private const double InitialRewardWaitSeconds = 3.0; // Wait up to 3 seconds for initial detection
+
+        /// <summary>The reward image was not detected: logs how long it still waits and tells whether the wait is over.</summary>
+        private static bool IsRewardWaitOver(
+            LogService logger, string context, bool hasEverBeenDetected, DateTime startTime, DateTime lastDetectionTime,
+            double bestConfidence, double confidence, int clickCount)
+        {
+            var timeSinceStart = DateTime.UtcNow - startTime;
+            var timeSinceLastDetection = DateTime.UtcNow - lastDetectionTime;
+            var inContext = string.IsNullOrEmpty(context) ? "" : $" in {context}";
+
+            if (!hasEverBeenDetected)
+            {
+                // Never found reward-image, check if we should keep waiting for initial detection
+                if (timeSinceStart.TotalSeconds >= InitialRewardWaitSeconds)
+                {
+                    logger.LogInfo($"reward-image not found after {InitialRewardWaitSeconds} seconds{inContext} (best confidence: {bestConfidence:F3}, threshold: 0.6), continuing...");
+                    return true;
+                }
+
+                var remainingWait = InitialRewardWaitSeconds - timeSinceStart.TotalSeconds;
+                logger.LogInfo($"reward-image not detected (confidence: {confidence:F3}), waiting {remainingWait:F1} more seconds for initial detection...");
+                return false;
+            }
+
+            if (timeSinceLastDetection.TotalSeconds >= 5.0)
+            {
+                // Haven't seen it for 5 seconds, we're done
+                logger.LogInfo($"reward-image not detected for 5 seconds after {clickCount} clicks{inContext}, finished processing");
+                return true;
+            }
+
+            // Still within the 5-second wait period
+            var remainingWaitAfterDetection = 5.0 - timeSinceLastDetection.TotalSeconds;
+            logger.LogInfo($"reward-image not detected, waiting {remainingWaitAfterDetection:F1} more seconds...");
+            return false;
+        }
+
         /// <summary>
         /// Processes reward-image.png by clicking it repeatedly until it's no longer detected.
         /// Waits 5 seconds for it to disappear, checking every 0.5 seconds.
@@ -649,8 +709,7 @@ namespace Bot.Core.Tasks.Modules
             var startTime = DateTime.UtcNow;
             var lastDetectionTime = DateTime.UtcNow;
             bool hasEverBeenDetected = false;
-            const double initialWaitTimeSeconds = 3.0; // Wait up to 3 seconds for initial detection
-            
+
             logger.LogInfo($"Starting reward-image processing{(string.IsNullOrEmpty(context) ? "" : $" for {context}")}...");
             
             double bestConfidence = 0.0;
@@ -671,51 +730,12 @@ namespace Bot.Core.Tasks.Modules
                     hasEverBeenDetected = true;
                     lastDetectionTime = DateTime.UtcNow;
                     clickCount++;
-                    
-                    logger.LogInfo($"Detected reward-image (click #{clickCount}) with confidence {confidence:F3}, clicking it...");
-                    
-                    if (await FindAndClickRewardImageAsync(instanceNumber, logger))
-                    {
-                        logger.LogInfo($"Successfully clicked reward-image #{clickCount}");
-                        await Task.Delay(500, cancellationToken); // Wait 0.5s after clicking
-                    }
-                    else
-                    {
-                        logger.LogWarning($"Failed to click reward-image on attempt #{clickCount}");
-                    }
+                    await ClickRewardImageAsync(instanceNumber, logger, cancellationToken, clickCount, confidence);
                 }
-                else
+                else if (IsRewardWaitOver(logger, context, hasEverBeenDetected, startTime, lastDetectionTime, bestConfidence, confidence, clickCount))
                 {
-                    // Not detected - check if we should continue waiting
-                    var timeSinceStart = DateTime.UtcNow - startTime;
-                    var timeSinceLastDetection = DateTime.UtcNow - lastDetectionTime;
-                    
-                    if (!hasEverBeenDetected)
-                    {
-                        // Never found reward-image, check if we should keep waiting for initial detection
-                        if (timeSinceStart.TotalSeconds >= initialWaitTimeSeconds)
-                        {
-                            logger.LogInfo($"reward-image not found after {initialWaitTimeSeconds} seconds{(string.IsNullOrEmpty(context) ? "" : $" in {context}")} (best confidence: {bestConfidence:F3}, threshold: 0.6), continuing...");
-                            break;
-                        }
-                        else
-                        {
-                            var remainingWait = initialWaitTimeSeconds - timeSinceStart.TotalSeconds;
-                            logger.LogInfo($"reward-image not detected (confidence: {confidence:F3}), waiting {remainingWait:F1} more seconds for initial detection...");
-                        }
-                    }
-                    else if (timeSinceLastDetection.TotalSeconds >= 5.0)
-                    {
-                        // Haven't seen it for 5 seconds, we're done
-                        logger.LogInfo($"reward-image not detected for 5 seconds after {clickCount} clicks{(string.IsNullOrEmpty(context) ? "" : $" in {context}")}, finished processing");
-                        break;
-                    }
-                    else
-                    {
-                        // Still within the 5-second wait period
-                        var remainingWait = 5.0 - timeSinceLastDetection.TotalSeconds;
-                        logger.LogInfo($"reward-image not detected, waiting {remainingWait:F1} more seconds...");
-                    }
+                    // Not detected and nothing left to wait for
+                    break;
                 }
                 
                 // Wait 0.5 seconds before next check

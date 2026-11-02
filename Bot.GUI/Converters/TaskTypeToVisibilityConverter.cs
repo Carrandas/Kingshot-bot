@@ -24,16 +24,14 @@ namespace Bot.GUI.Converters
 
         public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
         {
-            if (value is ObservableCollection<TaskType> enabledTasks && parameter is string taskTypeStr)
+            if (value is ObservableCollection<TaskType> enabledTasks && parameter is string taskTypeStr
+                && Enum.TryParse<TaskType>(taskTypeStr, out var taskType))
             {
-                if (Enum.TryParse<TaskType>(taskTypeStr, out var taskType))
-                {
-                    // Hide system tasks and disabled tasks
-                    if (SystemTasks.Contains(taskType) || DisabledTasks.Contains(taskType))
-                        return Visibility.Collapsed;
+                // Hide system tasks and disabled tasks
+                if (SystemTasks.Contains(taskType) || DisabledTasks.Contains(taskType))
+                    return Visibility.Collapsed;
 
-                    return enabledTasks.Contains(taskType) ? Visibility.Visible : Visibility.Collapsed;
-                }
+                return enabledTasks.Contains(taskType) ? Visibility.Visible : Visibility.Collapsed;
             }
             return Visibility.Collapsed;
         }

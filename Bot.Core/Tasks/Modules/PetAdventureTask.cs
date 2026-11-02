@@ -144,6 +144,30 @@ namespace Bot.Core.Tasks.Modules
         {
             if ((await MatchAsync(PetHeaderTemplate, PetHeaderArea, instance, logger)).found) return true;
 
+            if (!await OpenSidePanelDailyTabAsync(account, logger, instance, cancellationToken))
+            {
+                return false;
+            }
+
+            var row = await FindDailyPanelRowAsync(() => MatchAsync(PetRowIconTemplate, PanelListArea, instance, logger), instance, logger, cancellationToken);
+            if (!row.found)
+            {
+                return null;
+            }
+
+            await ClickAsync(instance, logger, new Point(row.rect.X + row.rect.Width / 2 + PetRowTitleDx, row.rect.Y + row.rect.Height / 2));
+            for (int i = 0; i < 10; i++)
+            {
+                await Task.Delay(500, cancellationToken);
+                if ((await MatchAsync(PetHeaderTemplate, PetHeaderArea, instance, logger)).found) return true;
+            }
+            logger.LogWarning($"[{account.AccountName}] Pet Adventure screen did not open");
+            return false;
+        }
+
+        /// <summary>Opens the side panel (on the map or the base view) and selects the Daily tab. False when the panel does not open.</summary>
+        private async Task<bool> OpenSidePanelDailyTabAsync(AccountSettings account, LogService logger, int instance, CancellationToken cancellationToken)
+        {
             // The panel arrow is on both the map and the base view; try the current view first
             var arrow = await MatchAsync(PanelOpenArrowTemplate, PanelArrowArea, instance, logger);
             var panelOpen = await MatchAsync(PanelCloseArrowTemplate, PanelCloseArrowArea, instance, logger);
@@ -173,21 +197,7 @@ namespace Bot.Core.Tasks.Modules
 
             await ClickAsync(instance, logger, DailyTabPoint);
             await Task.Delay(1200, cancellationToken);
-
-            var row = await FindDailyPanelRowAsync(() => MatchAsync(PetRowIconTemplate, PanelListArea, instance, logger), instance, logger, cancellationToken);
-            if (!row.found)
-            {
-                return null;
-            }
-
-            await ClickAsync(instance, logger, new Point(row.rect.X + row.rect.Width / 2 + PetRowTitleDx, row.rect.Y + row.rect.Height / 2));
-            for (int i = 0; i < 10; i++)
-            {
-                await Task.Delay(500, cancellationToken);
-                if ((await MatchAsync(PetHeaderTemplate, PetHeaderArea, instance, logger)).found) return true;
-            }
-            logger.LogWarning($"[{account.AccountName}] Pet Adventure screen did not open");
-            return false;
+            return true;
         }
 
         private async Task CloseSidePanelAsync(int instance, LogService logger, CancellationToken cancellationToken)

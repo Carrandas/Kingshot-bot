@@ -109,22 +109,8 @@ namespace Bot.GUI.ViewModels
                 
                 // LogService.PurgeAllLogs(); // Disabled to prevent file access errors
                 
-                string? ldConsolePath = null;
-                string? dnConsolePath = null;
-
                 _userNotifications.ShowStatus("Searching for LDPlayer installation...", NotificationType.Info);
-                try
-                {
-                    ldConsolePath = LDPlayerHelper.GetLDPlayerConsolePath();
-                    dnConsolePath = LDPlayerHelper.GetDNPlayerConsolePath();
-                    _userNotifications.ShowSuccess("LDPlayer found and ready");
-                }
-                catch (FileNotFoundException ex)
-                {
-                    _userNotifications.ShowError("LDPlayer not found on this system!", 
-                        troubleshootingHint: "You can manually set the LDPlayer path in the settings if auto-detection fails.");
-                    _logger.LogError($"LDPlayer not found: {ex.Message}", category: LogCategories.System);
-                }
+                var (ldConsolePath, dnConsolePath) = FindLdPlayerConsolePaths();
 
                 _userNotifications.ShowStatus("Setting up services...", NotificationType.Info);
                 
@@ -174,66 +160,93 @@ namespace Bot.GUI.ViewModels
                 throw; // Rethrow to prevent partial initialization
             }
             
-            _ = Task.Run(async () => {
-                try
-                {
-                    await _taskManager.InitializeAsync();
-                    _logger.LogInfo("TaskManager initialized successfully");
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError($"Error initializing TaskManager: {ex.Message}");
-                }
-            });
-            
+            _ = Task.Run(InitializeTaskManagerAsync, CancellationToken.None);
+
             InitializeGuiFromConfig();
 
-            StopCommand = new AsyncRelayCommand(async _ => {
-                _logger.LogInfo("StopCommand executed");
-                try { await StopEverythingAsync(); }
-                catch (Exception ex) { _logger.LogError($"Error in StopCommand: {ex}"); }
-            });
-            
-            LaunchBotCommand = new RelayCommand(_ => LaunchCycle(runOnce: false));
-            RunOnceCommand = new RelayCommand(_ => LaunchCycle(runOnce: true));
+            StopCommand = new AsyncRelayCommand(_ => ExecuteStopCommandAsync());
 
-            PauseResumeCommand = new AsyncRelayCommand(async _ => {
-                _logger.LogInfo("PauseResumeCommand executed");
-                try {
-                    if (!IsBotRunning)
-                    {
-                        _userNotifications.ShowWarning("Cannot pause/resume - bot is not running", "Please start the bot first");
-                        return;
-                    }
+            LaunchBotCommand = new AsyncRelayCommand(_ => LaunchCycle(runOnce: false));
+            RunOnceCommand = new AsyncRelayCommand(_ => LaunchCycle(runOnce: true));
 
-                    if (CycleManagementService.IsPaused)
-                    {
-                        await _cycleService.ResumeAsync();
-                        IsBotPaused = false;
-                        _userNotifications.ShowSuccess("Bot resumed successfully");
-                        UpdateInstanceStatusToPausedOrRunning(false);
-                    }
-                    else
-                    {
-                        await _cycleService.PauseAsync();
-                        IsBotPaused = true;
-                        _userNotifications.ShowStatus("Bot paused - it stops at its next tap", NotificationType.Info);
-                        UpdateInstanceStatusToPausedOrRunning(true);
-                    }
-                } catch (Exception ex) {
-                    _logger.LogError($"Error in PauseResumeCommand: {ex}");
-                    _userNotifications.ShowError($"Failed to pause/resume bot: {ex.Message}");
-                }
-            });
+            PauseResumeCommand = new AsyncRelayCommand(_ => ExecutePauseResumeCommandAsync());
 
             Dashboard = new TaskDashboardViewModel(this, _cycleService, _taskManager, ConfigVM);
+        }
+
+        private (string? ldConsolePath, string? dnConsolePath) FindLdPlayerConsolePaths()
+        {
+            try
+            {
+                var ldConsolePath = LDPlayerHelper.GetLDPlayerConsolePath();
+                var dnConsolePath = LDPlayerHelper.GetDNPlayerConsolePath();
+                _userNotifications.ShowSuccess("LDPlayer found and ready");
+                return (ldConsolePath, dnConsolePath);
+            }
+            catch (FileNotFoundException ex)
+            {
+                _userNotifications.ShowError("LDPlayer not found on this system!",
+                    troubleshootingHint: "You can manually set the LDPlayer path in the settings if auto-detection fails.");
+                _logger.LogError($"LDPlayer not found: {ex.Message}", category: LogCategories.System);
+                return (null, null);
+            }
+        }
+
+        private async Task InitializeTaskManagerAsync()
+        {
+            try
+            {
+                await _taskManager.InitializeAsync(CancellationToken.None);
+                _logger.LogInfo("TaskManager initialized successfully");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError($"Error initializing TaskManager: {ex.Message}");
+            }
+        }
+
+        private async Task ExecuteStopCommandAsync()
+        {
+            _logger.LogInfo("StopCommand executed");
+            try { await StopEverythingAsync(); }
+            catch (Exception ex) { _logger.LogError($"Error in StopCommand: {ex}"); }
+        }
+
+        private async Task ExecutePauseResumeCommandAsync()
+        {
+            _logger.LogInfo("PauseResumeCommand executed");
+            try {
+                if (!IsBotRunning)
+                {
+                    _userNotifications.ShowWarning("Cannot pause/resume - bot is not running", "Please start the bot first");
+                    return;
+                }
+
+                if (CycleManagementService.IsPaused)
+                {
+                    await _cycleService.ResumeAsync();
+                    IsBotPaused = false;
+                    _userNotifications.ShowSuccess("Bot resumed successfully");
+                    UpdateInstanceStatusToPausedOrRunning(false);
+                }
+                else
+                {
+                    await _cycleService.PauseAsync();
+                    IsBotPaused = true;
+                    _userNotifications.ShowStatus("Bot paused - it stops at its next tap", NotificationType.Info);
+                    UpdateInstanceStatusToPausedOrRunning(true);
+                }
+            } catch (Exception ex) {
+                _logger.LogError($"Error in PauseResumeCommand: {ex}");
+                _userNotifications.ShowError($"Failed to pause/resume bot: {ex.Message}");
+            }
         }
 
         public TaskDashboardViewModel Dashboard { get; }
         public ICommand RunOnceCommand { get; }
 
         /// <summary>Starts the cycle service: repeating cycles, or a single cycle (Run once).</summary>
-        private async void LaunchCycle(bool runOnce)
+        private async Task LaunchCycle(bool runOnce)
         {
                 _logger.LogInfo($"LaunchBotCommand executed{(runOnce ? " (run once)" : "")}");
                 try {
@@ -243,14 +256,6 @@ namespace Bot.GUI.ViewModels
                     _currentConfig = ConfigVM.GetCurrentBotConfig();
                     if (_currentConfig == null)
                     {
-                        var errorMessage = GetLocalizedString(
-                            "Configuration not available from settings. Cannot start bots.",
-                            "設定からの構成が利用できません。ボットを開始できません。",
-                            "无法从设置获取配置。无法启动机器人。",
-                            "無法從設置獲取配置。無法啟動機器人。",
-                            "Konfiguration nicht verfügbar. Bots können nicht gestartet werden.",
-                            "Configuration non disponible. Impossible de démarrer les bots."
-                        );
                         _logger.LogError("LaunchBotCommand: Current config is null (from ConfigVM). Cannot start.");
                         _userNotifications.ShowError("Configuration not available", troubleshootingHint: "Cannot start bots without proper configuration.");
                         return;
@@ -265,18 +270,10 @@ namespace Bot.GUI.ViewModels
                     _logger.LogInfo("LaunchBotCommand: Starting cycle service (cycle mode is always enabled).");
                     _userNotifications.ShowStatus("Launching cycle management...", NotificationType.Info);
                     
-                    var cycleSettings = GetLocalizedString(
-                        $" Cycle settings: {_currentConfig.CycleManagement.MinWaitTimeBetweenCyclesMinutes}-{_currentConfig.CycleManagement.MaxWaitTimeBetweenCyclesMinutes}min intervals, shutdown: {_currentConfig.CycleManagement.ShutdownEmulatorsAfterCycle}",
-                        $" サイクル設定: {_currentConfig.CycleManagement.MinWaitTimeBetweenCyclesMinutes}-{_currentConfig.CycleManagement.MaxWaitTimeBetweenCyclesMinutes}分間隔、シャットダウン: {_currentConfig.CycleManagement.ShutdownEmulatorsAfterCycle}",
-                        $" 循环设置: {_currentConfig.CycleManagement.MinWaitTimeBetweenCyclesMinutes}-{_currentConfig.CycleManagement.MaxWaitTimeBetweenCyclesMinutes}分钟间隔, 关机: {_currentConfig.CycleManagement.ShutdownEmulatorsAfterCycle}",
-                        $" 循環設置: {_currentConfig.CycleManagement.MinWaitTimeBetweenCyclesMinutes}-{_currentConfig.CycleManagement.MaxWaitTimeBetweenCyclesMinutes}分鐘間隔, 關機: {_currentConfig.CycleManagement.ShutdownEmulatorsAfterCycle}",
-                        $" Zyklus-Einstellungen: {_currentConfig.CycleManagement.MinWaitTimeBetweenCyclesMinutes}-{_currentConfig.CycleManagement.MaxWaitTimeBetweenCyclesMinutes}min Intervalle, Herunterfahren: {_currentConfig.CycleManagement.ShutdownEmulatorsAfterCycle}",
-                        $" Paramètres du cycle: intervalles de {_currentConfig.CycleManagement.MinWaitTimeBetweenCyclesMinutes}-{_currentConfig.CycleManagement.MaxWaitTimeBetweenCyclesMinutes}min, arrêt: {_currentConfig.CycleManagement.ShutdownEmulatorsAfterCycle}"
-                    );
                     _userNotifications.ShowStatus($"Cycle settings: {_currentConfig.CycleManagement.MinWaitTimeBetweenCyclesMinutes}-{_currentConfig.CycleManagement.MaxWaitTimeBetweenCyclesMinutes}min intervals, shutdown: {_currentConfig.CycleManagement.ShutdownEmulatorsAfterCycle}", NotificationType.Info);
                     
                     _currentConfig.CycleManagement.MaxCycles = runOnce ? 1 : 0;
-                    _ = Task.Run(async () => await _cycleService.StartCycleAsync(_currentConfig, _botCancellationTokenSource.Token));
+                    _ = Task.Run(async () => await _cycleService.StartCycleAsync(_currentConfig, _botCancellationTokenSource.Token), _botCancellationTokenSource.Token);
                 }
                 catch (Exception ex) {
                     _logger.LogError($"Error in LaunchBotCommand: {ex}", category: LogCategories.System);
@@ -297,7 +294,7 @@ namespace Bot.GUI.ViewModels
             SetIndividualInstanceRunning(true);
             try
             {
-                return await Task.Run(() => _cycleService.RunSingleTaskAsync(account, taskType, characterName, _botCancellationTokenSource.Token));
+                return await Task.Run(() => _cycleService.RunSingleTaskAsync(account, taskType, characterName, _botCancellationTokenSource.Token), _botCancellationTokenSource.Token);
             }
             catch (OperationCanceledException)
             {
@@ -353,53 +350,7 @@ namespace Bot.GUI.ViewModels
                 }
                 _logger.LogInfo($"InstanceVM.Instances now has {InstanceVM.Instances.Count} items");
 
-                // "--schedule" (or the older "--cycle") presses Run on schedule, "--once" presses Run once, for unattended runs
-                var args = Environment.GetCommandLineArgs();
-                bool HasArg(string name) => args.Contains(name, StringComparer.OrdinalIgnoreCase);
-                if (!_autoLaunchDone && (HasArg("--schedule") || HasArg("--cycle") || HasArg("--once")))
-                {
-                    _autoLaunchDone = true;
-                    var runOnce = HasArg("--once");
-                    _logger.LogInfo(runOnce ? "Auto-starting one cycle (--once)" : "Auto-starting the cycle service on schedule (--schedule)");
-                    // The first call comes from the constructor, before the commands exist: run it once that has finished
-                    System.Windows.Application.Current?.Dispatcher.BeginInvoke(() =>
-                        (runOnce ? RunOnceCommand : LaunchBotCommand)?.Execute(null));
-                }
-
-                // "--task <TaskType> [--character <name>]" presses ▶ for one task on the first instance, e.g. --task MysticTrial --character llsa
-                string? ArgValue(string name)
-                {
-                    int i = Array.FindIndex(args, a => a.Equals(name, StringComparison.OrdinalIgnoreCase));
-                    return i >= 0 && i + 1 < args.Length ? args[i + 1] : null;
-                }
-                if (!_autoLaunchDone && ArgValue("--task") is string taskArg && _currentConfig.Accounts.FirstOrDefault() is AccountSettings taskAccount)
-                {
-                    _autoLaunchDone = true;
-                    if (!Enum.TryParse<TaskType>(taskArg, true, out var taskType))
-                    {
-                        _logger.LogWarning($"--task: unknown task '{taskArg}'");
-                    }
-                    else
-                    {
-                        var characterArg = ArgValue("--character");
-                        var character = characterArg == null ? null
-                            : taskAccount.Characters.FirstOrDefault(c => CharacterRoster.SameName(c.Name, characterArg))?.Name ?? characterArg;
-                        _logger.LogInfo($"Auto-running {taskType}{(character != null ? $" on {character}" : "")} (--task)");
-                        System.Windows.Application.Current?.Dispatcher.BeginInvoke(async () =>
-                            await RunSingleTaskAsync(taskAccount, taskType, character));
-                    }
-                }
-
-                // "--launch" on the command line presses Launch on every instance once, for unattended runs
-                if (!_autoLaunchDone && Environment.GetCommandLineArgs().Contains("--launch", StringComparer.OrdinalIgnoreCase))
-                {
-                    _autoLaunchDone = true;
-                    foreach (var instance in InstanceVM.Instances)
-                    {
-                        _logger.LogInfo($"Auto-launching instance {instance.InstanceNumber} (--launch)");
-                        instance.StartInstanceCommand.Execute(null);
-                    }
-                }
+                AutoLaunchFromCommandLine(_currentConfig);
 
             } catch (Exception ex) {
                 _logger.LogError($"Error in InitializeGuiFromConfig: {ex}", category: LogCategories.Configuration);
@@ -409,6 +360,83 @@ namespace Bot.GUI.ViewModels
                 // Clear global flag after reload is complete
                 ConfigViewModel.SetGlobalConfigReloading(false);
             }
+        }
+
+        private static bool HasArg(string[] args, string name) => args.Contains(name, StringComparer.OrdinalIgnoreCase);
+
+        private static string? ArgValue(string[] args, string name)
+        {
+            int i = Array.FindIndex(args, a => a.Equals(name, StringComparison.OrdinalIgnoreCase));
+            return i >= 0 && i + 1 < args.Length ? args[i + 1] : null;
+        }
+
+        /// <summary>Command line switches for unattended runs: --schedule / --cycle / --once, --task, --launch. Only the first one that applies runs.</summary>
+        private void AutoLaunchFromCommandLine(BotConfig config)
+        {
+            if (_autoLaunchDone) return;
+
+            var args = Environment.GetCommandLineArgs();
+            _autoLaunchDone = TryAutoStartCycle(args) || TryAutoRunTask(args, config) || TryAutoLaunchInstances(args);
+        }
+
+        // "--schedule" (or the older "--cycle") presses Run on schedule, "--once" presses Run once, for unattended runs
+        private bool TryAutoStartCycle(string[] args)
+        {
+            if (!(HasArg(args, "--schedule") || HasArg(args, "--cycle") || HasArg(args, "--once")))
+            {
+                return false;
+            }
+
+            var runOnce = HasArg(args, "--once");
+            _logger.LogInfo(runOnce ? "Auto-starting one cycle (--once)" : "Auto-starting the cycle service on schedule (--schedule)");
+            // The first call comes from the constructor, before the commands exist: run it once that has finished
+            System.Windows.Application.Current?.Dispatcher.BeginInvoke(() =>
+                (runOnce ? RunOnceCommand : LaunchBotCommand)?.Execute(null));
+            return true;
+        }
+
+        // "--task <TaskType> [--character <name>]" presses ▶ for one task on the first instance, e.g. --task MysticTrial --character llsa
+        private bool TryAutoRunTask(string[] args, BotConfig config)
+        {
+            if (ArgValue(args, "--task") is not string taskArg || config.Accounts.FirstOrDefault() is not AccountSettings taskAccount)
+            {
+                return false;
+            }
+
+            AutoRunSingleTask(args, taskArg, taskAccount);
+            return true;
+        }
+
+        // "--launch" on the command line presses Launch on every instance once, for unattended runs
+        private bool TryAutoLaunchInstances(string[] args)
+        {
+            if (!HasArg(args, "--launch"))
+            {
+                return false;
+            }
+
+            foreach (var instance in InstanceVM.Instances)
+            {
+                _logger.LogInfo($"Auto-launching instance {instance.InstanceNumber} (--launch)");
+                instance.StartInstanceCommand.Execute(null);
+            }
+            return true;
+        }
+
+        private void AutoRunSingleTask(string[] args, string taskArg, AccountSettings taskAccount)
+        {
+            if (!Enum.TryParse<TaskType>(taskArg, true, out var taskType))
+            {
+                _logger.LogWarning($"--task: unknown task '{taskArg}'");
+                return;
+            }
+
+            var characterArg = ArgValue(args, "--character");
+            var character = characterArg == null ? null
+                : taskAccount.Characters.FirstOrDefault(c => CharacterRoster.SameName(c.Name, characterArg))?.Name ?? characterArg;
+            _logger.LogInfo($"Auto-running {taskType}{(character != null ? $" on {character}" : "")} (--task)");
+            System.Windows.Application.Current?.Dispatcher.BeginInvoke(async () =>
+                await RunSingleTaskAsync(taskAccount, taskType, character));
         }
 
         public void AppendLog(string message)
@@ -450,82 +478,17 @@ namespace Bot.GUI.ViewModels
                     {
                         var actualMessage = string.Join("|", parts.Skip(3)); // Rejoin in case message contains |
 
-                        // "Waiting {n} minutes before next cycle": the cycle is over, so the last task shown is finished
-                        var waitMatch = System.Text.RegularExpressions.Regex.Match(actualMessage, @"Waiting ([\d.,]+) minutes before next cycle");
-                        if (waitMatch.Success)
+                        if (ShowCycleWaitOnInstances(actualMessage))
                         {
-                            var minutes = (int)Math.Round(double.Parse(waitMatch.Groups[1].Value.Replace(',', '.'), System.Globalization.CultureInfo.InvariantCulture));
-                            foreach (var inst in InstanceVM.Instances)
-                                inst.LastTask = $"Done, next cycle in {minutes} min";
                             return;
                         }
 
-                        string taskType = null;
-                        string accountName = null;
-                        
-                        // Pattern 1: "Running {taskType} for {accountName}"
-                        if (actualMessage.Contains("Running ") && actualMessage.Contains(" for "))
-                        {
-                            var runningIndex = actualMessage.IndexOf("Running ");
-                            var forIndex = actualMessage.IndexOf(" for ", runningIndex);
-                            
-                            if (runningIndex >= 0 && forIndex > runningIndex)
-                            {
-                                taskType = actualMessage.Substring(runningIndex + 8, forIndex - runningIndex - 8).Trim();
-                                var remainingText = actualMessage.Substring(forIndex + 5);
-                                
-                                // Extract account name (everything before " (Shield:" if present, or entire remaining text)
-                                accountName = remainingText;
-                                var shieldIndex = remainingText.IndexOf(" (Shield:");
-                                if (shieldIndex > 0)
-                                {
-                                    accountName = remainingText.Substring(0, shieldIndex).Trim();
-                                }
-                            }
-                        }
-                        // Pattern 2: "Starting {count} tasks for {accountName}: {taskList}"
-                        else if (actualMessage.Contains("Starting ") && actualMessage.Contains(" tasks for "))
-                        {
-                            var forIndex = actualMessage.IndexOf(" tasks for ");
-                            var colonIndex = actualMessage.IndexOf(": ", forIndex);
-                            
-                            if (forIndex > 0)
-                            {
-                                var startIndex = forIndex + 11; // Length of " tasks for "
-                                var endIndex = colonIndex > 0 ? colonIndex : actualMessage.Length;
-                                accountName = actualMessage.Substring(startIndex, endIndex - startIndex).Trim();
-                                taskType = "Starting tasks";
-                            }
-                        }
-                        // Pattern 3: "Attempting recovery for {taskType} on {accountName}..."
-                        else if (actualMessage.Contains("Attempting recovery for ") && actualMessage.Contains(" on "))
-                        {
-                            var recoveryIndex = actualMessage.IndexOf("Attempting recovery for ");
-                            var onIndex = actualMessage.IndexOf(" on ", recoveryIndex);
-                            
-                            if (recoveryIndex >= 0 && onIndex > recoveryIndex)
-                            {
-                                taskType = actualMessage.Substring(recoveryIndex + 24, onIndex - recoveryIndex - 24).Trim() + " (Recovery)";
-                                var remainingText = actualMessage.Substring(onIndex + 4);
-                                accountName = remainingText.Replace("...", "").Trim();
-                            }
-                        }
-                        
+                        var (taskType, accountName) = ParseTaskAnnouncement(actualMessage);
+
                         // Update instance if we found task and account info
                         if (!string.IsNullOrEmpty(taskType) && !string.IsNullOrEmpty(accountName))
                         {
-                            var instance = InstanceVM.Instances.FirstOrDefault(i => 
-                            {
-                                if (_currentConfig?.Accounts == null) return false;
-                                var account = _currentConfig.Accounts.FirstOrDefault(a => a.InstanceNumber == i.InstanceNumber);
-                                return account?.AccountName == accountName;
-                            });
-                            
-                            if (instance != null)
-                            {
-                                // Update task information (status is now handled by LDPlayer status parsing)
-                                instance.LastTask = taskType;
-                            }
+                            UpdateInstanceTask(taskType, accountName);
                         }
                     }
                 }
@@ -534,6 +497,110 @@ namespace Bot.GUI.ViewModels
             {
                 // Silently ignore parsing errors to avoid disrupting the logging flow
                 _logger.LogWarning($"Failed to parse task status from message: {ex.Message}", category: LogCategories.UserAction);
+            }
+        }
+
+        /// <summary>"Waiting {n} minutes before next cycle": the cycle is over, so the last task shown is finished. True when the message was one.</summary>
+        private bool ShowCycleWaitOnInstances(string actualMessage)
+        {
+            var waitMatch = System.Text.RegularExpressions.Regex.Match(actualMessage, @"Waiting ([\d.,]+) minutes before next cycle", System.Text.RegularExpressions.RegexOptions.None, TimeSpan.FromSeconds(1));
+            if (!waitMatch.Success)
+            {
+                return false;
+            }
+
+            var minutes = (int)Math.Round(double.Parse(waitMatch.Groups[1].Value.Replace(',', '.'), System.Globalization.CultureInfo.InvariantCulture));
+            foreach (var inst in InstanceVM.Instances)
+                inst.LastTask = $"Done, next cycle in {minutes} min";
+            return true;
+        }
+
+        private static (string? taskType, string? accountName) ParseTaskAnnouncement(string actualMessage)
+        {
+            // Pattern 1: "Running {taskType} for {accountName}"
+            if (actualMessage.Contains("Running ") && actualMessage.Contains(" for "))
+            {
+                return ParseRunningMessage(actualMessage);
+            }
+            // Pattern 2: "Starting {count} tasks for {accountName}: {taskList}"
+            if (actualMessage.Contains("Starting ") && actualMessage.Contains(" tasks for "))
+            {
+                return ParseStartingTasksMessage(actualMessage);
+            }
+            // Pattern 3: "Attempting recovery for {taskType} on {accountName}..."
+            if (actualMessage.Contains("Attempting recovery for ") && actualMessage.Contains(" on "))
+            {
+                return ParseRecoveryMessage(actualMessage);
+            }
+            return (null, null);
+        }
+
+        private static (string? taskType, string? accountName) ParseRunningMessage(string actualMessage)
+        {
+            var runningIndex = actualMessage.IndexOf("Running ");
+            var forIndex = actualMessage.IndexOf(" for ", runningIndex);
+
+            if (runningIndex < 0 || forIndex <= runningIndex)
+            {
+                return (null, null);
+            }
+
+            var taskType = actualMessage.Substring(runningIndex + 8, forIndex - runningIndex - 8).Trim();
+            var remainingText = actualMessage.Substring(forIndex + 5);
+
+            // Extract account name (everything before " (Shield:" if present, or entire remaining text)
+            var accountName = remainingText;
+            var shieldIndex = remainingText.IndexOf(" (Shield:");
+            if (shieldIndex > 0)
+            {
+                accountName = remainingText.Substring(0, shieldIndex).Trim();
+            }
+            return (taskType, accountName);
+        }
+
+        private static (string? taskType, string? accountName) ParseStartingTasksMessage(string actualMessage)
+        {
+            var forIndex = actualMessage.IndexOf(" tasks for ");
+            var colonIndex = actualMessage.IndexOf(": ", forIndex);
+
+            if (forIndex <= 0)
+            {
+                return (null, null);
+            }
+
+            var startIndex = forIndex + 11; // Length of " tasks for "
+            var endIndex = colonIndex > 0 ? colonIndex : actualMessage.Length;
+            return ("Starting tasks", actualMessage.Substring(startIndex, endIndex - startIndex).Trim());
+        }
+
+        private static (string? taskType, string? accountName) ParseRecoveryMessage(string actualMessage)
+        {
+            var recoveryIndex = actualMessage.IndexOf("Attempting recovery for ");
+            var onIndex = actualMessage.IndexOf(" on ", recoveryIndex);
+
+            if (recoveryIndex < 0 || onIndex <= recoveryIndex)
+            {
+                return (null, null);
+            }
+
+            var taskType = actualMessage.Substring(recoveryIndex + 24, onIndex - recoveryIndex - 24).Trim() + " (Recovery)";
+            var remainingText = actualMessage.Substring(onIndex + 4);
+            return (taskType, remainingText.Replace("...", "").Trim());
+        }
+
+        private void UpdateInstanceTask(string taskType, string accountName)
+        {
+            var instance = InstanceVM.Instances.FirstOrDefault(i =>
+            {
+                if (_currentConfig?.Accounts == null) return false;
+                var account = _currentConfig.Accounts.FirstOrDefault(a => a.InstanceNumber == i.InstanceNumber);
+                return account?.AccountName == accountName;
+            });
+
+            if (instance != null)
+            {
+                // Update task information (status is now handled by LDPlayer status parsing)
+                instance.LastTask = taskType;
             }
         }
 
@@ -546,7 +613,7 @@ namespace Bot.GUI.ViewModels
                 
                 // Parse: "Parsed status: Instance 1 (Tuna): Fully Ready | PID: 758244 | VBox: 755772 | Windows: 3542156/5967260 | Updated: 20:22:19"
                 var match = System.Text.RegularExpressions.Regex.Match(message, 
-                    @"Parsed status: Instance (\d+) \(([^)]+)\): ([^|]+)");
+                    @"Parsed status: Instance (\d+) \(([^)]+)\): ([^|]+)", System.Text.RegularExpressions.RegexOptions.None, TimeSpan.FromSeconds(1));
                 
                 if (match.Success)
                 {
@@ -667,7 +734,7 @@ namespace Bot.GUI.ViewModels
             
             try {
                 // First cancel all ongoing operations
-                _botCancellationTokenSource.Cancel();
+                await _botCancellationTokenSource.CancelAsync();
                 _logger.LogInfo("Cancel token triggered", category: LogCategories.System);
 
                 // Reset pause state when stopping
@@ -688,7 +755,7 @@ namespace Bot.GUI.ViewModels
                 }
                 
                 // Wait a moment for operations to stop
-                await Task.Delay(500);
+                await Task.Delay(500, CancellationToken.None);
                 
                 // Close all ADB connections in background
                 _logger.LogInfo("Closing all ADB connections", category: LogCategories.ADB);
@@ -752,7 +819,7 @@ namespace Bot.GUI.ViewModels
                     return;
                 }
                 
-                _logger.LogInfo($"RunBotTasksForSpecificInstance called for {instance!.AccountName}");
+                _logger.LogInfo($"RunBotTasksForSpecificInstance called for {instance.AccountName}");
                 
                 // Mark individual instance as running
                 SetIndividualInstanceRunning(true);
@@ -872,19 +939,5 @@ namespace Bot.GUI.ViewModels
 
         public event PropertyChangedEventHandler? PropertyChanged;
         private void OnPropertyChanged([CallerMemberName] string? name = null) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
-
-        private string GetLocalizedString(string english, string japanese, string simplifiedChinese, 
-            string traditionalChinese, string german, string french)
-        {
-            var culture = Thread.CurrentThread.CurrentUICulture;
-            return culture.TwoLetterISOLanguageName.ToLower() switch
-            {
-                "ja" => japanese,
-                "zh" => culture.Name.ToLower() == "zh-cn" ? simplifiedChinese : traditionalChinese,
-                "de" => german,
-                "fr" => french,
-                _ => english
-            };
-        }
     }
 } 

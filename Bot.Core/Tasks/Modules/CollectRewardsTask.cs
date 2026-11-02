@@ -179,19 +179,13 @@ namespace Bot.Core.Tasks.Modules
 
                 // Step 1: open the store
                 logger.LogInfo($"[{account.AccountName}] Looking for the store icon...");
-                int claims = 0, cardClaims = 0;
-                // Reward animations can cover the icon for a moment
-                var icon = await MatchAsync(StoreIconTemplate, StoreIconArea, StoreIconThreshold, instance, logger);
-                for (int i = 0; i < 3 && !icon.found; i++)
-                {
-                    await Task.Delay(1500, cancellationToken);
-                    icon = await MatchAsync(StoreIconTemplate, StoreIconArea, StoreIconThreshold, instance, logger);
-                }
+                var run = new StoreRun();
+                var icon = await FindStoreIconAsync(instance, logger, cancellationToken);
                 if (!icon.found)
                 {
                     logger.LogWarning($"[{account.AccountName}] Store icon not found ({icon.confidence:F2}), skipping the store");
-                    claims += await CollectDealsHubAsync(account, logger, instance, cancellationToken);
-                    return TaskExecutionDetails.Succeeded($"Claimed {claims} free reward(s), store skipped");
+                    run.Claims += await CollectDealsHubAsync(account, logger, instance, cancellationToken);
+                    return TaskExecutionDetails.Succeeded($"Claimed {run.Claims} free reward(s), store skipped");
                 }
                 await ClickCenterInRectAsync(instance, logger, icon.rect);
 
@@ -209,86 +203,7 @@ namespace Bot.Core.Tasks.Modules
                 }
 
                 // Step 2: walk the tabs and claim free chests
-                for (int page = 0; page < MaxTabPages && claims < MaxClaimsPerRun; page++)
-                {
-                    foreach (int slotX in TabSlotX)
-                    {
-                        await WaitIfPausedAsync(cancellationToken);
-                        cancellationToken.ThrowIfCancellationRequested();
-                        if (claims >= MaxClaimsPerRun) break;
-
-                        await ClickRandomInRectAsync(instance, logger, new Rectangle(slotX - 40, TabY - 12, 80, 24));
-                        await Task.Delay(1200, cancellationToken);
-
-                        // Some tabs open a "Rewards Upgraded / Tap anywhere to exit" pitch popup that hides the store header:
-                        // dismiss it first, and only give up if we are still not inside the store afterwards
-                        if (!await IsInStoreAsync(instance, logger))
-                        {
-                            logger.LogInfo($"[{account.AccountName}] Store header hidden after opening a tab, trying to dismiss a popup...");
-                            await DismissPopupIfAnyAsync(instance, logger, cancellationToken);
-                        }
-
-                        // Never act unless we are definitely still inside the store
-                        if (!await IsInStoreAsync(instance, logger))
-                        {
-                            logger.LogWarning($"[{account.AccountName}] Left the store unexpectedly, stopping tab scan");
-                            _runComplete = false;
-                            #pragma warning disable S127 // deliberately ends the page loop
-                            page = MaxTabPages;
-                            #pragma warning restore S127
-                            break;
-                        }
-
-                        // Two kinds of free item; each is claimed only when its template matches
-                        var claimable = await MatchAsync(ClaimableTemplate, ClaimableArea, ClaimableThreshold, instance, logger);
-                        if (!claimable.found)
-                            claimable = await MatchAsync(ClaimableTemplate2, ClaimableArea, ClaimableThreshold, instance, logger);
-                        if (!claimable.found)
-                            claimable = await MatchAsync(ClaimableTemplate3, ClaimableLeftArea, ClaimableThreshold, instance, logger);
-                        if (claimable.found)
-                        {
-                            logger.LogInfo($"[{account.AccountName}] Free claimable chest found (confidence {claimable.confidence:F3}), claiming...");
-                            // The chest icon sits just above its "Claimable" label; tap the chest
-                            await ClickAsync(instance, logger, new Point(claimable.rect.X + claimable.rect.Width / 2, claimable.rect.Y - 25));
-                            claims++;
-                            await FinishClaimAsync(instance, logger, claims, cancellationToken);
-                            continue;
-                        }
-
-                        var freeChest = await MatchAsync(FreeChestTemplate, FreeChestArea, FreeChestThreshold, instance, logger);
-                        if (freeChest.found)
-                        {
-                            logger.LogInfo($"[{account.AccountName}] Free daily chest found (confidence {freeChest.confidence:F3}), claiming...");
-                            await ClickAsync(instance, logger, new Point(freeChest.rect.X + freeChest.rect.Width / 2, freeChest.rect.Y + freeChest.rect.Height / 2 - 10));
-                            claims++;
-                            await FinishClaimAsync(instance, logger, claims, cancellationToken);
-                        }
-
-                        var freeDeal = await MatchAsync(FreeDealTemplate, FreeDealArea, FreeDealThreshold, instance, logger);
-                        if (freeDeal.found)
-                        {
-                            logger.LogInfo($"[{account.AccountName}] Free weekly deal found (confidence {freeDeal.confidence:F3}), claiming...");
-                            await ClickCenterInRectAsync(instance, logger, freeDeal.rect);
-                            claims++;
-                            await FinishClaimAsync(instance, logger, claims, cancellationToken);
-                        }
-
-                        if ((await MatchAsync(CardsTabTemplate, CardsTabArea, CardsThreshold, instance, logger)).found)
-                            cardClaims += await ClaimCardsAsync(account, logger, instance, cancellationToken);
-                    }
-
-                    if (page < MaxTabPages - 1 && claims < MaxClaimsPerRun)
-                    {
-                        var before = await TabStripFingerprintAsync(instance, logger);
-                        await SwipeAsync(instance, logger, new Point(600, 150), new Point(240, 150), TabSwipeDurationMs);
-                        await Task.Delay(800, cancellationToken);
-                        if (SameTabStrip(before, await TabStripFingerprintAsync(instance, logger)))
-                        {
-                            logger.LogInfo($"[{account.AccountName}] Store tab strip reached its end after page {page + 1}");
-                            break;
-                        }
-                    }
-                }
+                await ScanStoreTabsAsync(account, logger, instance, run, cancellationToken);
 
                 // Step 3: leave the store
                 for (int i = 0; i < 3 && await IsInStoreAsync(instance, logger); i++)
@@ -299,7 +214,9 @@ namespace Bot.Core.Tasks.Modules
                 await _locatorService.EnsureViewAsync(ViewType.BaseView, instance, cancellationToken);
 
                 // the store cap may have left free items unclaimed; the hub has its own cap
-                if (claims >= MaxClaimsPerRun) _runComplete = false;
+                if (run.Claims >= MaxClaimsPerRun) _runComplete = false;
+                int claims = run.Claims;
+                int cardClaims = run.CardClaims;
 
                 // Step 4: the Deals hub (Sign-in calendar, Hero Rally, Frontier Encounter, ...)
                 claims += cardClaims + await CollectDealsHubAsync(account, logger, instance, cancellationToken);
@@ -326,6 +243,126 @@ namespace Bot.Core.Tasks.Modules
                 logger.LogError($"[{account.AccountName}] Error in Collect Rewards: {ex.Message}");
                 return TaskExecutionDetails.Failed(ex.Message);
             }
+        }
+
+        private sealed class StoreRun
+        {
+            public int Claims;
+            public int CardClaims;
+        }
+
+        private async Task<(bool found, Rectangle rect, double confidence)> FindStoreIconAsync(int instance, LogService logger, CancellationToken cancellationToken)
+        {
+            // Reward animations can cover the icon for a moment
+            var icon = await MatchAsync(StoreIconTemplate, StoreIconArea, StoreIconThreshold, instance, logger);
+            for (int i = 0; i < 3 && !icon.found; i++)
+            {
+                await Task.Delay(1500, cancellationToken);
+                icon = await MatchAsync(StoreIconTemplate, StoreIconArea, StoreIconThreshold, instance, logger);
+            }
+            return icon;
+        }
+
+        /// <summary>Walks the store's tab pages; stops at the claim cap, at the end of the strip, or when the store was left.</summary>
+        private async Task ScanStoreTabsAsync(AccountSettings account, LogService logger, int instance, StoreRun run, CancellationToken cancellationToken)
+        {
+            for (int page = 0; page < MaxTabPages && run.Claims < MaxClaimsPerRun; page++)
+            {
+                if (await ScanStorePageAsync(account, logger, instance, run, cancellationToken))
+                {
+                    break; // left the store
+                }
+
+                if (page < MaxTabPages - 1 && run.Claims < MaxClaimsPerRun)
+                {
+                    var before = await TabStripFingerprintAsync(instance, logger);
+                    await SwipeAsync(instance, logger, new Point(600, 150), new Point(240, 150), TabSwipeDurationMs);
+                    await Task.Delay(800, cancellationToken);
+                    if (SameTabStrip(before, await TabStripFingerprintAsync(instance, logger)))
+                    {
+                        logger.LogInfo($"[{account.AccountName}] Store tab strip reached its end after page {page + 1}");
+                        break;
+                    }
+                }
+            }
+        }
+
+        /// <summary>Opens each visible tab and claims what is free. True when the store was left unexpectedly.</summary>
+        private async Task<bool> ScanStorePageAsync(AccountSettings account, LogService logger, int instance, StoreRun run, CancellationToken cancellationToken)
+        {
+            foreach (int slotX in TabSlotX)
+            {
+                await WaitIfPausedAsync(cancellationToken);
+                cancellationToken.ThrowIfCancellationRequested();
+                if (run.Claims >= MaxClaimsPerRun) break;
+
+                if (await ProcessStoreTabAsync(account, logger, instance, slotX, run, cancellationToken))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        /// <summary>One store tab. True when the store was left unexpectedly.</summary>
+        private async Task<bool> ProcessStoreTabAsync(AccountSettings account, LogService logger, int instance, int slotX, StoreRun run, CancellationToken cancellationToken)
+        {
+            await ClickRandomInRectAsync(instance, logger, new Rectangle(slotX - 40, TabY - 12, 80, 24));
+            await Task.Delay(1200, cancellationToken);
+
+            // Some tabs open a "Rewards Upgraded / Tap anywhere to exit" pitch popup that hides the store header:
+            // dismiss it first, and only give up if we are still not inside the store afterwards
+            if (!await IsInStoreAsync(instance, logger))
+            {
+                logger.LogInfo($"[{account.AccountName}] Store header hidden after opening a tab, trying to dismiss a popup...");
+                await DismissPopupIfAnyAsync(instance, logger, cancellationToken);
+            }
+
+            // Never act unless we are definitely still inside the store
+            if (!await IsInStoreAsync(instance, logger))
+            {
+                logger.LogWarning($"[{account.AccountName}] Left the store unexpectedly, stopping tab scan");
+                _runComplete = false;
+                return true;
+            }
+
+            // Two kinds of free item; each is claimed only when its template matches
+            var claimable = await MatchAsync(ClaimableTemplate, ClaimableArea, ClaimableThreshold, instance, logger);
+            if (!claimable.found)
+                claimable = await MatchAsync(ClaimableTemplate2, ClaimableArea, ClaimableThreshold, instance, logger);
+            if (!claimable.found)
+                claimable = await MatchAsync(ClaimableTemplate3, ClaimableLeftArea, ClaimableThreshold, instance, logger);
+            if (claimable.found)
+            {
+                logger.LogInfo($"[{account.AccountName}] Free claimable chest found (confidence {claimable.confidence:F3}), claiming...");
+                // The chest icon sits just above its "Claimable" label; tap the chest
+                await ClickAsync(instance, logger, new Point(claimable.rect.X + claimable.rect.Width / 2, claimable.rect.Y - 25));
+                run.Claims++;
+                await FinishClaimAsync(instance, logger, run.Claims, cancellationToken);
+                return false;
+            }
+
+            var freeChest = await MatchAsync(FreeChestTemplate, FreeChestArea, FreeChestThreshold, instance, logger);
+            if (freeChest.found)
+            {
+                logger.LogInfo($"[{account.AccountName}] Free daily chest found (confidence {freeChest.confidence:F3}), claiming...");
+                await ClickAsync(instance, logger, new Point(freeChest.rect.X + freeChest.rect.Width / 2, freeChest.rect.Y + freeChest.rect.Height / 2 - 10));
+                run.Claims++;
+                await FinishClaimAsync(instance, logger, run.Claims, cancellationToken);
+            }
+
+            var freeDeal = await MatchAsync(FreeDealTemplate, FreeDealArea, FreeDealThreshold, instance, logger);
+            if (freeDeal.found)
+            {
+                logger.LogInfo($"[{account.AccountName}] Free weekly deal found (confidence {freeDeal.confidence:F3}), claiming...");
+                await ClickCenterInRectAsync(instance, logger, freeDeal.rect);
+                run.Claims++;
+                await FinishClaimAsync(instance, logger, run.Claims, cancellationToken);
+            }
+
+            if ((await MatchAsync(CardsTabTemplate, CardsTabArea, CardsThreshold, instance, logger)).found)
+                run.CardClaims += await ClaimCardsAsync(account, logger, instance, cancellationToken);
+            return false;
         }
 
         private async Task FinishClaimAsync(int instance, LogService logger, int claimNumber, CancellationToken cancellationToken, bool inHub = false)
@@ -573,6 +610,20 @@ namespace Bot.Core.Tasks.Modules
             logger.LogInfo($"[{account.AccountName}] Hall of Heroes tab: opening A Hero's Witness...");
             await ClickCenterInRectAsync(instance, logger, plus.rect);
 
+            if (!await WaitForWitnessAsync(instance, logger, cancellationToken))
+            {
+                logger.LogWarning($"[{account.AccountName}] A Hero's Witness did not open");
+                return 0;
+            }
+
+            int claims = await ClaimWitnessFreeButtonsAsync(account, logger, instance, cancellationToken);
+
+            await ReturnToHubAsync(instance, logger, cancellationToken); // back to the Deals hub
+            return claims;
+        }
+
+        private async Task<bool> WaitForWitnessAsync(int instance, LogService logger, CancellationToken cancellationToken)
+        {
             var end = DateTime.UtcNow.AddSeconds(5);
             bool open = false;
             while (DateTime.UtcNow < end && !open)
@@ -580,12 +631,11 @@ namespace Bot.Core.Tasks.Modules
                 await Task.Delay(500, cancellationToken);
                 open = (await MatchAsync(WitnessHeaderTemplate, WitnessHeaderArea, WitnessThreshold, instance, logger)).found;
             }
-            if (!open)
-            {
-                logger.LogWarning($"[{account.AccountName}] A Hero's Witness did not open");
-                return 0;
-            }
+            return open;
+        }
 
+        private async Task<int> ClaimWitnessFreeButtonsAsync(AccountSettings account, LogService logger, int instance, CancellationToken cancellationToken)
+        {
             int claims = 0;
             for (int i = 0; i < MaxWitnessClaims; i++)
             {
@@ -608,14 +658,16 @@ namespace Bot.Core.Tasks.Modules
                     await Task.Delay(1000, cancellationToken);
                 }
             }
+            return claims;
+        }
 
-            // back to the Deals hub
+        private async Task ReturnToHubAsync(int instance, LogService logger, CancellationToken cancellationToken)
+        {
             for (int i = 0; i < 3 && !await IsInHubAsync(instance, logger); i++)
             {
                 await ClickRandomInRectAsync(instance, logger, BackArrowClickArea);
                 await Task.Delay(1000, cancellationToken);
             }
-            return claims;
         }
 
         private async Task<bool> IsInHubAsync(int instance, LogService logger)
@@ -640,14 +692,7 @@ namespace Bot.Core.Tasks.Modules
             }
             await ClickCenterInRectAsync(instance, logger, icon.rect);
 
-            var end = DateTime.UtcNow.AddSeconds(6);
-            bool open = false;
-            while (DateTime.UtcNow < end && !open)
-            {
-                open = await IsInHubAsync(instance, logger);
-                if (!open) await Task.Delay(500, cancellationToken);
-            }
-            if (!open)
+            if (!await WaitForHubAsync(instance, logger, cancellationToken))
             {
                 logger.LogWarning($"[{account.AccountName}] Deals hub did not open");
                 _runComplete = false;
@@ -661,55 +706,43 @@ namespace Bot.Core.Tasks.Modules
                 await Task.Delay(500, cancellationToken);
             }
 
-            for (int page = 0; page < MaxHubPages && claims < MaxHubClaims; page++)
+            var run = new StoreRun();
+            await ScanHubTabsAsync(account, logger, instance, run, cancellationToken);
+            claims = run.Claims;
+
+            for (int i = 0; i < 3 && await IsInHubAsync(instance, logger); i++)
             {
-                foreach (int slotX in HubTabSlotX)
+                await ClickRandomInRectAsync(instance, logger, BackArrowClickArea);
+                await Task.Delay(1000, cancellationToken);
+            }
+            await _locatorService!.EnsureViewAsync(ViewType.BaseView, instance, cancellationToken);
+            if (claims >= MaxHubClaims) _runComplete = false;
+            return claims;
+        }
+
+        private async Task<bool> WaitForHubAsync(int instance, LogService logger, CancellationToken cancellationToken)
+        {
+            var end = DateTime.UtcNow.AddSeconds(6);
+            bool open = false;
+            while (DateTime.UtcNow < end && !open)
+            {
+                open = await IsInHubAsync(instance, logger);
+                if (!open) await Task.Delay(500, cancellationToken);
+            }
+            return open;
+        }
+
+        /// <summary>Walks the Deals hub's tab pages; stops at the claim cap, at the end of the strip, or when the hub was left.</summary>
+        private async Task ScanHubTabsAsync(AccountSettings account, LogService logger, int instance, StoreRun run, CancellationToken cancellationToken)
+        {
+            for (int page = 0; page < MaxHubPages && run.Claims < MaxHubClaims; page++)
+            {
+                if (await ScanHubPageAsync(account, logger, instance, run, cancellationToken))
                 {
-                    await WaitIfPausedAsync(cancellationToken);
-                    cancellationToken.ThrowIfCancellationRequested();
-                    if (claims >= MaxHubClaims) break;
-
-                    await ClickRandomInRectAsync(instance, logger, new Rectangle(slotX - 40, HubTabY - 12, 80, 24));
-                    await Task.Delay(1200, cancellationToken);
-
-                    if (!await IsInHubAsync(instance, logger))
-                    {
-                        logger.LogWarning($"[{account.AccountName}] Left the Deals hub unexpectedly, stopping");
-                        _runComplete = false;
-                        #pragma warning disable S127 // deliberately ends the page loop
-                        page = MaxHubPages;
-                        #pragma warning restore S127
-                        break;
-                    }
-
-                    var claimAll = await MatchAsync(ClaimAllTemplate, ClaimAllArea, ClaimAllThreshold, instance, logger);
-                    if (claimAll.found)
-                    {
-                        logger.LogInfo($"[{account.AccountName}] Claim All button found (confidence {claimAll.confidence:F3}), claiming...");
-                        await ClickCenterInRectAsync(instance, logger, claimAll.rect);
-                        claims++;
-                        await FinishClaimAsync(instance, logger, 100 + claims, cancellationToken, inHub: true);
-                    }
-
-                    claims += await HandleBankAsync(account, logger, instance, cancellationToken);
-
-                    for (int tap = 0; tap < MaxGlowTapsPerTab && claims < MaxHubClaims; tap++)
-                    {
-                        var glow = await FindGlowingRewardsAsync(instance, logger);
-                        if (glow.Count == 0) break;
-
-                        var target = glow[0];
-                        logger.LogInfo($"[{account.AccountName}] Free reward (glowing) at ({target.X},{target.Y}), claiming...");
-                        await ClickAsync(instance, logger, new Point(target.X + target.Width / 2, target.Y + target.Height / 2));
-                        claims++;
-                        await FinishClaimAsync(instance, logger, 100 + claims, cancellationToken, inHub: true);
-                    }
-
-                    if (claims < MaxHubClaims)
-                        claims += await HandleHallOfHeroesAsync(account, logger, instance, cancellationToken);
+                    break; // left the hub
                 }
 
-                if (page < MaxHubPages - 1 && claims < MaxHubClaims)
+                if (page < MaxHubPages - 1 && run.Claims < MaxHubClaims)
                 {
                     var before = await TabStripFingerprintAsync(instance, logger);
                     await SwipeAsync(instance, logger, new Point(620, 150), new Point(260, 150), TabSwipeDurationMs);
@@ -721,15 +754,92 @@ namespace Bot.Core.Tasks.Modules
                     }
                 }
             }
+        }
 
-            for (int i = 0; i < 3 && await IsInHubAsync(instance, logger); i++)
+        /// <summary>Opens each visible hub tab and claims what is free. True when the hub was left unexpectedly.</summary>
+        private async Task<bool> ScanHubPageAsync(AccountSettings account, LogService logger, int instance, StoreRun run, CancellationToken cancellationToken)
+        {
+            foreach (int slotX in HubTabSlotX)
             {
-                await ClickRandomInRectAsync(instance, logger, BackArrowClickArea);
-                await Task.Delay(1000, cancellationToken);
+                await WaitIfPausedAsync(cancellationToken);
+                cancellationToken.ThrowIfCancellationRequested();
+                if (run.Claims >= MaxHubClaims) break;
+
+                await ClickRandomInRectAsync(instance, logger, new Rectangle(slotX - 40, HubTabY - 12, 80, 24));
+                await Task.Delay(1200, cancellationToken);
+
+                if (!await IsInHubAsync(instance, logger))
+                {
+                    logger.LogWarning($"[{account.AccountName}] Left the Deals hub unexpectedly, stopping");
+                    _runComplete = false;
+                    return true;
+                }
+
+                await ClaimHubTabAsync(account, logger, instance, run, cancellationToken);
             }
-            await _locatorService!.EnsureViewAsync(ViewType.BaseView, instance, cancellationToken);
-            if (claims >= MaxHubClaims) _runComplete = false;
-            return claims;
+            return false;
+        }
+
+        private async Task ClaimHubTabAsync(AccountSettings account, LogService logger, int instance, StoreRun run, CancellationToken cancellationToken)
+        {
+            var claimAll = await MatchAsync(ClaimAllTemplate, ClaimAllArea, ClaimAllThreshold, instance, logger);
+            if (claimAll.found)
+            {
+                logger.LogInfo($"[{account.AccountName}] Claim All button found (confidence {claimAll.confidence:F3}), claiming...");
+                await ClickCenterInRectAsync(instance, logger, claimAll.rect);
+                run.Claims++;
+                await FinishClaimAsync(instance, logger, 100 + run.Claims, cancellationToken, inHub: true);
+            }
+
+            run.Claims += await HandleBankAsync(account, logger, instance, cancellationToken);
+
+            for (int tap = 0; tap < MaxGlowTapsPerTab && run.Claims < MaxHubClaims; tap++)
+            {
+                var glow = await FindGlowingRewardsAsync(instance, logger);
+                if (glow.Count == 0) break;
+
+                var target = glow[0];
+                logger.LogInfo($"[{account.AccountName}] Free reward (glowing) at ({target.X},{target.Y}), claiming...");
+                await ClickAsync(instance, logger, new Point(target.X + target.Width / 2, target.Y + target.Height / 2));
+                run.Claims++;
+                await FinishClaimAsync(instance, logger, 100 + run.Claims, cancellationToken, inHub: true);
+            }
+
+            if (run.Claims < MaxHubClaims)
+                run.Claims += await HandleHallOfHeroesAsync(account, logger, instance, cancellationToken);
+        }
+
+        /// <summary>Hollow rectangles of ring size in the mask (screen coordinates), with their pixel area.</summary>
+        private static List<(Rectangle rect, int area)> FindRingCandidates(OpenCvSharp.Mat closed)
+        {
+            using var labels = new OpenCvSharp.Mat();
+            using var stats = new OpenCvSharp.Mat();
+            using var centroids = new OpenCvSharp.Mat();
+            int count = OpenCvSharp.Cv2.ConnectedComponentsWithStats(closed, labels, stats, centroids);
+            var candidates = new List<(Rectangle rect, int area)>();
+            for (int i = 1; i < count; i++)
+            {
+                int left = stats.At<int>(i, 0), top = stats.At<int>(i, 1);
+                int w = stats.At<int>(i, 2), h = stats.At<int>(i, 3), area = stats.At<int>(i, 4);
+                if (w < 70 || w > 140 || h < 70 || h > 140) continue;
+                double fill = (double)area / (w * h);
+                if (fill > 0.30) continue; // filled shape (e.g. a button), not a hollow glow ring
+                candidates.Add((new Rectangle(left + GlowArea.X, top + GlowArea.Y, w, h), area));
+            }
+            return candidates;
+        }
+
+        /// <summary>Merges overlapping detections of the same ring, top to bottom.</summary>
+        private static List<Rectangle> MergeGlowRings(List<(Rectangle rect, int area)> candidates)
+        {
+            var result = new List<Rectangle>();
+            foreach (var rect in candidates.OrderByDescending(c => c.area).Select(c => c.rect))
+            {
+                var center = new Point(rect.X + rect.Width / 2, rect.Y + rect.Height / 2);
+                bool dup = result.Any(r => Math.Abs(r.X + r.Width / 2 - center.X) < 45 && Math.Abs(r.Y + r.Height / 2 - center.Y) < 45);
+                if (!dup) result.Add(rect);
+            }
+            return result.OrderBy(r => r.Y).ToList();
         }
 
         /// <summary>
@@ -763,29 +873,7 @@ namespace Bot.Core.Tasks.Modules
                 using var kernel = OpenCvSharp.Cv2.GetStructuringElement(OpenCvSharp.MorphShapes.Rect, new OpenCvSharp.Size(5, 5));
                 OpenCvSharp.Cv2.MorphologyEx(region, closed, OpenCvSharp.MorphTypes.Close, kernel);
 
-                using var labels = new OpenCvSharp.Mat();
-                using var stats = new OpenCvSharp.Mat();
-                using var centroids = new OpenCvSharp.Mat();
-                int count = OpenCvSharp.Cv2.ConnectedComponentsWithStats(closed, labels, stats, centroids);
-                var candidates = new List<(Rectangle rect, int area)>();
-                for (int i = 1; i < count; i++)
-                {
-                    int left = stats.At<int>(i, 0), top = stats.At<int>(i, 1);
-                    int w = stats.At<int>(i, 2), h = stats.At<int>(i, 3), area = stats.At<int>(i, 4);
-                    if (w < 70 || w > 140 || h < 70 || h > 140) continue;
-                    double fill = (double)area / (w * h);
-                    if (fill > 0.30) continue; // filled shape (e.g. a button), not a hollow glow ring
-                    candidates.Add((new Rectangle(left + GlowArea.X, top + GlowArea.Y, w, h), area));
-                }
-
-                // merge overlapping detections of the same ring
-                foreach (var rect in candidates.OrderByDescending(c => c.area).Select(c => c.rect))
-                {
-                    var center = new Point(rect.X + rect.Width / 2, rect.Y + rect.Height / 2);
-                    bool dup = result.Any(r => Math.Abs(r.X + r.Width / 2 - center.X) < 45 && Math.Abs(r.Y + r.Height / 2 - center.Y) < 45);
-                    if (!dup) result.Add(rect);
-                }
-                result = result.OrderBy(r => r.Y).ToList();
+                result = MergeGlowRings(FindRingCandidates(closed));
             }
             catch (Exception ex)
             {

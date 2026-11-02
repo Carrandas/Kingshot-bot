@@ -130,76 +130,90 @@ namespace Bot.Core.LDPlayer
                 }
 
                 // Try to establish new connection with smart retry
-                var deviceSerial = GetDeviceSerial(instanceNumber);
-                
-                for (int attempt = 1; attempt <= MAX_RETRY_ATTEMPTS; attempt++)
-                {
-                    try
-                    {
-                        var device = await FindOrConnectDeviceAsync(deviceSerial, logger, cancellationToken);
-                        
-                        if (device != null)
-                        {
-                            // Store in non-nullable variable to satisfy compiler
-                            DeviceData connectedDevice = device;
-                            
-                            // Cache the healthy connection
-                            _deviceConnections[instanceNumber] = (connectedDevice, _adbClient!, DateTime.UtcNow, true);
-                            
-                            logger.LogInfo($"[ADBv2] Connected to instance {instanceNumber} ({deviceSerial}) on attempt {attempt}");
-                            return new AdbControllerV2(connectedDevice, _adbClient!, logger, instanceNumber);
-                        }
-                        
-                        if (attempt < MAX_RETRY_ATTEMPTS)
-                        {
-                            var delay = BASE_RETRY_DELAY_MS * attempt;
-                            logger.LogWarning($"[ADBv2] Connection attempt {attempt} failed for instance {instanceNumber}, retrying in {delay}ms");
-                            await Task.Delay(delay, cancellationToken);
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        logger.LogWarning($"[ADBv2] Connection attempt {attempt} threw exception for instance {instanceNumber}: {ex.Message}");
-                        
-                        if (attempt == MAX_RETRY_ATTEMPTS)
-                        {
-                            RecordGlobalFailure();
-                            
-                            // Only restart ADB if we've had multiple global failures recently
-                            if (ShouldRestartAdbServer())
-                            {
-                                logger.LogWarning("[ADBv2] Multiple global failures detected, attempting conservative ADB restart");
-                                await AttemptConservativeServerRestartAsync(logger, cancellationToken);
-                                
-                                // One final attempt after restart
-                                try
-                                {
-                                    var device = await FindOrConnectDeviceAsync(deviceSerial, logger, cancellationToken);
-                                    if (device != null)
-                                    {
-                                        // Store in non-nullable variable to satisfy compiler
-                                        DeviceData connectedDevice = device;
-                                        
-                                        _deviceConnections[instanceNumber] = (connectedDevice, _adbClient!, DateTime.UtcNow, true);
-                                        return new AdbControllerV2(connectedDevice, _adbClient!, logger, instanceNumber);
-                                    }
-                                }
-                                catch (Exception restartEx)
-                                {
-                                    logger.LogError($"[ADBv2] Final attempt after restart failed: {restartEx.Message}");
-                                }
-                            }
-                        }
-                    }
-                }
-
-                logger.LogError($"[ADBv2] Failed to establish connection for instance {instanceNumber} after {MAX_RETRY_ATTEMPTS} attempts");
-                return null;
+                return await ConnectWithRetryAsync(instanceNumber, logger, cancellationToken);
             }
             finally
             {
                 instanceLock.Release();
             }
+        }
+
+        private static async Task<AdbControllerV2?> ConnectWithRetryAsync(int instanceNumber, LogService logger, CancellationToken cancellationToken)
+        {
+            var deviceSerial = GetDeviceSerial(instanceNumber);
+
+            for (int attempt = 1; attempt <= MAX_RETRY_ATTEMPTS; attempt++)
+            {
+                try
+                {
+                    var device = await FindOrConnectDeviceAsync(deviceSerial, logger, cancellationToken);
+
+                    if (device != null)
+                    {
+                        logger.LogInfo($"[ADBv2] Connected to instance {instanceNumber} ({deviceSerial}) on attempt {attempt}");
+                        return CacheConnection(instanceNumber, device, logger);
+                    }
+
+                    if (attempt < MAX_RETRY_ATTEMPTS)
+                    {
+                        var delay = BASE_RETRY_DELAY_MS * attempt;
+                        logger.LogWarning($"[ADBv2] Connection attempt {attempt} failed for instance {instanceNumber}, retrying in {delay}ms");
+                        await Task.Delay(delay, cancellationToken);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    logger.LogWarning($"[ADBv2] Connection attempt {attempt} threw exception for instance {instanceNumber}: {ex.Message}");
+
+                    if (attempt == MAX_RETRY_ATTEMPTS)
+                    {
+                        var restarted = await TryConnectAfterRestartAsync(instanceNumber, deviceSerial, logger, cancellationToken);
+                        if (restarted != null)
+                        {
+                            return restarted;
+                        }
+                    }
+                }
+            }
+
+            logger.LogError($"[ADBv2] Failed to establish connection for instance {instanceNumber} after {MAX_RETRY_ATTEMPTS} attempts");
+            return null;
+        }
+
+        private static AdbControllerV2 CacheConnection(int instanceNumber, DeviceData device, LogService logger)
+        {
+            // Cache the healthy connection
+            _deviceConnections[instanceNumber] = (device, _adbClient!, DateTime.UtcNow, true);
+            return new AdbControllerV2(device, _adbClient!, logger, instanceNumber);
+        }
+
+        private static async Task<AdbControllerV2?> TryConnectAfterRestartAsync(int instanceNumber, string deviceSerial, LogService logger, CancellationToken cancellationToken)
+        {
+            RecordGlobalFailure();
+
+            // Only restart ADB if we've had multiple global failures recently
+            if (!ShouldRestartAdbServer())
+            {
+                return null;
+            }
+
+            logger.LogWarning("[ADBv2] Multiple global failures detected, attempting conservative ADB restart");
+            await AttemptConservativeServerRestartAsync(logger, cancellationToken);
+
+            // One final attempt after restart
+            try
+            {
+                var device = await FindOrConnectDeviceAsync(deviceSerial, logger, cancellationToken);
+                if (device != null)
+                {
+                    return CacheConnection(instanceNumber, device, logger);
+                }
+            }
+            catch (Exception restartEx)
+            {
+                logger.LogError($"[ADBv2] Final attempt after restart failed: {restartEx.Message}");
+            }
+            return null;
         }
 
         /// <summary>

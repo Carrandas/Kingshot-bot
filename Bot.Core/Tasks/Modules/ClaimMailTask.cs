@@ -98,27 +98,9 @@ namespace Bot.Core.Tasks.Modules
 
         private async Task<bool> OpenMailMenu(AccountSettings account, LogService logger, CancellationToken cancellationToken)
         {
-            const int POLL_INTERVAL_MS = 200;
-            const int MAX_WAIT_TIME_MS = 5000;
-            var startTime = DateTime.UtcNow;
-            bool mailIconClicked = false;
-
             logger.LogInfo($"[{account.AccountName}] 🔍 Looking for mail icon in specified area...");
 
-            while ((DateTime.UtcNow - startTime).TotalMilliseconds < MAX_WAIT_TIME_MS && !cancellationToken.IsCancellationRequested)
-            {
-                if (await WaitForImageAsync("mail.png", account.InstanceNumber, logger, cancellationToken,
-                    timeoutMs: POLL_INTERVAL_MS, threshold: 0.7, useEnhancedMatching: true, searchArea: MailIconSearchArea) &&
-                    await FindAndClickImageAsync("mail.png", account.InstanceNumber, logger, threshold: 0.7, useEnhancedMatching: true, searchArea: MailIconSearchArea))
-                {
-                    logger.LogInfo($"[{account.AccountName}] ✅ Found and clicked mail icon after {(DateTime.UtcNow - startTime).TotalMilliseconds:F0}ms.");
-                    mailIconClicked = true;
-                    break;
-                }
-                await Task.Delay(POLL_INTERVAL_MS, cancellationToken);
-            }
-
-            if (!mailIconClicked)
+            if (!await PollAndClickMailIconAsync(account, logger, "", cancellationToken))
             {
                 logger.LogError($"[{account.AccountName}] Error: Failed to find mail-icon.png, calling locator module for recovery");
                 var locator = new LocatorService(logger, account);
@@ -126,25 +108,9 @@ namespace Bot.Core.Tasks.Modules
                 {
                     await locator.EnsureViewAsync(ViewType.BaseView, account.InstanceNumber, cancellationToken);
                     logger.LogInfo($"[{account.AccountName}] Locator service completed view recovery, retrying mail icon detection");
-                    
+
                     // Retry after locator service
-                    var retryStartTime = DateTime.UtcNow;
-                    bool retryMailIconClicked = false;
-                    
-                    while ((DateTime.UtcNow - retryStartTime).TotalMilliseconds < MAX_WAIT_TIME_MS && !cancellationToken.IsCancellationRequested)
-                    {
-                        if (await WaitForImageAsync("mail.png", account.InstanceNumber, logger, cancellationToken,
-                            timeoutMs: POLL_INTERVAL_MS, threshold: 0.7, useEnhancedMatching: true, searchArea: MailIconSearchArea) &&
-                            await FindAndClickImageAsync("mail.png", account.InstanceNumber, logger, threshold: 0.7, useEnhancedMatching: true, searchArea: MailIconSearchArea))
-                        {
-                            logger.LogInfo($"[{account.AccountName}] ✅ Found and clicked mail icon after locator recovery in {(DateTime.UtcNow - retryStartTime).TotalMilliseconds:F0}ms.");
-                            retryMailIconClicked = true;
-                            break;
-                        }
-                        await Task.Delay(POLL_INTERVAL_MS, cancellationToken);
-                    }
-                    
-                    if (!retryMailIconClicked)
+                    if (!await PollAndClickMailIconAsync(account, logger, " after locator recovery in", cancellationToken))
                     {
                         logger.LogError($"[{account.AccountName}] Failed to find or click mail icon even after locator recovery");
                         return false;
@@ -159,6 +125,27 @@ namespace Bot.Core.Tasks.Modules
 
             await Task.Delay(1000, cancellationToken); // Wait for mail menu to open
             return true;
+        }
+
+        /// <summary>Looks for the mail icon for up to 5 seconds and clicks it.</summary>
+        private async Task<bool> PollAndClickMailIconAsync(AccountSettings account, LogService logger, string logContext, CancellationToken cancellationToken)
+        {
+            const int POLL_INTERVAL_MS = 200;
+            const int MAX_WAIT_TIME_MS = 5000;
+            var startTime = DateTime.UtcNow;
+
+            while ((DateTime.UtcNow - startTime).TotalMilliseconds < MAX_WAIT_TIME_MS && !cancellationToken.IsCancellationRequested)
+            {
+                if (await WaitForImageAsync("mail.png", account.InstanceNumber, logger, cancellationToken,
+                    timeoutMs: POLL_INTERVAL_MS, threshold: 0.7, useEnhancedMatching: true, searchArea: MailIconSearchArea) &&
+                    await FindAndClickImageAsync("mail.png", account.InstanceNumber, logger, threshold: 0.7, useEnhancedMatching: true, searchArea: MailIconSearchArea))
+                {
+                    logger.LogInfo($"[{account.AccountName}] ✅ Found and clicked mail icon{(logContext.Length > 0 ? logContext : " after")} {(DateTime.UtcNow - startTime).TotalMilliseconds:F0}ms.");
+                    return true;
+                }
+                await Task.Delay(POLL_INTERVAL_MS, cancellationToken);
+            }
+            return false;
         }
 
         private async Task<bool> ProcessMailTab(AccountSettings account, LogService logger, CancellationToken cancellationToken, Rectangle tabArea, string tabName)

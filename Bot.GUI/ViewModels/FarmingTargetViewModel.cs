@@ -46,8 +46,10 @@ namespace Bot.GUI.ViewModels
             }
         }
 
+#pragma warning disable S2325 // bound from XAML, so it has to be an instance property
         public IEnumerable<ResourceType> AllResourceTypes =>
             Enum.GetValues(typeof(ResourceType)).Cast<ResourceType>();
+#pragma warning restore S2325
 
         public event PropertyChangedEventHandler? PropertyChanged;
 

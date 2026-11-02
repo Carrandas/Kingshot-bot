@@ -37,53 +37,8 @@ namespace Bot.Core.Tasks.Modules
 
                 for (int attempt = 1; attempt <= maxAttempts; attempt++)
                 {
-                    // Check for pause at the beginning of each attempt
-                    await WaitIfPausedAsync(cancellationToken);
-                    if (cancellationToken.IsCancellationRequested) return TaskExecutionDetails.Failed("Task was cancelled");
-
-                    logger.LogInfo($"[{account.AccountName}] Attempt {attempt}/{maxAttempts} - Looking for alliance help button...");
-
-                    // Take screenshot for this attempt
-                    var screenshotBytes = await TakeScreenshotAsync(account.InstanceNumber, logger);
-                    if (screenshotBytes == null)
-                    {
-                        logger.LogWarning($"[{account.AccountName}] Failed to get screenshot on attempt {attempt}");
-                        if (attempt < maxAttempts)
-                        {
-                            await WaitIfPausedAsync(cancellationToken);
-                            if (cancellationToken.IsCancellationRequested) return TaskExecutionDetails.Failed("Task was cancelled");
-                            await Task.Delay(retryIntervalMs, cancellationToken);
-                            continue;
-                        }
-                        else
-                        {
-                            logger.LogError($"[{account.AccountName}] Failed to get screenshot after all attempts");
-                            return TaskExecutionDetails.Failed("Failed to get screenshot after all attempts");
-                        }
-                    }
-
-                    // Use enhanced matching with multiple scales for better detection
-                    var helpButtonFound = await FindAndClickImageAsync(
-                        "alliance-help.png",
-                        account.InstanceNumber,
-                        logger,
-                        threshold: 0.6, // Lower threshold for more lenient matching
-                        useEnhancedMatching: true // This will use multiple scales
-                    );
-
-                    if (helpButtonFound)
-                    {
-                        logger.LogInfo($"[{account.AccountName}] ✅ Found and clicked alliance help button on attempt {attempt}");
-                        await Task.Delay(2000, cancellationToken); // Wait for help to be sent
-                        return TaskExecutionDetails.Succeeded();
-                    }
-
-                    // If not found and not the last attempt, wait before retrying
-                    if (attempt < maxAttempts)
-                    {
-                        logger.LogInfo($"[{account.AccountName}] Alliance help button not found on attempt {attempt}, retrying in {retryIntervalMs}ms...");
-                        await Task.Delay(retryIntervalMs, cancellationToken);
-                    }
+                    var attemptResult = await TryHelpAttemptAsync(account, logger, attempt, maxAttempts, retryIntervalMs, cancellationToken);
+                    if (attemptResult != null) return attemptResult;
                 }
 
                 logger.LogInfo($"[{account.AccountName}] ℹ️ No alliance help button found after {maxAttempts} attempts");
@@ -94,6 +49,58 @@ namespace Bot.Core.Tasks.Modules
                 logger.LogError($"[{account.AccountName}] Error during alliance help: {ex.Message}");
                 return TaskExecutionDetails.Failed($"Error during alliance help: {ex.Message}");
             }
+        }
+
+        /// <summary>One look for the help button. Returns the task result when it ends here, null to try again.</summary>
+        private async Task<TaskExecutionDetails?> TryHelpAttemptAsync(
+            AccountSettings account, LogService logger, int attempt, int maxAttempts, int retryIntervalMs, CancellationToken cancellationToken)
+        {
+            // Check for pause at the beginning of each attempt
+            await WaitIfPausedAsync(cancellationToken);
+            if (cancellationToken.IsCancellationRequested) return TaskExecutionDetails.Failed("Task was cancelled");
+
+            logger.LogInfo($"[{account.AccountName}] Attempt {attempt}/{maxAttempts} - Looking for alliance help button...");
+
+            // Take screenshot for this attempt
+            var screenshotBytes = await TakeScreenshotAsync(account.InstanceNumber, logger);
+            if (screenshotBytes == null)
+            {
+                logger.LogWarning($"[{account.AccountName}] Failed to get screenshot on attempt {attempt}");
+                if (attempt >= maxAttempts)
+                {
+                    logger.LogError($"[{account.AccountName}] Failed to get screenshot after all attempts");
+                    return TaskExecutionDetails.Failed("Failed to get screenshot after all attempts");
+                }
+
+                await WaitIfPausedAsync(cancellationToken);
+                if (cancellationToken.IsCancellationRequested) return TaskExecutionDetails.Failed("Task was cancelled");
+                await Task.Delay(retryIntervalMs, cancellationToken);
+                return null;
+            }
+
+            // Use enhanced matching with multiple scales for better detection
+            var helpButtonFound = await FindAndClickImageAsync(
+                "alliance-help.png",
+                account.InstanceNumber,
+                logger,
+                threshold: 0.6, // Lower threshold for more lenient matching
+                useEnhancedMatching: true // This will use multiple scales
+            );
+
+            if (helpButtonFound)
+            {
+                logger.LogInfo($"[{account.AccountName}] ✅ Found and clicked alliance help button on attempt {attempt}");
+                await Task.Delay(2000, cancellationToken); // Wait for help to be sent
+                return TaskExecutionDetails.Succeeded();
+            }
+
+            // If not found and not the last attempt, wait before retrying
+            if (attempt < maxAttempts)
+            {
+                logger.LogInfo($"[{account.AccountName}] Alliance help button not found on attempt {attempt}, retrying in {retryIntervalMs}ms...");
+                await Task.Delay(retryIntervalMs, cancellationToken);
+            }
+            return null;
         }
 
         protected override async Task OnInitializeAsync(LogService logger, CancellationToken cancellationToken)

@@ -130,6 +130,31 @@ namespace Bot.Core.Tasks.Modules
             return open;
         }
 
+        /// <summary>Taps back to close a popup over the merchant grid. False when the merchant tab is still hidden.</summary>
+        private async Task<bool> CloseCoveringPopupAsync(AccountSettings account, LogService logger, int instance, CancellationToken cancellationToken)
+        {
+            logger.LogWarning($"[{account.AccountName}] Nomadic Merchant: screen covered by a popup, closing it");
+            await ClickAsync(instance, logger, BackArrowPoint);
+            await Task.Delay(1500, cancellationToken);
+            return (await MatchAsync(MerchantTabTemplate, MerchantTabArea, Threshold, instance, logger)).found;
+        }
+
+        /// <summary>The first slot (not skipped as unchanged) whose price is not in gems; -1 when there is none.</summary>
+        private async Task<int> FindSlotToBuyAsync(AccountSettings account, LogService logger, int instance, int[] unchanged)
+        {
+            for (int i = 0; i < PriceAreas.Length; i++)
+            {
+                if (unchanged[i] >= MaxUnchangedTapsPerSlot) continue;
+                var gem = await MatchAsync(GemPriceTemplate, PriceAreas[i], GemThreshold, instance, logger);
+                if (!gem.found)
+                {
+                    logger.LogInfo($"[{account.AccountName}] Nomadic Merchant: slot {i + 1} not gem-priced ({gem.confidence:F2})");
+                    return i;
+                }
+            }
+            return -1;
+        }
+
         /// <summary>
         /// Taps the price of the first slot not priced in gems until every slot costs gems. A slot whose card does not
         /// change after a tap MaxUnchangedTapsPerSlot times is left alone.
@@ -145,24 +170,11 @@ namespace Bot.Core.Tasks.Modules
                 if (!(await MatchAsync(MerchantTabTemplate, MerchantTabArea, Threshold, instance, logger)).found)
                 {
                     if (++popups > MaxPopupsPerRound) break;
-                    logger.LogWarning($"[{account.AccountName}] Nomadic Merchant: screen covered by a popup, closing it");
-                    await ClickAsync(instance, logger, BackArrowPoint);
-                    await Task.Delay(1500, cancellationToken);
-                    if (!(await MatchAsync(MerchantTabTemplate, MerchantTabArea, Threshold, instance, logger)).found) break;
+                    if (!await CloseCoveringPopupAsync(account, logger, instance, cancellationToken)) break;
                     continue;
                 }
 
-                int slot = -1;
-                for (int i = 0; i < PriceAreas.Length && slot < 0; i++)
-                {
-                    if (unchanged[i] >= MaxUnchangedTapsPerSlot) continue;
-                    var gem = await MatchAsync(GemPriceTemplate, PriceAreas[i], GemThreshold, instance, logger);
-                    if (!gem.found)
-                    {
-                        slot = i;
-                        logger.LogInfo($"[{account.AccountName}] Nomadic Merchant: slot {i + 1} not gem-priced ({gem.confidence:F2})");
-                    }
-                }
+                int slot = await FindSlotToBuyAsync(account, logger, instance, unchanged);
                 if (slot < 0)
                 {
                     // a slot skipped as unchanged (e.g. not affordable yet) may be buyable later today

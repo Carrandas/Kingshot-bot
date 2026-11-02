@@ -25,7 +25,7 @@ namespace Bot.Core.Tasks
         public abstract string Name { get; }
         
         protected string ImageTemplateFolder => Path.Combine(AppContext.BaseDirectory, "templates", "images", GetImageFolderName());
-        protected UnifiedTemplateMatchingService? _templateMatcher;
+        protected UnifiedTemplateMatchingService _templateMatcher = null!; // set in InitializeAsync before any task logic runs
         protected LogService? _instanceLogger;
         
         protected async Task WaitIfPausedAsync(CancellationToken cancellationToken)
@@ -107,104 +107,7 @@ namespace Bot.Core.Tasks
 
                 logger.LogInfo($"[{account.AccountName}] Current view: {currentView}, checking for auto tasks (Alliance Help: {allianceHelpEnabled}, Auto Heal: {autoHealEnabled})...");
 
-                // Run Alliance Help if enabled and we're in base view or map view
-                if (allianceHelpEnabled && (currentView == ViewType.BaseView || currentView == ViewType.MapView))
-                {
-                    // Check cooldown period
-                    var now = DateTime.UtcNow;
-                    var lastAllianceHelpTime = _lastAllianceHelpTime.GetValueOrDefault(account.InstanceNumber, DateTime.MinValue);
-                    var timeSinceLastRun = now - lastAllianceHelpTime;
-                    
-                    if (timeSinceLastRun < AutoTaskCooldown)
-                    {
-                        var remainingTime = AutoTaskCooldown - timeSinceLastRun;
-                        logger.LogInfo($"[{account.AccountName}] Alliance Help skipped - cooldown active (last run {timeSinceLastRun.TotalSeconds:F0}s ago, next available in {remainingTime.TotalSeconds:F0}s)");
-                    }
-                    else
-                    {
-                        logger.LogInfo($"[{account.AccountName}] 🤝 Running Alliance Help before continuing with {Name}...");
-                        userNotifications?.ShowStatus($"Running Alliance Help before {Name}...", NotificationType.Info);
-                        
-                        // Update last run time before execution
-                        _lastAllianceHelpTime[account.InstanceNumber] = now;
-
-                    try
-                    {
-                        var allianceHelpTask = new AllianceHelpTask();
-                        allianceHelpTask.MaxAttempts = 1; // Only try once when called from auto-task system
-                        await allianceHelpTask.InitializeAsync(logger, cancellationToken);
-                        var allianceResult = await allianceHelpTask.ExecuteAsync(account, logger, cancellationToken, false, userNotifications);
-                        
-                        if (!allianceResult.Success)
-                        {
-                            logger.LogWarning($"[{account.AccountName}] Alliance Help failed: {allianceResult.Message}");
-                            // Continue anyway - don't fail the main task
-                        }
-                        else
-                        {
-                            logger.LogInfo($"[{account.AccountName}] ✅ Alliance Help completed successfully");
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        logger.LogError($"[{account.AccountName}] Error running Alliance Help: {ex.Message}");
-                        // Continue with main task
-                    }
-                    }
-                }
-                else if (allianceHelpEnabled)
-                {
-                    logger.LogInfo($"[{account.AccountName}] Alliance Help enabled but skipped (current view: {currentView}, requires BaseView or MapView)");
-                }
-
-                // Run Auto Heal if enabled and we're in map view
-                if (autoHealEnabled && currentView == ViewType.MapView)
-                {
-                    // Check cooldown period
-                    var now = DateTime.UtcNow;
-                    var lastAutoHealTime = _lastAutoHealTime.GetValueOrDefault(account.InstanceNumber, DateTime.MinValue);
-                    var timeSinceLastRun = now - lastAutoHealTime;
-                    
-                    if (timeSinceLastRun < AutoTaskCooldown)
-                    {
-                        var remainingTime = AutoTaskCooldown - timeSinceLastRun;
-                        logger.LogInfo($"[{account.AccountName}] Auto Heal skipped - cooldown active (last run {timeSinceLastRun.TotalSeconds:F0}s ago, next available in {remainingTime.TotalSeconds:F0}s)");
-                    }
-                    else
-                    {
-                        logger.LogInfo($"[{account.AccountName}] 🏥 Running Auto Heal before continuing with {Name}...");
-                        userNotifications?.ShowStatus($"Running Auto Heal before {Name}...", NotificationType.Info);
-                        
-                        // Update last run time before execution
-                        _lastAutoHealTime[account.InstanceNumber] = now;
-
-                    try
-                    {
-                        var autoHealTask = new AutoHealTask(logger);
-                        await autoHealTask.InitializeAsync(logger, cancellationToken);
-                        var healResult = await autoHealTask.ExecuteAsync(account, logger, cancellationToken, false, userNotifications);
-                        
-                        if (!healResult.Success)
-                        {
-                            logger.LogWarning($"[{account.AccountName}] Auto Heal failed: {healResult.Message}");
-                            // Continue anyway - don't fail the main task
-                        }
-                        else
-                        {
-                            logger.LogInfo($"[{account.AccountName}] ✅ Auto Heal completed successfully");
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        logger.LogError($"[{account.AccountName}] Error running Auto Heal: {ex.Message}");
-                        // Continue with main task
-                    }
-                    }
-                }
-                else if (autoHealEnabled)
-                {
-                    logger.LogInfo($"[{account.AccountName}] Auto Heal enabled but skipped (current view: {currentView}, requires MapView)");
-                }
+                await RunViewDependentAutoTasksAsync(account, logger, cancellationToken, userNotifications, currentView, allianceHelpEnabled, autoHealEnabled);
 
                 logger.LogInfo($"[{account.AccountName}] Auto task check completed, continuing with {Name}");
                 return true;
@@ -217,6 +120,126 @@ namespace Bot.Core.Tasks
             }
         }
         
+        private async Task RunViewDependentAutoTasksAsync(
+            AccountSettings account, LogService logger, CancellationToken cancellationToken, IUserNotificationService? userNotifications,
+            ViewType currentView, bool allianceHelpEnabled, bool autoHealEnabled)
+        {
+            // Run Alliance Help if enabled and we're in base view or map view
+            if (allianceHelpEnabled && (currentView == ViewType.BaseView || currentView == ViewType.MapView))
+            {
+                await RunAutoAllianceHelpAsync(account, logger, cancellationToken, userNotifications);
+            }
+            else if (allianceHelpEnabled)
+            {
+                logger.LogInfo($"[{account.AccountName}] Alliance Help enabled but skipped (current view: {currentView}, requires BaseView or MapView)");
+            }
+
+            // Run Auto Heal if enabled and we're in map view
+            if (autoHealEnabled && currentView == ViewType.MapView)
+            {
+                await RunAutoHealAsync(account, logger, cancellationToken, userNotifications);
+            }
+            else if (autoHealEnabled)
+            {
+                logger.LogInfo($"[{account.AccountName}] Auto Heal enabled but skipped (current view: {currentView}, requires MapView)");
+            }
+        }
+
+        /// <summary>
+        /// True while the auto task ran less than AutoTaskCooldown ago on this instance (and logs why it is skipped)
+        /// </summary>
+        private static bool IsAutoTaskOnCooldown(ConcurrentDictionary<int, DateTime> lastRuns, string taskLabel, AccountSettings account, LogService logger, DateTime now)
+        {
+            var lastRunTime = lastRuns.GetValueOrDefault(account.InstanceNumber, DateTime.MinValue);
+            var timeSinceLastRun = now - lastRunTime;
+
+            if (timeSinceLastRun >= AutoTaskCooldown)
+            {
+                return false;
+            }
+
+            var remainingTime = AutoTaskCooldown - timeSinceLastRun;
+            logger.LogInfo($"[{account.AccountName}] {taskLabel} skipped - cooldown active (last run {timeSinceLastRun.TotalSeconds:F0}s ago, next available in {remainingTime.TotalSeconds:F0}s)");
+            return true;
+        }
+
+        private async Task RunAutoAllianceHelpAsync(AccountSettings account, LogService logger, CancellationToken cancellationToken, IUserNotificationService? userNotifications)
+        {
+            // Check cooldown period
+            var now = DateTime.UtcNow;
+            if (IsAutoTaskOnCooldown(_lastAllianceHelpTime, "Alliance Help", account, logger, now))
+            {
+                return;
+            }
+
+            logger.LogInfo($"[{account.AccountName}] 🤝 Running Alliance Help before continuing with {Name}...");
+            userNotifications?.ShowStatus($"Running Alliance Help before {Name}...", NotificationType.Info);
+
+            // Update last run time before execution
+            _lastAllianceHelpTime[account.InstanceNumber] = now;
+
+            try
+            {
+                var allianceHelpTask = new AllianceHelpTask();
+                allianceHelpTask.MaxAttempts = 1; // Only try once when called from auto-task system
+                await allianceHelpTask.InitializeAsync(logger, cancellationToken);
+                var allianceResult = await allianceHelpTask.ExecuteAsync(account, logger, cancellationToken, false, userNotifications);
+
+                if (!allianceResult.Success)
+                {
+                    logger.LogWarning($"[{account.AccountName}] Alliance Help failed: {allianceResult.Message}");
+                    // Continue anyway - don't fail the main task
+                }
+                else
+                {
+                    logger.LogInfo($"[{account.AccountName}] ✅ Alliance Help completed successfully");
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.LogError($"[{account.AccountName}] Error running Alliance Help: {ex.Message}");
+                // Continue with main task
+            }
+        }
+
+        private async Task RunAutoHealAsync(AccountSettings account, LogService logger, CancellationToken cancellationToken, IUserNotificationService? userNotifications)
+        {
+            // Check cooldown period
+            var now = DateTime.UtcNow;
+            if (IsAutoTaskOnCooldown(_lastAutoHealTime, "Auto Heal", account, logger, now))
+            {
+                return;
+            }
+
+            logger.LogInfo($"[{account.AccountName}] 🏥 Running Auto Heal before continuing with {Name}...");
+            userNotifications?.ShowStatus($"Running Auto Heal before {Name}...", NotificationType.Info);
+
+            // Update last run time before execution
+            _lastAutoHealTime[account.InstanceNumber] = now;
+
+            try
+            {
+                var autoHealTask = new AutoHealTask(logger);
+                await autoHealTask.InitializeAsync(logger, cancellationToken);
+                var healResult = await autoHealTask.ExecuteAsync(account, logger, cancellationToken, false, userNotifications);
+
+                if (!healResult.Success)
+                {
+                    logger.LogWarning($"[{account.AccountName}] Auto Heal failed: {healResult.Message}");
+                    // Continue anyway - don't fail the main task
+                }
+                else
+                {
+                    logger.LogInfo($"[{account.AccountName}] ✅ Auto Heal completed successfully");
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.LogError($"[{account.AccountName}] Error running Auto Heal: {ex.Message}");
+                // Continue with main task
+            }
+        }
+
         public async Task<TaskExecutionDetails> ExecuteAsync(AccountSettings account, LogService logger, CancellationToken cancellationToken = default, bool isReRun = false, IUserNotificationService? userNotifications = null)
         {
             try
@@ -427,17 +450,76 @@ namespace Bot.Core.Tasks
             return success;
         }
         
+        private static byte[]? GetFreshCachedScreenshot(int instanceNumber)
+        {
+            if (_instanceScreenshotCache.TryGetValue(instanceNumber, out var cached) &&
+                cached.screenshot != null &&
+                DateTime.UtcNow - cached.time < ScreenshotCacheTimeout)
+            {
+                return cached.screenshot;
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// One screenshot attempt. Returns the screenshot, or null with the delay to wait before the next attempt;
+        /// giveUp is set when no further attempt should be made.
+        /// </summary>
+        private async Task<(byte[]? screenshot, int retryDelayMs, bool giveUp)> AttemptScreenshotAsync(int instanceNumber, LogService logger, int attempt, int maxRetries)
+        {
+            try
+            {
+                // Use cached controller directly for screenshot operations (most frequent)
+                var adbController = await GetCachedADBController(instanceNumber, logger);
+                if (adbController == null)
+                {
+                    logger.LogWarning($"Screenshot attempt {attempt}/{maxRetries} failed - no ADB controller");
+                    return (null, 1000, attempt >= maxRetries);
+                }
+
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5)); // Reduced from 10s to 5s
+                var screenshot = await AdbMigrationHelper.TakeScreenshotAsync(adbController, logger, cts.Token);
+
+                if (screenshot != null && screenshot.Length > 0)
+                {
+                    // Cache the screenshot for this specific instance
+                    // Add to cache with size management
+                    AddToScreenshotCache(instanceNumber, screenshot);
+
+                    return (screenshot, 0, false);
+                }
+
+                logger.LogWarning($"Screenshot attempt {attempt}/{maxRetries} failed - empty result");
+            }
+            catch (OperationCanceledException)
+            {
+                logger.LogError($"Screenshot attempt {attempt}/{maxRetries} timed out after 5 seconds");
+                // Clear cache on timeout as connection might be problematic
+                ClearCachedADBController();
+            }
+            catch (Exception ex)
+            {
+                logger.LogError($"Screenshot attempt {attempt}/{maxRetries} failed: {ex.Message}");
+                // Clear cache on connection errors
+                if (ex.Message.Contains("device") || ex.Message.Contains("connection"))
+                {
+                    ClearCachedADBController();
+                }
+            }
+
+            return (null, 500, false); // Reduced delay from 1s to 500ms
+        }
+
         /// <summary>
         /// Take a screenshot with instance-specific caching, global throttling, and reduced timeout
         /// </summary>
         protected async Task<byte[]?> TakeScreenshotAsync(int instanceNumber, LogService logger, int maxRetries = 2)
         {
             // Check instance-specific cache first
-            if (_instanceScreenshotCache.TryGetValue(instanceNumber, out var cached) &&
-                cached.screenshot != null &&
-                DateTime.UtcNow - cached.time < ScreenshotCacheTimeout)
+            var cachedScreenshot = GetFreshCachedScreenshot(instanceNumber);
+            if (cachedScreenshot != null)
             {
-                return cached.screenshot;
+                return cachedScreenshot;
             }
 
             // Performance: removed double-locking - global semaphore is sufficient
@@ -451,63 +533,27 @@ namespace Bot.Core.Tasks
             try
             {
                 // Double-check cache after acquiring lock
-                if (_instanceScreenshotCache.TryGetValue(instanceNumber, out cached) &&
-                    cached.screenshot != null &&
-                    DateTime.UtcNow - cached.time < ScreenshotCacheTimeout)
+                cachedScreenshot = GetFreshCachedScreenshot(instanceNumber);
+                if (cachedScreenshot != null)
                 {
-                    return cached.screenshot;
+                    return cachedScreenshot;
                 }
 
                 for (int attempt = 1; attempt <= maxRetries; attempt++)
                 {
-                    try
+                    var (screenshot, retryDelayMs, giveUp) = await AttemptScreenshotAsync(instanceNumber, logger, attempt, maxRetries);
+                    if (screenshot != null)
                     {
-                        // Use cached controller directly for screenshot operations (most frequent)
-                        var adbController = await GetCachedADBController(instanceNumber, logger);
-                        if (adbController == null)
-                        {
-                            logger.LogWarning($"Screenshot attempt {attempt}/{maxRetries} failed - no ADB controller");
-                            if (attempt < maxRetries)
-                            {
-                                await Task.Delay(1000);
-                                continue;
-                            }
-                            return null;
-                        }
-
-                        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5)); // Reduced from 10s to 5s
-                        var screenshot = await AdbMigrationHelper.TakeScreenshotAsync(adbController, logger, cts.Token);
-
-                        if (screenshot != null && screenshot.Length > 0)
-                        {
-                            // Cache the screenshot for this specific instance
-                            // Add to cache with size management
-                            AddToScreenshotCache(instanceNumber, screenshot);
-                            
-                            return screenshot;
-                        }
-
-                        logger.LogWarning($"Screenshot attempt {attempt}/{maxRetries} failed - empty result");
+                        return screenshot;
                     }
-                    catch (OperationCanceledException)
+                    if (giveUp)
                     {
-                        logger.LogError($"Screenshot attempt {attempt}/{maxRetries} timed out after 5 seconds");
-                        // Clear cache on timeout as connection might be problematic
-                        ClearCachedADBController();
-                    }
-                    catch (Exception ex)
-                    {
-                        logger.LogError($"Screenshot attempt {attempt}/{maxRetries} failed: {ex.Message}");
-                        // Clear cache on connection errors
-                        if (ex.Message.Contains("device") || ex.Message.Contains("connection"))
-                        {
-                            ClearCachedADBController();
-                        }
+                        return null;
                     }
 
                     if (attempt < maxRetries)
                     {
-                        await Task.Delay(500); // Reduced delay from 1s to 500ms
+                        await Task.Delay(retryDelayMs);
                     }
                 }
 
@@ -630,6 +676,91 @@ namespace Bot.Core.Tasks
             return OpenCvSharp.Cv2.Mean(diff).Val0 > DailyListMovedDiff;
         }
 
+        private static async Task RunAdbRecoveryStepsAsync(LogService logger, CancellationToken cancellationToken)
+        {
+            try
+            {
+                var adbPath = Bot.Core.Utils.LDPlayerHelper.GetADBPath();
+                await RunAdbStepAsync(adbPath, "devices", "ADB devices output before recovery", logger, cancellationToken);
+                await RunAdbStepAsync(adbPath, "kill-server", null, logger, cancellationToken);
+                await RunAdbStepAsync(adbPath, "start-server", "ADB start-server output", logger, cancellationToken);
+                await RunAdbStepAsync(adbPath, "devices", "ADB devices output after recovery", logger, cancellationToken);
+            }
+            catch (Exception adbEx)
+            {
+                logger.LogError($"ADB recovery steps failed: {adbEx.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Runs one adb command and waits for it; the output is logged under outputLabel when one is given.
+        /// </summary>
+        private static async Task RunAdbStepAsync(string adbPath, string arguments, string? outputLabel, LogService logger, CancellationToken cancellationToken)
+        {
+            var psi = new System.Diagnostics.ProcessStartInfo(adbPath, arguments)
+            {
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+            using var process = System.Diagnostics.Process.Start(psi);
+            if (process == null)
+            {
+                return;
+            }
+
+            if (outputLabel == null)
+            {
+                await process.WaitForExitAsync(cancellationToken);
+                return;
+            }
+
+            string output = await process.StandardOutput.ReadToEndAsync(cancellationToken);
+            string error = await process.StandardError.ReadToEndAsync(cancellationToken);
+            await process.WaitForExitAsync(cancellationToken);
+            logger.LogInfo($"{outputLabel}: {output.Trim()} {error.Trim()}");
+        }
+
+        private async Task RecoverFromAdbConnectionLossAsync(int instanceNumber, LogService logger, CancellationToken cancellationToken)
+        {
+            logger.LogInfo("Detected ADB connection loss, clearing cache and attempting to recover...");
+            ClearCachedADBController(); // Clear cache immediately on connection loss
+            await RunAdbRecoveryStepsAsync(logger, cancellationToken);
+            // V2 system handles connection cleanup automatically
+            await Task.Delay(2000, cancellationToken); // Allow time for device to reappear or connection to be ready for re-establishment
+            var newController = await GetADBController(instanceNumber, logger); // Attempt to re-get/re-establish
+            if (newController == null) logger.LogError("Failed to re-establish ADB connection after suspected loss.");
+            else logger.LogInfo("ADB connection re-established after suspected loss.");
+        }
+
+        /// <summary>Logs a failed click attempt, recovers a lost ADB connection and waits before the next try. Returns false when cancelled.</summary>
+        private async Task<bool> HandleClickErrorAsync(
+            Exception ex, int attempt, int maxRetries, int instanceNumber, LogService logger, Rectangle rect, CancellationToken cancellationToken)
+        {
+            logger.LogError($"Click attempt {attempt} in {rect} exception: {ex.Message}");
+            if (ex.Message.Contains("device") && ex.Message.Contains("not found")) // Simplified ADB check
+            {
+                await RecoverFromAdbConnectionLossAsync(instanceNumber, logger, cancellationToken);
+            }
+            return attempt >= maxRetries || await WaitBeforeClickRetryAsync(logger, rect, cancellationToken);
+        }
+
+        /// <summary>Waits between click retries after an error. Returns false when cancelled.</summary>
+        private static async Task<bool> WaitBeforeClickRetryAsync(LogService logger, Rectangle rect, CancellationToken cancellationToken)
+        {
+            try
+            {
+                await Task.Delay(GameCoordinates.Delays.BetweenErrorRetries, cancellationToken);
+                return true;
+            }
+            catch (OperationCanceledException)
+            {
+                logger.LogInfo($"ClickRandomInRectAsyncWithRetry cancelled during error retry delay for {rect}");
+                return false;
+            }
+        }
+
         // Method from TroopTrainingTask, now in base
         protected async Task<bool> ClickRandomInRectAsyncWithRetry(int instanceNumber, LogService logger, Rectangle rect, CancellationToken cancellationToken, int maxRetries = 3, Random? random = null)
         {
@@ -655,105 +786,9 @@ namespace Bot.Core.Tasks
                 }
                 catch (Exception ex)
                 {
-                    logger.LogError($"Click attempt {attempt} in {rect} exception: {ex.Message}");
-                    if (ex.Message.Contains("device") && ex.Message.Contains("not found")) // Simplified ADB check
+                    if (!await HandleClickErrorAsync(ex, attempt, maxRetries, instanceNumber, logger, rect, cancellationToken))
                     {
-                        logger.LogInfo("Detected ADB connection loss, clearing cache and attempting to recover...");
-                        ClearCachedADBController(); // Clear cache immediately on connection loss
-                        try
-                        {
-                            var adbPath = Bot.Core.Utils.LDPlayerHelper.GetADBPath();
-                            // 1. adb devices
-                            var psi1 = new System.Diagnostics.ProcessStartInfo(adbPath, "devices")
-                            {
-                                RedirectStandardOutput = true,
-                                RedirectStandardError = true,
-                                UseShellExecute = false,
-                                CreateNoWindow = true
-                            };
-                            using (var process = System.Diagnostics.Process.Start(psi1))
-                            {
-                                if (process != null)
-                                {
-                                    string output = await process.StandardOutput.ReadToEndAsync(cancellationToken);
-                                    string error = await process.StandardError.ReadToEndAsync(cancellationToken);
-                                    await process.WaitForExitAsync(cancellationToken);
-                                    logger.LogInfo($"ADB devices output before recovery: {output.Trim()} {error.Trim()}");
-                                }
-                            }
-                            // 2. adb kill-server
-                            var psi2 = new System.Diagnostics.ProcessStartInfo(adbPath, "kill-server")
-                            {
-                                RedirectStandardOutput = true,
-                                RedirectStandardError = true,
-                                UseShellExecute = false,
-                                CreateNoWindow = true
-                            };
-                            using (var process = System.Diagnostics.Process.Start(psi2))
-                            {
-                                if (process != null)
-                                {
-                                    await process.WaitForExitAsync(cancellationToken);
-                                }
-                            }
-                            // 3. adb start-server
-                            var psi3 = new System.Diagnostics.ProcessStartInfo(adbPath, "start-server")
-                            {
-                                RedirectStandardOutput = true,
-                                RedirectStandardError = true,
-                                UseShellExecute = false,
-                                CreateNoWindow = true
-                            };
-                            using (var process = System.Diagnostics.Process.Start(psi3))
-                            {
-                                if (process != null)
-                                {
-                                    string output = await process.StandardOutput.ReadToEndAsync(cancellationToken);
-                                    string error = await process.StandardError.ReadToEndAsync(cancellationToken);
-                                    await process.WaitForExitAsync(cancellationToken);
-                                    logger.LogInfo($"ADB start-server output: {output.Trim()} {error.Trim()}");
-                                }
-                            }
-                            // 4. adb devices (again)
-                            var psi4 = new System.Diagnostics.ProcessStartInfo(adbPath, "devices")
-                            {
-                                RedirectStandardOutput = true,
-                                RedirectStandardError = true,
-                                UseShellExecute = false,
-                                CreateNoWindow = true
-                            };
-                            using (var process = System.Diagnostics.Process.Start(psi4))
-                            {
-                                if (process != null)
-                                {
-                                    string output = await process.StandardOutput.ReadToEndAsync(cancellationToken);
-                                    string error = await process.StandardError.ReadToEndAsync(cancellationToken);
-                                    await process.WaitForExitAsync(cancellationToken);
-                                    logger.LogInfo($"ADB devices output after recovery: {output.Trim()} {error.Trim()}");
-                                }
-                            }
-                        }
-                        catch (Exception adbEx)
-                        {
-                            logger.LogError($"ADB recovery steps failed: {adbEx.Message}");
-                        }
-                        // V2 system handles connection cleanup automatically
-                        await Task.Delay(2000, cancellationToken); // Allow time for device to reappear or connection to be ready for re-establishment
-                        var newController = await GetADBController(instanceNumber, logger); // Attempt to re-get/re-establish
-                        if (newController == null) logger.LogError("Failed to re-establish ADB connection after suspected loss.");
-                        else logger.LogInfo("ADB connection re-established after suspected loss.");
-                    }
-                    if (attempt < maxRetries) 
-                    {
-                        try 
-                        {
-                            await Task.Delay(GameCoordinates.Delays.BetweenErrorRetries, cancellationToken);
-                        }
-                        catch (OperationCanceledException)
-                        {
-                            logger.LogInfo($"ClickRandomInRectAsyncWithRetry cancelled during error retry delay for {rect}");
-                            return false;
-                        }
+                        return false;
                     }
                 }
             }
@@ -763,6 +798,38 @@ namespace Bot.Core.Tasks
         
         // UNIFIED TEMPLATE MATCHING OPERATIONS
         
+        private const int LOG_INTERVAL_MS = 5000; // Log every 5 seconds
+
+        private static DateTime LogProgressIfDue(LogService logger, string imageName, Stopwatch stopwatch, double bestConfidence, double threshold, DateTime lastLogTime)
+        {
+            if ((DateTime.UtcNow - lastLogTime).TotalMilliseconds < LOG_INTERVAL_MS)
+            {
+                return lastLogTime;
+            }
+            LogImageNotFound(logger, imageName, stopwatch, bestConfidence, threshold);
+            return DateTime.UtcNow;
+        }
+
+        private static (bool found, Rectangle matchRect, double confidence) MatchImage(
+            UnifiedTemplateMatchingService matcher, byte[] screenshotBytes, string imagePath, int instanceNumber, double threshold,
+            bool useEnhancedMatching, Rectangle? searchArea, double[]? scales)
+        {
+            return matcher.MatchTemplate(
+                screenshotBytes,
+                imagePath,
+                instanceNumber,
+                threshold,
+                useEnhancedMatching ? UnifiedTemplateMatchingService.StandardScales : scales,
+                useEnhancedMatching,
+                searchArea
+            );
+        }
+
+        private static void LogImageNotFound(LogService logger, string imageName, Stopwatch stopwatch, double bestConfidence, double threshold)
+        {
+            logger.LogInfo($"{imageName} not found after {stopwatch.ElapsedMilliseconds/1000:F1}s - best confidence: {bestConfidence:F3} (threshold: {threshold:F3})");
+        }
+
         /// <summary>
         /// Wait for image to appear with unified template matching and return position
         /// </summary>
@@ -787,7 +854,6 @@ namespace Bot.Core.Tasks
             var stopwatch = Stopwatch.StartNew();
             var lastLogTime = DateTime.UtcNow;
             double bestConfidence = 0.0;
-            const int LOG_INTERVAL_MS = 5000; // Log every 5 seconds
 
             while (stopwatch.ElapsedMilliseconds < timeoutMs)
             {
@@ -812,33 +878,19 @@ namespace Bot.Core.Tasks
                     return (false, Rectangle.Empty, 0.0);
                 }
                 
-                var result = _templateMatcher.MatchTemplate(
-                    screenshotBytes,
-                    imagePath,
-                    instanceNumber,
-                    threshold,
-                    useEnhancedMatching ? UnifiedTemplateMatchingService.StandardScales : scales,
-                    useEnhancedMatching,
-                    searchArea
-                );
+                var result = MatchImage(_templateMatcher, screenshotBytes, imagePath, instanceNumber, threshold, useEnhancedMatching, searchArea, scales);
 
                 if (result.found)
                 {
                     logger.LogInfo($"{imageName} detected {result.confidence:F3} {result.matchRect.Location}");
                     return (true, result.matchRect, result.confidence);
                 }
-                else
-                {
-                    // Track best confidence found
-                    bestConfidence = Math.Max(bestConfidence, result.confidence);
-                    
-                    // Log progress every 5 seconds
-                    if ((DateTime.UtcNow - lastLogTime).TotalMilliseconds >= LOG_INTERVAL_MS)
-                    {
-                        logger.LogInfo($"{imageName} not found after {stopwatch.ElapsedMilliseconds/1000:F1}s - best confidence: {bestConfidence:F3} (threshold: {threshold:F3})");
-                        lastLogTime = DateTime.UtcNow;
-                    }
-                }
+
+                // Track best confidence found
+                bestConfidence = Math.Max(bestConfidence, result.confidence);
+
+                // Log progress every 5 seconds
+                lastLogTime = LogProgressIfDue(logger, imageName, stopwatch, bestConfidence, threshold, lastLogTime);
 
                 // Wait before retrying, but not after the last attempt
                 if (stopwatch.ElapsedMilliseconds + GameCoordinates.Delays.BetweenRetries < timeoutMs)
@@ -850,9 +902,9 @@ namespace Bot.Core.Tasks
             // Log final result if we didn't find the image
             if (bestConfidence > 0.0)
             {
-                logger.LogInfo($"{imageName} not found after {stopwatch.ElapsedMilliseconds/1000:F1}s - best confidence: {bestConfidence:F3} (threshold: {threshold:F3})");
+                LogImageNotFound(logger, imageName, stopwatch, bestConfidence, threshold);
             }
-            
+
             // Return the best confidence found even if no match
             return (false, Rectangle.Empty, 0.0);
         }
@@ -861,9 +913,9 @@ namespace Bot.Core.Tasks
         /// Wait for image to appear with unified template matching
         /// </summary>
         protected async Task<bool> WaitForImageAsync(
-            string imageName, 
-            int instanceNumber, 
-            LogService logger, 
+            string imageName,
+            int instanceNumber,
+            LogService logger,
             CancellationToken cancellationToken,
             int timeoutMs = 5000,
             double threshold = GameCoordinates.Thresholds.StandardConfidence,
@@ -871,85 +923,10 @@ namespace Bot.Core.Tasks
             Rectangle? searchArea = null,
             double[]? scales = null)
         {
-            if (_templateMatcher == null)
-            {
-                logger.LogError("CRITICAL: _templateMatcher is null. It should have been initialized before calling this method.");
-                return false;
-            }
-
-            logger.LogInfo($"Looking for {imageName}...");
-            var stopwatch = Stopwatch.StartNew();
-            var lastLogTime = DateTime.UtcNow;
-            double bestConfidence = 0.0;
-            const int LOG_INTERVAL_MS = 5000; // Log every 5 seconds
-
-            while (stopwatch.ElapsedMilliseconds < timeoutMs)
-            {
-                if (cancellationToken.IsCancellationRequested)
-                {
-                    logger.LogInfo($"Image search for '{imageName}' cancelled.");
-                    return false;
-                }
-
-                var screenshotBytes = await TakeScreenshotAsync(instanceNumber, logger);
-                if (screenshotBytes == null)
-                {
-                    logger.LogWarning($"Failed to get screenshot when looking for '{imageName}'. Retrying in {GameCoordinates.Delays.BetweenRetries}ms...");
-                    await Task.Delay(GameCoordinates.Delays.BetweenRetries, cancellationToken);
-                    continue;
-                }
-
-                string imagePath = Path.Combine(ImageTemplateFolder, imageName);
-                if (!File.Exists(imagePath))
-                {
-                    logger.LogError($"Image template not found: {imagePath}");
-                    return false;
-                }
-                
-                var result = _templateMatcher.MatchTemplate(
-                    screenshotBytes,
-                    imagePath,
-                    instanceNumber,
-                    threshold,
-                    useEnhancedMatching ? UnifiedTemplateMatchingService.StandardScales : scales,
-                    useEnhancedMatching,
-                    searchArea
-                );
-
-                if (result.found)
-                {
-                    logger.LogInfo($"{imageName} detected {result.confidence:F3} {result.matchRect.Location}");
-                    return true;
-                }
-                else
-                {
-                    // Track best confidence found
-                    bestConfidence = Math.Max(bestConfidence, result.confidence);
-                    
-                    // Log progress every 5 seconds
-                    if ((DateTime.UtcNow - lastLogTime).TotalMilliseconds >= LOG_INTERVAL_MS)
-                    {
-                        logger.LogInfo($"{imageName} not found after {stopwatch.ElapsedMilliseconds/1000:F1}s - best confidence: {bestConfidence:F3} (threshold: {threshold:F3})");
-                        lastLogTime = DateTime.UtcNow;
-                    }
-                }
-
-                // Wait before retrying, but not after the last attempt
-                if (stopwatch.ElapsedMilliseconds + GameCoordinates.Delays.BetweenRetries < timeoutMs)
-                {
-                    await Task.Delay(GameCoordinates.Delays.BetweenRetries, cancellationToken);
-                }
-            }
-
-            // Log final result if we didn't find the image
-            if (bestConfidence > 0.0)
-            {
-                logger.LogInfo($"{imageName} not found after {stopwatch.ElapsedMilliseconds/1000:F1}s - best confidence: {bestConfidence:F3} (threshold: {threshold:F3})");
-            }
-            
-            return false;
+            var (found, _, _) = await WaitForImageWithPositionAsync(imageName, instanceNumber, logger, cancellationToken, timeoutMs, threshold, useEnhancedMatching, searchArea, scales);
+            return found;
         }
-        
+
         /// <summary>
         /// Find and click image with unified template matching
         /// </summary>

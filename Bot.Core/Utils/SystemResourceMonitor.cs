@@ -131,9 +131,11 @@ namespace Bot.Core.Utils
                 OnMemoryThresholdExceeded?.Invoke(CurrentMemoryUsage);
             }
             
-            // Check overall system state
-            bool isCurrentlyOverloaded = IsSystemOverloaded;
-            
+            CheckOverloadTransition(IsSystemOverloaded);
+        }
+
+        private void CheckOverloadTransition(bool isCurrentlyOverloaded)
+        {
             if (isCurrentlyOverloaded && !_wasOverloaded)
             {
                 _logger.LogWarning($"🚨 System overloaded - CPU: {CurrentCpuUsage:F1}%, Memory: {CurrentMemoryUsage:F1}%");

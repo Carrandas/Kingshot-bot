@@ -105,28 +105,8 @@ namespace Bot.Core.Tasks.Modules
 
                 // Click hero button
                 var heroButtonArea = new Rectangle(155, 1173, 66, 76);
-                if (!await WaitForImageWithDebug("hero-button.png", account.InstanceNumber, logger, cancellationToken, TEMPLATE_TIMEOUT_MS))
-                {
-                    logger.LogError($"[{account.AccountName}] Error: Failed to find hero-button.png, calling locator module for recovery");
-                    var locator = new LocatorService(logger, account);
-                    try
-                    {
-                        await locator.EnsureViewAsync(ViewType.BaseView, account.InstanceNumber, cancellationToken);
-                        logger.LogInfo($"[{account.AccountName}] Locator service completed view recovery, retrying hero button detection");
-                        
-                        // Retry after locator service
-                        if (!await WaitForImageWithDebug("hero-button.png", account.InstanceNumber, logger, cancellationToken, TEMPLATE_TIMEOUT_MS))
-                        {
-                            logger.LogError($"[{account.AccountName}] Could not find hero button even after locator recovery");
-                            return TaskExecutionDetails.Failed("Could not find hero button after locator recovery");
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        logger.LogError($"[{account.AccountName}] Locator service failed: {ex.Message}");
-                        return TaskExecutionDetails.Failed("Could not find hero button");
-                    }
-                }
+                var heroFailure = await FindButtonWithRecoveryAsync("hero-button.png", "hero button", account, logger, cancellationToken);
+                if (heroFailure != null) return heroFailure;
 
                 if (!await ClickRandomInRectAsyncWithRetry(account.InstanceNumber, logger, heroButtonArea, cancellationToken))
                 {
@@ -136,28 +116,8 @@ namespace Bot.Core.Tasks.Modules
 
                 // Click recruit heroes button
                 var recruitButtonArea = new Rectangle(407, 1181, 252, 56);
-                if (!await WaitForImageWithDebug("recruit-heros-button.png", account.InstanceNumber, logger, cancellationToken, TEMPLATE_TIMEOUT_MS))
-                {
-                    logger.LogError($"[{account.AccountName}] Error: Failed to find recruit-heros-button.png, calling locator module for recovery");
-                    var locator = new LocatorService(logger, account);
-                    try
-                    {
-                        await locator.EnsureViewAsync(ViewType.BaseView, account.InstanceNumber, cancellationToken);
-                        logger.LogInfo($"[{account.AccountName}] Locator service completed view recovery, retrying recruit heroes button detection");
-                        
-                        // Retry after locator service
-                        if (!await WaitForImageWithDebug("recruit-heros-button.png", account.InstanceNumber, logger, cancellationToken, TEMPLATE_TIMEOUT_MS))
-                        {
-                            logger.LogError($"[{account.AccountName}] Could not find recruit heroes button even after locator recovery");
-                            return TaskExecutionDetails.Failed("Could not find recruit heroes button after locator recovery");
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        logger.LogError($"[{account.AccountName}] Locator service failed: {ex.Message}");
-                        return TaskExecutionDetails.Failed("Could not find recruit heroes button");
-                    }
-                }
+                var recruitFailure = await FindButtonWithRecoveryAsync("recruit-heros-button.png", "recruit heroes button", account, logger, cancellationToken);
+                if (recruitFailure != null) return recruitFailure;
 
                 if (!await ClickRandomInRectAsyncWithRetry(account.InstanceNumber, logger, recruitButtonArea, cancellationToken))
                 {
@@ -168,179 +128,14 @@ namespace Bot.Core.Tasks.Modules
                 // Keep claiming free heroes until no more are found
                 while (!cancellationToken.IsCancellationRequested)
                 {
-                    // Check both possible free button locations
-                    var freeButton1Area = new Rectangle(140, 824, 91, 55);
-                    var freeButton2Area = new Rectangle(145, 1192, 90, 47);
-                    
-                    var screenshot = await TakeScreenshotAsync(account.InstanceNumber, logger);
-                    if (screenshot == null)
-                    {
-                        logger.LogWarning("Failed to get screenshot when looking for free buttons");
-                        continue;
-                    }
-
-                    // Check first location
-                    var freeButton1Result = _templateMatcher.MatchTemplate(
-                        screenshot,
-                        Path.Combine(ImageTemplateFolder, "free-button.png"),
-                        account.InstanceNumber,
-                        threshold: 0.8,
-                        scales: null,
-                        searchArea: freeButton1Area
-                    );
-
-                    // Check second location
-                    var freeButton2Result = _templateMatcher.MatchTemplate(
-                        screenshot,
-                        Path.Combine(ImageTemplateFolder, "free-button.png"),
-                        account.InstanceNumber,
-                        threshold: 0.8,
-                        scales: null,
-                        searchArea: freeButton2Area
-                    );
-
-                    // If no free buttons found in either location, break the loop
-                    if (!freeButton1Result.found && !freeButton2Result.found)
-                    {
-                        logger.LogInfo($"No more free heroes to claim (best confidences - top: {freeButton1Result.confidence:F3}, bottom: {freeButton2Result.confidence:F3})");
-                        break;
-                    }
-
-                    // Click the first free button we find
-                    Rectangle? buttonToClick = null;
-                    if (freeButton1Result.found)
-                    {
-                        logger.LogInfo($"Found free button in top location with confidence {freeButton1Result.confidence:F3}");
-                        buttonToClick = freeButton1Area;
-                    }
-                    else if (freeButton2Result.found)
-                    {
-                        logger.LogInfo($"Found free button in bottom location with confidence {freeButton2Result.confidence:F3}");
-                        buttonToClick = freeButton2Area;
-                    }
-
-                    if (buttonToClick.HasValue)
-                    {
-                        await ClickRandomInRectAsyncWithRetry(account.InstanceNumber, logger, buttonToClick.Value, cancellationToken);
-                        
-                        // Wait for rewards image to appear
-                        var rewardsArea = new Rectangle(257, 212, 203, 66);
-                        DateTime startTime = DateTime.UtcNow;
-                        bool rewardsFound = false;
-
-                        while ((DateTime.UtcNow - startTime).TotalSeconds < 10 && !rewardsFound && !cancellationToken.IsCancellationRequested)
-                        {
-                            var rewardsScreenshot = await TakeScreenshotAsync(account.InstanceNumber, logger);
-                            if (rewardsScreenshot == null) continue;
-
-                            var rewardsResult = _templateMatcher.MatchTemplate(
-                                rewardsScreenshot,
-                                Path.Combine(ImageTemplateFolder, "rewards.png"),
-                                account.InstanceNumber,
-                                threshold: 0.8,
-                                scales: null,
-                                searchArea: rewardsArea
-                            );
-
-                            if (rewardsResult.found)
-                            {
-                                logger.LogInfo($"Found rewards image at {rewardsResult.matchRect} with confidence {rewardsResult.confidence:F3}");
-                                rewardsFound = true;
-                                // Add delay after finding rewards before looking for back arrow
-                                await Task.Delay(1000, cancellationToken);
-                                break;
-                            }
-
-                            await Task.Delay(200, cancellationToken);
-                        }
-
-                        if (!rewardsFound)
-                        {
-                            logger.LogWarning("Could not find rewards image after 10 seconds");
-                            continue;
-                        }
-
-                        // Look for and click back arrow (with 5 second timeout)
-                        bool backArrowFound = false;
-                        DateTime backArrowStartTime = DateTime.UtcNow;
-
-                        while ((DateTime.UtcNow - backArrowStartTime).TotalSeconds < 5 && !backArrowFound && !cancellationToken.IsCancellationRequested)
-                        {
-                            var backArrowScreenshot = await TakeScreenshotAsync(account.InstanceNumber, logger);
-                            if (backArrowScreenshot == null)
-                            {
-                                logger.LogWarning("Failed to get screenshot when looking for back arrow");
-                                await Task.Delay(200, cancellationToken);
-                                continue;
-                            }
-
-                            var backArrowResult = _templateMatcher.MatchTemplate(
-                                backArrowScreenshot,
-                                Path.Combine(ImageTemplateFolder, "back-arrow.png"),
-                                account.InstanceNumber,
-                                threshold: 0.8,
-                                scales: null,
-                                searchArea: null  // Search full screen
-                            );
-
-                            if (backArrowResult.found)
-                            {
-                                logger.LogInfo($"Found back arrow at {backArrowResult.matchRect} with confidence {backArrowResult.confidence:F3}");
-                                await ClickRandomInRectAsyncWithRetry(account.InstanceNumber, logger, backArrowResult.matchRect, cancellationToken);
-                                backArrowFound = true;
-                                await Task.Delay(1000, cancellationToken);
-                                break;
-                            }
-                            else
-                            {
-                                var timeSpent = (DateTime.UtcNow - backArrowStartTime).TotalSeconds;
-                                logger.LogInfo($"Back arrow not found yet (confidence: {backArrowResult.confidence:F3}), searching for {timeSpent:F1}/5.0 seconds");
-                                await Task.Delay(200, cancellationToken);
-                            }
-                        }
-
-                        if (!backArrowFound)
-                        {
-                            logger.LogWarning("Failed to find back arrow after 5 seconds of continuous checking");
-                        }
-                    }
+                    if (!await ClaimNextFreeHeroAsync(account, logger, cancellationToken)) break;
                 }
 
                 await ClaimRecruitRewardAsync(account, logger, cancellationToken);
 
                 // Return to base/map view
-                for (int i = 0; i < 2; i++)
-                {
-                    var backArrowScreenshot = await TakeScreenshotAsync(account.InstanceNumber, logger);
-                    if (backArrowScreenshot == null)
-                    {
-                        logger.LogWarning("Failed to get screenshot when looking for back arrow");
-                        return TaskExecutionDetails.Failed("Failed to get screenshot for back arrow");
-                    }
-
-                    var backArrowResult = _templateMatcher.MatchTemplate(
-                        backArrowScreenshot,
-                        Path.Combine(ImageTemplateFolder, "back-arrow.png"),
-                        account.InstanceNumber,
-                        threshold: 0.8,
-                        scales: null,
-                        searchArea: null  // Search full screen
-                    );
-
-                    if (!backArrowResult.found)
-                    {
-                        // a recruit result screen without the usual rewards banner can still be open; let the locator
-                        // (back buttons / blank taps) bring us home instead of leaving it for the next task
-                        logger.LogWarning("Could not find back button, using the locator to return to base");
-                        if (await new LocatorService(logger, account).EnsureViewAsync(ViewType.BaseView, account.InstanceNumber, cancellationToken))
-                            break;
-                        return TaskExecutionDetails.Failed("Could not find back button");
-                    }
-
-                    logger.LogInfo($"Found back arrow at {backArrowResult.matchRect} with confidence {backArrowResult.confidence:F3}");
-                    await ClickRandomInRectAsyncWithRetry(account.InstanceNumber, logger, backArrowResult.matchRect, cancellationToken);
-                    await Task.Delay(1000, cancellationToken);
-                }
+                var returnFailure = await ReturnToBaseAsync(account, logger, cancellationToken);
+                if (returnFailure != null) return returnFailure;
 
                 logger.LogInfo("Auto Claim Hero task completed successfully");
                 return TaskExecutionDetails.Succeeded();
@@ -350,6 +145,215 @@ namespace Bot.Core.Tasks.Modules
                 logger.LogError($"Error in Auto Claim Hero task: {ex.Message}");
                 return TaskExecutionDetails.Failed(ex.Message);
             }
+        }
+
+        /// <summary>Waits for the button's template; when it is missing, lets the locator bring the base view back and looks once more. Returns the failure, or null when the button is on screen.</summary>
+        private async Task<TaskExecutionDetails?> FindButtonWithRecoveryAsync(string imageName, string label, AccountSettings account, LogService logger, CancellationToken cancellationToken)
+        {
+            if (await WaitForImageWithDebug(imageName, account.InstanceNumber, logger, cancellationToken, TEMPLATE_TIMEOUT_MS))
+            {
+                return null;
+            }
+
+            logger.LogError($"[{account.AccountName}] Error: Failed to find {imageName}, calling locator module for recovery");
+            var locator = new LocatorService(logger, account);
+            try
+            {
+                await locator.EnsureViewAsync(ViewType.BaseView, account.InstanceNumber, cancellationToken);
+                logger.LogInfo($"[{account.AccountName}] Locator service completed view recovery, retrying {label} detection");
+
+                // Retry after locator service
+                if (!await WaitForImageWithDebug(imageName, account.InstanceNumber, logger, cancellationToken, TEMPLATE_TIMEOUT_MS))
+                {
+                    logger.LogError($"[{account.AccountName}] Could not find {label} even after locator recovery");
+                    return TaskExecutionDetails.Failed($"Could not find {label} after locator recovery");
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.LogError($"[{account.AccountName}] Locator service failed: {ex.Message}");
+                return TaskExecutionDetails.Failed($"Could not find {label}");
+            }
+            return null;
+        }
+
+        /// <summary>One pass of the free hero loop. False: no free hero is left, stop.</summary>
+        private async Task<bool> ClaimNextFreeHeroAsync(AccountSettings account, LogService logger, CancellationToken cancellationToken)
+        {
+            // Check both possible free button locations
+            var freeButton1Area = new Rectangle(140, 824, 91, 55);
+            var freeButton2Area = new Rectangle(145, 1192, 90, 47);
+
+            var screenshot = await TakeScreenshotAsync(account.InstanceNumber, logger);
+            if (screenshot == null)
+            {
+                logger.LogWarning("Failed to get screenshot when looking for free buttons");
+                return true;
+            }
+
+            // Check first location
+            var freeButton1Result = _templateMatcher.MatchTemplate(
+                screenshot,
+                Path.Combine(ImageTemplateFolder, "free-button.png"),
+                account.InstanceNumber,
+                threshold: 0.8,
+                scales: null,
+                searchArea: freeButton1Area
+            );
+
+            // Check second location
+            var freeButton2Result = _templateMatcher.MatchTemplate(
+                screenshot,
+                Path.Combine(ImageTemplateFolder, "free-button.png"),
+                account.InstanceNumber,
+                threshold: 0.8,
+                scales: null,
+                searchArea: freeButton2Area
+            );
+
+            // If no free buttons found in either location, stop the loop
+            if (!freeButton1Result.found && !freeButton2Result.found)
+            {
+                logger.LogInfo($"No more free heroes to claim (best confidences - top: {freeButton1Result.confidence:F3}, bottom: {freeButton2Result.confidence:F3})");
+                return false;
+            }
+
+            // Click the first free button we find
+            Rectangle buttonToClick;
+            if (freeButton1Result.found)
+            {
+                logger.LogInfo($"Found free button in top location with confidence {freeButton1Result.confidence:F3}");
+                buttonToClick = freeButton1Area;
+            }
+            else
+            {
+                logger.LogInfo($"Found free button in bottom location with confidence {freeButton2Result.confidence:F3}");
+                buttonToClick = freeButton2Area;
+            }
+
+            await ClickRandomInRectAsyncWithRetry(account.InstanceNumber, logger, buttonToClick, cancellationToken);
+
+            if (!await WaitForRewardsAsync(account, logger, cancellationToken))
+            {
+                logger.LogWarning("Could not find rewards image after 10 seconds");
+                return true;
+            }
+
+            if (!await ClickBackArrowAfterRewardsAsync(account, logger, cancellationToken))
+            {
+                logger.LogWarning("Failed to find back arrow after 5 seconds of continuous checking");
+            }
+            return true;
+        }
+
+        /// <summary>Wait for rewards image to appear</summary>
+        private async Task<bool> WaitForRewardsAsync(AccountSettings account, LogService logger, CancellationToken cancellationToken)
+        {
+            var rewardsArea = new Rectangle(257, 212, 203, 66);
+            DateTime startTime = DateTime.UtcNow;
+
+            while ((DateTime.UtcNow - startTime).TotalSeconds < 10 && !cancellationToken.IsCancellationRequested)
+            {
+                var rewardsScreenshot = await TakeScreenshotAsync(account.InstanceNumber, logger);
+                if (rewardsScreenshot == null) continue;
+
+                var rewardsResult = _templateMatcher.MatchTemplate(
+                    rewardsScreenshot,
+                    Path.Combine(ImageTemplateFolder, "rewards.png"),
+                    account.InstanceNumber,
+                    threshold: 0.8,
+                    scales: null,
+                    searchArea: rewardsArea
+                );
+
+                if (rewardsResult.found)
+                {
+                    logger.LogInfo($"Found rewards image at {rewardsResult.matchRect} with confidence {rewardsResult.confidence:F3}");
+                    // Add delay after finding rewards before looking for back arrow
+                    await Task.Delay(1000, cancellationToken);
+                    return true;
+                }
+
+                await Task.Delay(200, cancellationToken);
+            }
+            return false;
+        }
+
+        /// <summary>Look for and click back arrow (with 5 second timeout)</summary>
+        private async Task<bool> ClickBackArrowAfterRewardsAsync(AccountSettings account, LogService logger, CancellationToken cancellationToken)
+        {
+            DateTime backArrowStartTime = DateTime.UtcNow;
+
+            while ((DateTime.UtcNow - backArrowStartTime).TotalSeconds < 5 && !cancellationToken.IsCancellationRequested)
+            {
+                var backArrowScreenshot = await TakeScreenshotAsync(account.InstanceNumber, logger);
+                if (backArrowScreenshot == null)
+                {
+                    logger.LogWarning("Failed to get screenshot when looking for back arrow");
+                    await Task.Delay(200, cancellationToken);
+                    continue;
+                }
+
+                var backArrowResult = _templateMatcher.MatchTemplate(
+                    backArrowScreenshot,
+                    Path.Combine(ImageTemplateFolder, "back-arrow.png"),
+                    account.InstanceNumber,
+                    threshold: 0.8,
+                    scales: null,
+                    searchArea: null  // Search full screen
+                );
+
+                if (backArrowResult.found)
+                {
+                    logger.LogInfo($"Found back arrow at {backArrowResult.matchRect} with confidence {backArrowResult.confidence:F3}");
+                    await ClickRandomInRectAsyncWithRetry(account.InstanceNumber, logger, backArrowResult.matchRect, cancellationToken);
+                    await Task.Delay(1000, cancellationToken);
+                    return true;
+                }
+
+                var timeSpent = (DateTime.UtcNow - backArrowStartTime).TotalSeconds;
+                logger.LogInfo($"Back arrow not found yet (confidence: {backArrowResult.confidence:F3}), searching for {timeSpent:F1}/5.0 seconds");
+                await Task.Delay(200, cancellationToken);
+            }
+            return false;
+        }
+
+        /// <summary>Taps the back arrow twice to get back to the base/map view. Returns the failure, or null.</summary>
+        private async Task<TaskExecutionDetails?> ReturnToBaseAsync(AccountSettings account, LogService logger, CancellationToken cancellationToken)
+        {
+            for (int i = 0; i < 2; i++)
+            {
+                var backArrowScreenshot = await TakeScreenshotAsync(account.InstanceNumber, logger);
+                if (backArrowScreenshot == null)
+                {
+                    logger.LogWarning("Failed to get screenshot when looking for back arrow");
+                    return TaskExecutionDetails.Failed("Failed to get screenshot for back arrow");
+                }
+
+                var backArrowResult = _templateMatcher.MatchTemplate(
+                    backArrowScreenshot,
+                    Path.Combine(ImageTemplateFolder, "back-arrow.png"),
+                    account.InstanceNumber,
+                    threshold: 0.8,
+                    scales: null,
+                    searchArea: null  // Search full screen
+                );
+
+                if (!backArrowResult.found)
+                {
+                    // a recruit result screen without the usual rewards banner can still be open; let the locator
+                    // (back buttons / blank taps) bring us home instead of leaving it for the next task
+                    logger.LogWarning("Could not find back button, using the locator to return to base");
+                    if (await new LocatorService(logger, account).EnsureViewAsync(ViewType.BaseView, account.InstanceNumber, cancellationToken))
+                        return null;
+                    return TaskExecutionDetails.Failed("Could not find back button");
+                }
+
+                logger.LogInfo($"Found back arrow at {backArrowResult.matchRect} with confidence {backArrowResult.confidence:F3}");
+                await ClickRandomInRectAsyncWithRetry(account.InstanceNumber, logger, backArrowResult.matchRect, cancellationToken);
+                await Task.Delay(1000, cancellationToken);
+            }
+            return null;
         }
 
         private async Task ClaimRecruitRewardAsync(AccountSettings account, LogService logger, CancellationToken cancellationToken)

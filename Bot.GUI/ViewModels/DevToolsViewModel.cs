@@ -291,19 +291,8 @@ namespace Bot.GUI.ViewModels
             }
         }
 
-        private async Task TestTemplate()
-        {
-            var openDialog = new WPFOpenFileDialog
-            {
-                Filter = "PNG Image|*.png",
-                InitialDirectory = DefaultSaveLocation
-            };
-
-            if (openDialog.ShowDialog() == true)
-            {
-                await TestTemplateMatch(openDialog.FileName);
-            }
-        }
+        // Same flow as LoadTemplate: pick a PNG, then run the match
+        private Task TestTemplate() => LoadTemplate();
 
         private async Task TestTemplateMatch(string templatePath)
         {
