@@ -244,6 +244,14 @@ namespace Bot.Core.Tasks
         {
             try
             {
+                // switched off on the Bot tab while the cycle's task list was already running: a skip, not a red failure.
+                // Change Account runs whatever its switch says (a single run on a character uses it to switch)
+                if (!SystemTasks.Contains(TaskType) && TaskType != TaskType.ChangeAccount
+                    && !account.EnabledTasks.Contains(TaskType) && !RunByHand.Value)
+                {
+                    return TaskExecutionDetails.SkippedBecause("Switched off");
+                }
+
                 if (!await CanExecuteAsync(account, logger, cancellationToken))
                 {
                     return TaskExecutionDetails.Failed("Task cannot execute");
@@ -299,11 +307,12 @@ namespace Bot.Core.Tasks
         /// <summary>Set by TaskManager.RunSingleTaskAsync: the ▶ button runs a task even when its switch is off.</summary>
         public static readonly AsyncLocal<bool> RunByHand = new AsyncLocal<bool>();
 
+        private static readonly TaskType[] SystemTasks = { TaskType.Startup, TaskType.Recovery, TaskType.AccountDetection };
+
         public virtual async Task<bool> CanExecuteAsync(AccountSettings account, LogService logger, CancellationToken cancellationToken = default)
         {
             // System tasks should always be able to execute
-            var systemTasks = new[] { TaskType.Startup, TaskType.Recovery, TaskType.AccountDetection };
-            if (systemTasks.Contains(TaskType))
+            if (SystemTasks.Contains(TaskType))
             {
                 return await IsInstanceRunningAsync(account.InstanceNumber, logger, cancellationToken);
             }

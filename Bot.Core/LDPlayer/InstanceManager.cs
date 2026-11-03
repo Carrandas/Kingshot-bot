@@ -480,12 +480,20 @@ namespace Bot.Core.LDPlayer
 
         private sealed class BootWaitState
         {
+            /// <summary>A wait inside another one's recovery (RecoverAsync): it only polls, the outer wait recovers</summary>
+            public bool Nested;
             public DateTime StartTime = DateTime.UtcNow;
             public bool RecoveryAttempted;
             public bool ServerRecoveryAttempted;
             public int RebootAttempts;
             public int AdbRetryCount;
         }
+
+        /// <summary>
+        /// Set inside a boot wait. Its recovery used to call StartInstanceAsync/RecoverAsync, whose own boot wait
+        /// rebooted again with a fresh counter: "reboot cycle (1/3)" 64 times over 3 hours on 2026-11-02.
+        /// </summary>
+        private static readonly AsyncLocal<bool> InBootWait = new AsyncLocal<bool>();
 
         // MAX_ADB_RETRIES removed as we now use a more aggressive approach with earlier recovery
         private const int MAX_REBOOT_ATTEMPTS = 3;
@@ -497,7 +505,8 @@ namespace Bot.Core.LDPlayer
         public async Task<bool> WaitUntilFullyBootedAsync(int instanceNumber, CancellationToken cancellationToken, int timeoutSeconds = 120)
         {
             _logger.LogInfo($"[BootWait] Waiting for instance {instanceNumber} to fully boot...");
-            var state = new BootWaitState();
+            var state = new BootWaitState { Nested = InBootWait.Value };
+            InBootWait.Value = true;   // flows into the awaited calls only; the caller's value is untouched
             var maxWaitTime = TimeSpan.FromSeconds(timeoutSeconds);
 
             while (DateTime.UtcNow - state.StartTime < maxWaitTime)
@@ -598,6 +607,12 @@ namespace Bot.Core.LDPlayer
             // Log more detailed info about ADB connection attempts
             _logger.LogWarning($"[BootWait] Instance {instanceNumber} not yet responsive to ADB (attempt {state.AdbRetryCount}), waiting... (Elapsed: {elapsedTime.TotalMinutes:F1} minutes)");
 
+            if (state.Nested)
+            {
+                await Task.Delay(5000, cancellationToken);
+                return;
+            }
+
             // Try ADB server recovery earlier and more aggressively for offline devices
             if (state.AdbRetryCount >= 2 && !state.ServerRecoveryAttempted) // Reduced from MAX_ADB_RETRIES (3) to 2
             {
@@ -616,8 +631,9 @@ namespace Bot.Core.LDPlayer
                 await StopInstanceAsync(instanceNumber, cancellationToken);
                 await Task.Delay(5000, cancellationToken);
 
-                // Start it again
-                await StartInstanceAsync(instanceNumber, cancellationToken);
+                // Start it again; this loop does the waiting (StartInstanceAsync would start a boot wait of its own)
+                await ModifyInstanceSettingsAsync(instanceNumber, cancellationToken);
+                await RunLdConsoleCommandAsync($"launch --index \"{instanceNumber}\"", cancellationToken);
 
                 // Reset flags for the new boot attempt
                 state.RecoveryAttempted = false;

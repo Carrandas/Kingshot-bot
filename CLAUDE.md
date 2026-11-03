@@ -108,6 +108,7 @@ data/                 # next to the exe, created at runtime: daily_gates.json, t
 
 ## Gotchas
 - **Native deps via Git LFS**: the Tesseract/Leptonica DLLs (`runtimes/`) are Git LFS objects. Run `git lfs install` before cloning (or `git lfs pull` after) or OCR will fail at runtime.
+- **"Device emulator-5554 not found" while LDPlayer shows Android**: LDPlayer's ADB debugging is off (`"basicSettings.adbDebug": 1` missing from `vms/config/leidian0.config`), so the emulator opens no adb port. `AdbRecoveryService` switches it back on; by hand: LDPlayer Settings > Other settings > ADB debugging > Open local connection.
 - **StaticResourceExtension error**: Check for duplicate converters between App.xaml and views.
 - **Version**: Pass `-p:Version=x.x.x` to the build (single source of truth).
 - **Debug vs Release**: Debug allocates a console for log output.

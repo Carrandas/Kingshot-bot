@@ -1,7 +1,10 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
 using Bot.Core.Logging;
@@ -36,14 +39,14 @@ namespace Bot.Core.LDPlayer
             {
                 // Strategy 1: Kill all adb processes and restart
                 (() => RestartADBServerAsync(cancellationToken), "ADB server restarted successfully"),
-                // Strategy 2: Restart the LDPlayer instance
+                // Strategy 2: Switch LDPlayer's ADB debugging back on (only when it was off)
+                (() => EnableADBInSettingsAsync(instanceNumber, cancellationToken), "ADB debugging switched on in the LDPlayer settings"),
+                // Strategy 3: Restart the LDPlayer instance
                 (() => RestartInstanceAsync(instanceNumber, cancellationToken), $"Instance {instanceNumber} restarted"),
-                // Strategy 3: Fix port conflicts
-                (() => FixPortConflictsAsync(instanceNumber, cancellationToken), "Port conflicts resolved"),
-                // Strategy 4: Reset ADB keys
+                // Strategy 4: Report another program on the adb port (never killed: it could be anything of the user's)
+                (() => ReportPortConflictsAsync(instanceNumber, cancellationToken), "Port conflict reported"),
+                // Strategy 5: Reset ADB keys
                 (() => ResetADBKeysAsync(cancellationToken), "ADB keys reset"),
-                // Strategy 5: Enable ADB in LDPlayer settings
-                (() => EnableADBInSettingsAsync(instanceNumber, cancellationToken), "ADB enabled in LDPlayer settings"),
             };
 
             foreach (var (attempt, successMessage) in strategies)
@@ -154,63 +157,75 @@ namespace Bot.Core.LDPlayer
             return false;
         }
         
-        private async Task<bool> FixPortConflictsAsync(int instanceNumber, CancellationToken cancellationToken)
+        /// <summary>
+        /// Logs a program other than the emulator listening on the instance's adb port (5555 for instance 0).
+        /// It used to kill every process on a netstat line containing ":5554", which matched any port starting
+        /// with 5554 and took down Overwolf and dnplayer itself. Always false: nothing was changed to retest.
+        /// </summary>
+        private async Task<bool> ReportPortConflictsAsync(int instanceNumber, CancellationToken cancellationToken)
         {
             try
             {
-                var port = 5554 + (instanceNumber * 2);
-
-                // Kill processes using the port
+                var port = 5555 + (instanceNumber * 2);
                 var netstatInfo = new ProcessStartInfo
                 {
-                    FileName = Path.Combine(Environment.SystemDirectory, "cmd.exe"),
-                    Arguments = $"/c netstat -ano | findstr :{port}",
+                    FileName = Path.Combine(Environment.SystemDirectory, "netstat.exe"),
+                    Arguments = "-ano -p TCP",
                     UseShellExecute = false,
                     RedirectStandardOutput = true,
                     CreateNoWindow = true
                 };
 
                 using var process = Process.Start(netstatInfo);
-                if (process != null)
+                if (process == null) return false;
+                var output = await process.StandardOutput.ReadToEndAsync(cancellationToken);
+                await process.WaitForExitAsync(cancellationToken);
+
+                foreach (var pid in ListeningPids(output, port).Distinct())
                 {
-                    var output = await process.StandardOutput.ReadToEndAsync(cancellationToken);
-                    await process.WaitForExitAsync(cancellationToken);
-
-                    // Parse PIDs and kill conflicting processes
-                    foreach (var line in output.Split('\n'))
-                    {
-                        KillConflictingProcess(line, port);
-                    }
+                    string name = ProcessName(pid);
+                    if (!IsEmulatorProcess(name))
+                        _logger.LogWarning($"[ADBRecovery] {name} (PID {pid}) listens on the adb port {port}; close it if adb keeps failing", category: LogCategories.ADB);
                 }
-
-                return true;
             }
             catch (Exception ex)
             {
-                _logger.LogError($"[ADBRecovery] Failed to fix port conflicts: {ex.Message}", category: LogCategories.ADB);
+                _logger.LogError($"[ADBRecovery] Failed to check port conflicts: {ex.Message}", category: LogCategories.ADB);
             }
 
             return false;
         }
 
-        private void KillConflictingProcess(string netstatLine, int port)
+        /// <summary>PIDs of the netstat -ano lines "TCP 127.0.0.1:5555 0.0.0.0:0 LISTENING 1234" for exactly this local port.</summary>
+        internal static IEnumerable<int> ListeningPids(string netstatOutput, int port)
         {
-            var parts = netstatLine.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
-            if (parts.Length <= 4 || !int.TryParse(parts[^1], out int pid))
+            foreach (var line in netstatOutput.Split('\n'))
             {
-                return;
+                var parts = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                if (parts.Length == 5 && parts[3] == "LISTENING"
+                    && parts[1].EndsWith($":{port}", StringComparison.Ordinal)
+                    && int.TryParse(parts[4], out int pid))
+                    yield return pid;
             }
+        }
 
+        internal static bool IsEmulatorProcess(string name) =>
+            name.StartsWith("Ld", StringComparison.OrdinalIgnoreCase)
+            || name.StartsWith("dnplayer", StringComparison.OrdinalIgnoreCase)
+            || name.StartsWith("VBox", StringComparison.OrdinalIgnoreCase)
+            || name.Equals("adb", StringComparison.OrdinalIgnoreCase);
+
+        private static string ProcessName(int pid)
+        {
             try
             {
-                var conflictingProcess = Process.GetProcessById(pid);
-                if (!conflictingProcess.ProcessName.Contains("LDPlayer", StringComparison.OrdinalIgnoreCase))
-                {
-                    conflictingProcess.Kill();
-                    _logger.LogInfo($"[ADBRecovery] Killed process {conflictingProcess.ProcessName} using port {port}", category: LogCategories.ADB);
-                }
+                using var process = Process.GetProcessById(pid);
+                return process.ProcessName;
             }
-            catch { /* the process already exited or can't be killed: the port check below decides */ }
+            catch (ArgumentException)
+            {
+                return "an exited process";
+            }
         }
 
         private async Task<bool> ResetADBKeysAsync(CancellationToken cancellationToken)
@@ -243,34 +258,59 @@ namespace Bot.Core.LDPlayer
             return false;
         }
         
+        /// <summary>
+        /// LDPlayer's Settings > Other settings > ADB debugging lives in vms/config/leidian{N}.config as
+        /// "basicSettings.adbDebug" (1 = open local connection). Without it the emulator opens no adb port at all
+        /// (seen 2026-11-02, when the instance config had been reset). ldconsole has no switch for it, so the
+        /// instance is stopped, the key written, and the instance started again. False when it was already on.
+        /// </summary>
         private async Task<bool> EnableADBInSettingsAsync(int instanceNumber, CancellationToken cancellationToken)
         {
             try
             {
-                // Use ldconsole to enable ADB debugging
-                var enableInfo = new ProcessStartInfo
-                {
-                    FileName = _ldConsolePath,
-                    Arguments = $"globalsetting --index {instanceNumber} --enable_adb 1",
-                    UseShellExecute = false,
-                    CreateNoWindow = true
-                };
-                
-                using var process = Process.Start(enableInfo);
-                if (process != null)
-                {
-                    await process.WaitForExitAsync(cancellationToken);
-                    
-                    // Restart instance for settings to take effect
-                    return await RestartInstanceAsync(instanceNumber, cancellationToken);
-                }
+                var configPath = Path.Combine(Path.GetDirectoryName(_ldConsolePath) ?? "", "vms", "config", $"leidian{instanceNumber}.config");
+                if (!File.Exists(configPath) || AdbDebugEnabled(await File.ReadAllTextAsync(configPath, cancellationToken)))
+                    return false;
+
+                _logger.LogWarning($"[ADBRecovery] ADB debugging is off in {configPath}; switching it on", category: LogCategories.ADB);
+                await RunLdConsoleAsync($"quit --index {instanceNumber}", cancellationToken);
+                await Task.Delay(5000, cancellationToken);   // LDPlayer saves the config as it closes
+                var config = await File.ReadAllTextAsync(configPath, cancellationToken);
+                await File.WriteAllTextAsync(configPath, WithAdbDebugEnabled(config), cancellationToken);
+                await RunLdConsoleAsync($"launch --index {instanceNumber}", cancellationToken);
+                await Task.Delay(15000, cancellationToken);
+                return true;
             }
             catch (Exception ex)
             {
                 _logger.LogError($"[ADBRecovery] Failed to enable ADB in settings: {ex.Message}", category: LogCategories.ADB);
             }
-            
+
             return false;
+        }
+
+        internal static bool AdbDebugEnabled(string configJson) =>
+            JsonNode.Parse(configJson)?[AdbDebugKey]?.GetValue<int>() is int value && value != 0;
+
+        internal static string WithAdbDebugEnabled(string configJson)
+        {
+            var config = JsonNode.Parse(configJson)?.AsObject() ?? new JsonObject();
+            config[AdbDebugKey] = 1;
+            return config.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
+        }
+
+        private const string AdbDebugKey = "basicSettings.adbDebug";
+
+        private async Task RunLdConsoleAsync(string arguments, CancellationToken cancellationToken)
+        {
+            using var process = Process.Start(new ProcessStartInfo
+            {
+                FileName = _ldConsolePath,
+                Arguments = arguments,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            });
+            if (process != null) await process.WaitForExitAsync(cancellationToken);
         }
         
         private async Task<bool> TestConnectionAsync(int instanceNumber, CancellationToken cancellationToken)

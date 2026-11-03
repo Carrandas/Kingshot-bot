@@ -14,19 +14,30 @@ namespace Bot.Core.Tests
         [TestCase("21.4M", 21_400_000L)]
         [TestCase("7.2M", 7_200_000L)]
         [TestCase("166,500", 166_500L)]
+        [TestCase("60000", 60_000L)]       // the cut-off 5th row loses its comma
         [TestCase("850K", 850_000L)]
         [TestCase("1.2B", 1_200_000_000L)]
         [TestCase("12,9M", 12_900_000L)]
-        [TestCase("95M", 9_500_000L)]      // the OCR dropped the dot of 9.5M
-        [TestCase("1013M", 101_300_000L)]
         public void ParsePower_ReadsTheShownValue(string text, long expected)
         {
             Assert.That(ArenaTask.ParsePower(text), Is.EqualTo(expected));
         }
 
+        // glyphs left to right, true = a dot or comma in the image
+        [TestCase("214M", new[] { false, false, true, false, false }, "21.4M")]
+        [TestCase("21.4M", new[] { false, false, true, false, false }, "21.4M")]
+        [TestCase("166500", new[] { false, false, false, true, false, false, false }, "166,500")]
+        [TestCase("27M", new[] { false, false, true, false, false }, "27M")]   // a glyph lost: left as read
+        public void PlaceSeparators_FromTheImage(string read, bool[] separators, string expected)
+        {
+            Assert.That(ArenaTask.PlaceSeparators(read, separators), Is.EqualTo(expected));
+        }
+
         [TestCase("")]
         [TestCase("M")]
         [TestCase("21.4X")]
+        [TestCase("29.")]      // 29.xM with the M cut off: picked as the weakest and lost
+        [TestCase("29")]
         public void ParsePower_RejectsOtherText(string text)
         {
             Assert.That(ArenaTask.ParsePower(text), Is.Null);

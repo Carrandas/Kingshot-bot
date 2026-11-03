@@ -44,8 +44,8 @@ namespace Bot.Core.Tasks.Modules
         private static readonly Rectangle FreeRefreshArea = new Rectangle(200, 1000, 320, 100);
         private static readonly Rectangle TapToExitArea = new Rectangle(200, 1190, 320, 70);
         private static readonly Rectangle VictoryArea = new Rectangle(180, 320, 360, 120);
-        // "Daily challenges: N", up to the + button at x 450. The whole line: a lone digit doesn't read, and the colon alone reads as a "1"
-        private static readonly Rectangle ChallengesLeftArea = new Rectangle(200, 950, 248, 40);
+        // "Daily challenges: N", up to the + button at x 446. The whole line: a lone digit doesn't read, and the colon alone reads as a "1"
+        private static readonly Rectangle ChallengesLeftArea = new Rectangle(200, 950, 242, 40);
         private static readonly System.Drawing.Point DailyTabPoint = new System.Drawing.Point(370, 268);
         private static readonly System.Drawing.Point BackPoint = new System.Drawing.Point(48, 40);
         private static readonly System.Drawing.Point ChallengePoint = new System.Drawing.Point(360, 1215);
@@ -57,6 +57,14 @@ namespace Bot.Core.Tasks.Modules
         // Challenge List rows: swords button at x 624, rows 133 px apart; the power value sits left of the points
         private const int FirstRowY = 360, RowStep = 133, Rows = 5, SwordsX = 624;
         private const int PowerX = 180, PowerWidth = 105, PowerHalfHeight = 18;
+        private const int NpcPowerDy = 30;               // NPC rows: power at y 390 instead of 360
+        private const int MinPowerPixels = 150;          // coloured pixels: a power value 595-1085, a name or empty spot 0
+        private const int ListBottomY = 930;
+        private static readonly (float Scale, Tesseract.PageSegMode Psm)[] PowerOcrModes =
+        {
+            (3, Tesseract.PageSegMode.SingleLine), (4, Tesseract.PageSegMode.SingleLine), (2, Tesseract.PageSegMode.SingleLine)
+        };
+        private const int GlyphGap = 8, MinGlyphPixels = 3;   // gaps of 6 and 10 read all test screenshots, 3 not; a dot is 16 px
         private const int PanelRowTitleDx = 180;
         private const int MaxChallenges = 10;            // 5 a day; a cap in case the count can't be read down
         private const int BattleTimeoutSeconds = 120;
@@ -310,31 +318,118 @@ namespace Bot.Core.Tasks.Modules
         {
             var opponents = new List<Opponent>();
             using var image = Cv2.ImDecode(screenshot, ImreadModes.Color);
-            using var ocr = new OcrService(logger, new OcrConfiguration
+            var ocrs = PowerOcrModes.Select(mode => new OcrService(logger, new OcrConfiguration
             {
-                ScaleFactor = 3,
+                ScaleFactor = mode.Scale,
                 CharacterWhitelist = "0123456789.,KMB",
-                PageSegMode = Tesseract.PageSegMode.SingleLine
-            });
-            for (int row = 0; row < Rows; row++)
+                PageSegMode = mode.Psm
+            })).ToList();
+            try
             {
-                var rect = new Rect(PowerX, FirstRowY + row * RowStep - PowerHalfHeight, PowerWidth, 2 * PowerHalfHeight);
-                using var region = new Mat(image, rect);
-                using var hsv = region.CvtColor(ColorConversionCodes.BGR2HSV);
-                using var text = hsv.InRange(new Scalar(0, 110, 110), new Scalar(180, 255, 255));  // the coloured digits; the beige box is pale
-                using var green = hsv.InRange(new Scalar(60, 110, 110), new Scalar(90, 255, 255));  // hue 76; red is hue 0
-                bool weaker = Cv2.CountNonZero(green) * 2 > Cv2.CountNonZero(text);
-
-                using var bgr = text.CvtColor(ColorConversionCodes.GRAY2BGR);
-                string read = (ocr.ExtractTextFromScreenArea(bgr.ToBytes(".png"), new Rectangle(0, 0, rect.Width, rect.Height)) ?? "").Trim();
-                opponents.Add(new Opponent(row, read, ParsePower(read), weaker));
+                for (int row = 0; row < Rows; row++)
+                    opponents.Add(ReadOpponent(image, row, ocrs));
+            }
+            finally
+            {
+                ocrs.ForEach(ocr => ocr.Dispose());
             }
             return opponents;
         }
 
+        private static Opponent ReadOpponent(Mat image, int row, List<OcrService> ocrs)
+        {
+            int y = FirstRowY + row * RowStep;
+            using var hsv = PowerBoxHsv(image, y);
+            using var text = ColouredText(hsv);
+            if (Cv2.CountNonZero(text) < MinPowerPixels)
+            {
+                // NPC opponents ("Common Guardsman") have no server line: the power sits a line lower
+                using var lower = PowerBoxHsv(image, y + NpcPowerDy);
+                using var lowerText = ColouredText(lower);
+                if (Cv2.CountNonZero(lowerText) > Cv2.CountNonZero(text))
+                {
+                    lower.CopyTo(hsv);
+                    lowerText.CopyTo(text);
+                }
+            }
+            using var green = hsv.InRange(new Scalar(60, 110, 110), new Scalar(90, 255, 255));  // hue 76; red is hue 0
+            bool weaker = Cv2.CountNonZero(green) * 2 > Cv2.CountNonZero(text);
+
+            using var spread = SpreadGlyphs(text, out bool[] separators);
+            using var bgr = spread.CvtColor(ColorConversionCodes.GRAY2BGR);
+            byte[] png = bgr.ToBytes(".png");
+            string read = "";
+            foreach (var ocr in ocrs)
+            {
+                // another scale when a read doesn't parse
+                read = PlaceSeparators((ocr.ExtractTextFromScreenArea(png, new Rectangle(0, 0, spread.Width, spread.Height)) ?? "").Trim(), separators);
+                var power = ParsePower(read);
+                if (power != null) return new Opponent(row, read, power, weaker);
+            }
+            return new Opponent(row, read, null, weaker);
+        }
+
+        /// <summary>
+        /// The glyphs of the mask redrawn with a gap between each: the font sets "1", "." and "M" so tight that
+        /// Tesseract read "27.1M" as "27." or "27M". separators: per glyph, left to right, whether it is a dot or comma.
+        /// </summary>
+        internal static Mat SpreadGlyphs(Mat mask, out bool[] separators)
+        {
+            using var labels = new Mat();
+            using var stats = new Mat();
+            using var centroids = new Mat();
+            int count = Cv2.ConnectedComponentsWithStats(mask, labels, stats, centroids, PixelConnectivity.Connectivity4);
+            var glyphs = Enumerable.Range(1, count - 1)
+                .Select(i => (Label: i, Box: new Rect(stats.At<int>(i, 0), stats.At<int>(i, 1), stats.At<int>(i, 2), stats.At<int>(i, 3))))
+                .Where(g => stats.At<int>(g.Label, 4) >= MinGlyphPixels)
+                .OrderBy(g => g.Box.X)
+                .ToList();
+            int tallest = glyphs.Count == 0 ? 0 : glyphs.Max(g => g.Box.Height);
+            separators = glyphs.Select(g => g.Box.Height * 2 < tallest).ToArray();   // a dot is 5 px high, a digit 19
+
+            var spread = new Mat(mask.Rows, glyphs.Sum(g => g.Box.Width) + GlyphGap * (glyphs.Count + 1), MatType.CV_8UC1, Scalar.Black);
+            int x = GlyphGap;
+            foreach (var (label, box) in glyphs)
+            {
+                using var glyph = new Mat();
+                Cv2.Compare(labels, label, glyph, CmpTypes.EQ);
+                using var source = new Mat(glyph, box);
+                using var target = new Mat(spread, new Rect(x, box.Y, box.Width, box.Height));
+                source.CopyTo(target);
+                x += box.Width + GlyphGap;
+            }
+            return spread;
+        }
+
+        /// <summary>
+        /// Tesseract skips a lone dot ("214M" for 21.4M). When it read one character per glyph that isn't a dot or
+        /// comma, the separators go back where the image has them: a decimal dot before a K/M/B, else a thousands comma.
+        /// </summary>
+        internal static string PlaceSeparators(string read, bool[] separators)
+        {
+            string chars = new string(read.Where(c => c != '.' && c != ',' && c != ' ').ToArray());
+            if (chars.Length == 0 || chars.Length != separators.Count(s => !s)) return read;
+            char separator = char.IsLetter(chars[^1]) ? '.' : ',';
+            int next = 0;
+            return string.Concat(separators.Select(s => s ? separator : chars[next++]));
+        }
+
+        /// <summary>The power box centred on y, cut off at the bottom of the list (the 5th row is half hidden).</summary>
+        private static Mat PowerBoxHsv(Mat image, int y)
+        {
+            int top = y - PowerHalfHeight;
+            int height = Math.Min(2 * PowerHalfHeight, ListBottomY - top);
+            using var region = new Mat(image, new Rect(PowerX, top, PowerWidth, height));
+            return region.CvtColor(ColorConversionCodes.BGR2HSV);
+        }
+
+        /// <summary>The coloured digits (green or red) in white on black; the beige box and the grey names are pale.</summary>
+        private static Mat ColouredText(Mat hsv) => hsv.InRange(new Scalar(0, 110, 110), new Scalar(180, 255, 255));
+
         /// <summary>
         /// "21.4M" = 21,400,000, "166,500" = 166,500, "850K", "1.2B"; null when it doesn't read as a power.
-        /// M and B values always show one decimal, so a dot the OCR dropped ("95M" for 9.5M) is put back.
+        /// A dot the OCR dropped is put back from the image (<see cref="PlaceSeparators"/>), not guessed here:
+        /// guessing turned "27M" (27.1M with the 1 lost) into 2.7M, the weakest opponent on the list.
         /// </summary>
         internal static long? ParsePower(string text)
         {
@@ -342,18 +437,14 @@ namespace Bot.Core.Tasks.Modules
             if (!match.Success) return null;
             string number = match.Groups[1].Value;
             string suffix = match.Groups[2].Value;
+            // "29." is a cut-off 29.xM: without a suffix only thousands are a power, grouped ("166,500") or with the comma lost ("60000")
+            if (suffix.Length == 0 && !Regex.IsMatch(number, @"^(\d{1,3}([.,]\d{3})+|\d{4,})$", RegexOptions.None, RegexTimeouts.Default)) return null;
             double multiplier = suffix switch { "K" => 1e3, "M" => 1e6, "B" => 1e9, _ => 1 };
-            return double.TryParse(DecimalNumber(number, suffix), NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var value)
+            // without a suffix the separators are thousands; with one, the decimal point
+            number = suffix.Length == 0 ? number.Replace(",", "").Replace(".", "") : number.Replace(",", ".");
+            return double.TryParse(number, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var value)
                 ? (long)Math.Round(value * multiplier)
                 : null;
-        }
-
-        private static string DecimalNumber(string number, string suffix)
-        {
-            if (suffix.Length == 0) return number.Replace(",", "").Replace(".", "");  // thousands separators
-            number = number.Replace(",", ".");
-            bool droppedDot = suffix is "M" or "B" && !number.Contains('.') && number.Length >= 2;
-            return droppedDot ? number[..^1] + "." + number[^1..] : number;
         }
 
         private async Task<int?> ReadChallengesLeftAsync(int instance, LogService logger)
@@ -377,7 +468,8 @@ namespace Bot.Core.Tasks.Modules
                 PageSegMode = Tesseract.PageSegMode.SingleLine
             });
             string read = ocr.ExtractTextFromScreenArea(bgr.ToBytes(".png"), new Rectangle(0, 0, ChallengesLeftArea.Width, ChallengesLeftArea.Height)) ?? "";
-            var match = Regex.Match(read, @":\s*(\d{1,2})\s*$", RegexOptions.None, RegexTimeouts.Default);
+            // a letter after the number is the + button's edge ("Dailychallenges:1 l")
+            var match = Regex.Match(read, @":\s*(\d{1,2})(?!\d)[^\d]*$", RegexOptions.None, RegexTimeouts.Default);
             return match.Success ? int.Parse(match.Groups[1].Value, CultureInfo.InvariantCulture) : null;
         }
 
