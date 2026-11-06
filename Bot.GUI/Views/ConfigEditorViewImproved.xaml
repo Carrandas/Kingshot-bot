@@ -644,65 +644,6 @@
                                             </StackPanel>
                                         </Border>
 
-                                        <!-- Auto Rally Settings -->
-                                        <Border Style="{StaticResource CardStyle}"
-                                                Visibility="{Binding SelectedAccount.EnabledTasks, 
-                                                            Converter={StaticResource TaskTypeToVisibilityConverter}, 
-                                                            ConverterParameter=AutoRally}">
-                                            <StackPanel>
-                                                <Grid Margin="0,0,0,10">
-                                                    <TextBlock Text="Auto Rally" FontWeight="SemiBold" HorizontalAlignment="Left"/>
-                                                    <Button Content="Apply to All" 
-                                                            HorizontalAlignment="Right"
-                                                            Padding="8,4"
-                                                            FontSize="11"
-                                                            Background="#FF007ACC"
-                                                            Foreground="White"
-                                                            BorderThickness="0"
-                                                            Command="{Binding ApplyAutoRallySettingsToAllCommand}"
-                                                            ToolTip="Apply these Auto Rally settings to all accounts"/>
-                                                </Grid>
-                                                <CheckBox Content="Auto Join" 
-                                                          IsChecked="{Binding SelectedAccount.AutoRallySettings.AutoJoin}"
-                                                          Margin="0,0,0,10"
-                                                          ToolTip="When enabled, the bot will automatically enable the in-game auto-join rally feature. This allows the game to automatically join rallies without manual intervention."/>
-                                                
-                                                <!-- Auto Join Timer Configuration -->
-                                                <StackPanel Orientation="Horizontal" Margin="20,0,0,10"
-                                                           IsEnabled="{Binding SelectedAccount.AutoRallySettings.AutoJoin}">
-                                                    <TextBlock Text="Minimum Timer (hours):" 
-                                                              VerticalAlignment="Center" 
-                                                              Margin="0,0,10,0"
-                                                              Foreground="#FFB0B0B0"/>
-                                                    <TextBox Text="{Binding SelectedAccount.AutoRallySettings.AutoJoinMinHours, UpdateSourceTrigger=PropertyChanged}"
-                                                            Width="60"
-                                                            VerticalAlignment="Center"
-                                                            ToolTip="If the existing auto-join timer is below this threshold, the bot will restart auto-join to get a fresh timer. Default: 3.0 hours"/>
-                                                    <TextBlock Text="hrs" 
-                                                              VerticalAlignment="Center" 
-                                                              Margin="5,0,0,0"
-                                                              Foreground="#FFB0B0B0"/>
-                                                </StackPanel>
-                                                
-                                                <!-- Auto Join Check Interval Configuration -->
-                                                <StackPanel Orientation="Horizontal" Margin="20,0,0,10"
-                                                           IsEnabled="{Binding SelectedAccount.AutoRallySettings.AutoJoin}">
-                                                    <TextBlock Text="Check Interval (hours):" 
-                                                              VerticalAlignment="Center" 
-                                                              Margin="0,0,10,0"
-                                                              Foreground="#FFB0B0B0"/>
-                                                    <TextBox Text="{Binding SelectedAccount.AutoRallySettings.AutoJoinCheckIntervalHours, UpdateSourceTrigger=PropertyChanged}"
-                                                            Width="60"
-                                                            VerticalAlignment="Center"
-                                                            ToolTip="How often the bot should check and potentially refresh the auto-join setting. Default: 1.0 hours"/>
-                                                    <TextBlock Text="hrs" 
-                                                              VerticalAlignment="Center" 
-                                                              Margin="5,0,0,0"
-                                                              Foreground="#FFB0B0B0"/>
-                                                </StackPanel>
-                                            </StackPanel>
-                                        </Border>
-
                                         <!-- Troop Training Settings -->
                                         <Border Style="{StaticResource CardStyle}"
                                                 Visibility="{Binding SelectedAccount.EnabledTasks,
@@ -721,30 +662,9 @@
                                                             Command="{Binding ApplyTroopTrainingSettingsToAllCommand}"
                                                             ToolTip="Apply these Troop Training settings to all accounts"/>
                                                 </Grid>
-                                                <Grid>
-                                                    <Grid.ColumnDefinitions>
-                                                        <ColumnDefinition Width="150"/>
-                                                        <ColumnDefinition Width="80"/>
-                                                        <ColumnDefinition Width="*"/>
-                                                    </Grid.ColumnDefinitions>
-                                                    <TextBlock Text="Max Troop Train Wait:" Grid.Column="0"
-                                                               ToolTip="How long the bot will wait for troops to be trained once time has been detected"
-                                                               ToolTipService.InitialShowDelay="0"
-                                                               ToolTipService.ShowDuration="60000"/>
-                                                    <TextBox Text="{Binding MaxTroopTrainWaitMinutes}"
-                                                             Grid.Column="1"
-                                                             ToolTip="How long the bot will wait for troops to be trained once time has been detected"
-                                                             ToolTipService.InitialShowDelay="0"
-                                                             ToolTipService.ShowDuration="60000"/>
-                                                    <TextBlock Text="minutes"
-                                                               Grid.Column="2" Foreground="#FFB0B0B0" FontSize="12"/>
-                                                </Grid>
-
-                                                <!-- Train Level 1 Only Setting -->
-                                                <CheckBox Content="Train Level 1 Only"
-                                                          IsChecked="{Binding SelectedAccount.TroopTrainingSettings.TrainLevel1Only}"
-                                                          Margin="0,10,0,0"
-                                                          ToolTip="When enabled, the bot will automatically navigate to Rookie Infantry (Level 1) troops before training"
+                                                <CheckBox Content="Train second highest tier"
+                                                          IsChecked="{Binding SelectedAccount.TroopTrainingSettings.TrainSecondHighestTier}"
+                                                          ToolTip="Train the tier below the highest unlocked one (e.g. IX when X is unlocked): lower tiers can be upgraded during some events for extra points."
                                                           ToolTipService.InitialShowDelay="0"
                                                           ToolTipService.ShowDuration="60000"/>
                                             </StackPanel>

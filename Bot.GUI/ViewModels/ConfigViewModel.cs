@@ -118,20 +118,6 @@ namespace Bot.GUI.ViewModels
             }
         }
 
-        private int _maxTroopTrainWaitMinutes = 5;
-        public int MaxTroopTrainWaitMinutes
-        {
-            get => _maxTroopTrainWaitMinutes;
-            set { 
-                if (_maxTroopTrainWaitMinutes != value)
-                {
-                    _maxTroopTrainWaitMinutes = value; 
-                    OnPropertyChanged(); 
-                    SaveConfigIfNotApplying(); // Auto-save
-                }
-            }
-        }
-
         private int _persistentAccountWaitMinutes = 0;
         public int PersistentAccountWaitMinutes
         {
@@ -158,7 +144,6 @@ namespace Bot.GUI.ViewModels
         public ICommand ApplyAutoShieldSettingsToAllCommand { get; }
         public ICommand ApplyAutoBuildSettingsToAllCommand { get; }
         public ICommand ApplyAutoHuntSettingsToAllCommand { get; }
-        public ICommand ApplyAutoRallySettingsToAllCommand { get; }
         public ICommand ApplyTroopTrainingSettingsToAllCommand { get; }
         public ICommand ApplyAllianceTechnologySettingsToAllCommand { get; }
         public ICommand ApplyConquestCollectSettingsToAllCommand { get; }
@@ -236,7 +221,6 @@ namespace Bot.GUI.ViewModels
             ((RelayCommand)ApplyAutoShieldSettingsToAllCommand).RaiseCanExecuteChanged();
             ((RelayCommand)ApplyAutoBuildSettingsToAllCommand).RaiseCanExecuteChanged();
             ((RelayCommand)ApplyAutoHuntSettingsToAllCommand).RaiseCanExecuteChanged();
-            ((RelayCommand)ApplyAutoRallySettingsToAllCommand).RaiseCanExecuteChanged();
             ((RelayCommand)ApplyTroopTrainingSettingsToAllCommand).RaiseCanExecuteChanged();
             ((RelayCommand)ApplyAllianceTechnologySettingsToAllCommand).RaiseCanExecuteChanged();
             ((RelayCommand)ApplyConquestCollectSettingsToAllCommand).RaiseCanExecuteChanged();
@@ -255,7 +239,6 @@ namespace Bot.GUI.ViewModels
             account.OnPropertyChanged(nameof(AccountSettings.InstanceNumber));
             account.OnPropertyChanged(nameof(AccountSettings.FarmingTargets));
             account.OnPropertyChanged(nameof(AccountSettings.AutoHuntSettings));
-            account.OnPropertyChanged(nameof(AccountSettings.AutoRallySettings));
             account.OnPropertyChanged(nameof(AccountSettings.AutoShieldSettings));
             account.OnPropertyChanged(nameof(AccountSettings.AutoBuildSettings));
         }
@@ -501,7 +484,6 @@ namespace Bot.GUI.ViewModels
             ApplyAutoShieldSettingsToAllCommand = new RelayCommand(_ => ApplyAutoShieldSettingsToAll(), _ => SelectedAccount != null);
             ApplyAutoBuildSettingsToAllCommand = new RelayCommand(_ => ApplyAutoBuildSettingsToAll(), _ => SelectedAccount != null);
             ApplyAutoHuntSettingsToAllCommand = new RelayCommand(_ => ApplyAutoHuntSettingsToAll(), _ => SelectedAccount != null);
-            ApplyAutoRallySettingsToAllCommand = new RelayCommand(_ => ApplyAutoRallySettingsToAll(), _ => SelectedAccount != null);
             ApplyTroopTrainingSettingsToAllCommand = new RelayCommand(_ => ApplyTroopTrainingSettingsToAll(), _ => SelectedAccount != null);
             ApplyAllianceTechnologySettingsToAllCommand = new RelayCommand(_ => ApplyAllianceTechnologySettingsToAll(), _ => SelectedAccount != null);
             ApplyConquestCollectSettingsToAllCommand = new RelayCommand(_ => ApplyConquestCollectSettingsToAll(), _ => SelectedAccount != null);
@@ -622,7 +604,6 @@ namespace Bot.GUI.ViewModels
                 MaxWaitTimeBetweenCyclesMinutes = config.CycleManagement.MaxWaitTimeBetweenCyclesMinutes;
                 // ShutdownEmulatorsAfterCycle is now always true - no need to set it
                 // MaxCycles property removed - no longer configurable
-                MaxTroopTrainWaitMinutes = config.CycleManagement.MaxTroopTrainWaitMinutes;
                 PersistentAccountWaitMinutes = config.CycleManagement.PersistentAccountWaitMinutes;
             }
 
@@ -648,7 +629,6 @@ namespace Bot.GUI.ViewModels
             OnPropertyChanged(nameof(TotalRunningInstances));
             OnPropertyChanged(nameof(MinWaitTimeBetweenCyclesMinutes));
             OnPropertyChanged(nameof(MaxWaitTimeBetweenCyclesMinutes));
-            OnPropertyChanged(nameof(MaxTroopTrainWaitMinutes));
             
             // Re-enable auto-save after all configuration is applied
             _isApplyingConfig = false; 
@@ -699,7 +679,6 @@ namespace Bot.GUI.ViewModels
                     MaxWaitTimeBetweenCyclesMinutes = MaxWaitTimeBetweenCyclesMinutes,
                     ShutdownEmulatorsAfterCycle = true, // Always true
                     MaxCycles = 0, // Always 0 for infinite cycles
-                    MaxTroopTrainWaitMinutes = MaxTroopTrainWaitMinutes,
                     PersistentAccountWaitMinutes = PersistentAccountWaitMinutes
                 }
             };
@@ -822,7 +801,6 @@ namespace Bot.GUI.ViewModels
                     ((RelayCommand)ApplyAutoShieldSettingsToAllCommand).RaiseCanExecuteChanged();
                     ((RelayCommand)ApplyAutoBuildSettingsToAllCommand).RaiseCanExecuteChanged();
                     ((RelayCommand)ApplyAutoHuntSettingsToAllCommand).RaiseCanExecuteChanged();
-                    ((RelayCommand)ApplyAutoRallySettingsToAllCommand).RaiseCanExecuteChanged();
                     ((RelayCommand)ApplyTroopTrainingSettingsToAllCommand).RaiseCanExecuteChanged();
                     ((RelayCommand)ApplyAllianceTechnologySettingsToAllCommand).RaiseCanExecuteChanged();
                     ((RelayCommand)ApplyConquestCollectSettingsToAllCommand).RaiseCanExecuteChanged();
@@ -1015,33 +993,15 @@ namespace Bot.GUI.ViewModels
             _logger.LogInfo($"Applied Auto Hunt settings from {SelectedAccount.AccountName} to all other accounts");
         }
 
-        private void ApplyAutoRallySettingsToAll()
-        {
-            if (SelectedAccount == null) return;
-
-            var sourceSettings = SelectedAccount.AutoRallySettings;
-            
-            foreach (var target in Accounts.Where(a => a != SelectedAccount).Select(a => a.AutoRallySettings))
-            {
-                target.AutoJoin = sourceSettings.AutoJoin;
-                target.AutoJoinMinHours = sourceSettings.AutoJoinMinHours;
-                target.AutoJoinCheckIntervalHours = sourceSettings.AutoJoinCheckIntervalHours;
-                // Don't copy LastAutoJoinCheck - each account should maintain its own timing
-            }
-
-            SaveConfig();
-            _logger.LogInfo($"Applied Auto Rally settings from {SelectedAccount.AccountName} to all other accounts");
-        }
-
         private void ApplyTroopTrainingSettingsToAll()
         {
             if (SelectedAccount == null) return;
 
             var sourceSettings = SelectedAccount.TroopTrainingSettings;
 
-            foreach (var account in Accounts.Where(a => a != SelectedAccount))
+            foreach (var settings in Accounts.Where(a => a != SelectedAccount).Select(a => a.TroopTrainingSettings))
             {
-                account.TroopTrainingSettings.TrainLevel1Only = sourceSettings.TrainLevel1Only;
+                settings.TrainSecondHighestTier = sourceSettings.TrainSecondHighestTier;
             }
 
             SaveConfig();

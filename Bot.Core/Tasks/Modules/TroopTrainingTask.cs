@@ -14,6 +14,8 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text.RegularExpressions;
 using Bot.Core.ImageDetection;
+using OpenCvSharp;
+using Rect = OpenCvSharp.Rect;
 using Tesseract;
 using System.Text.Json;
 
@@ -24,14 +26,36 @@ namespace Bot.Core.Tasks.Modules
         public override TaskType TaskType => TaskType.TroopTraining;
         public override string Name => "Troop Training";
 
-        // Updated troop click areas with more precise positioning to avoid conflicts
-        private static readonly Rectangle InfantryStatusArea = new Rectangle(160, 556, 120, 35);
-        private static readonly Rectangle CavalryStatusArea = new Rectangle(159, 630, 130, 40);
-        private static readonly Rectangle ArchersStatusArea = new Rectangle(158, 705, 130, 35);
+        // Side panel: the arrow at the left edge opens it, the one at its right edge closes it
+        private const string PanelOpenArrowTemplate = "panel-open-arrow.png";
+        private const string PanelCloseArrowTemplate = "panel-close-arrow.png";
+        private static readonly Rectangle PanelOpenArrowArea = new Rectangle(0, 420, 60, 260);
+        private static readonly Rectangle PanelCloseArrowArea = new Rectangle(400, 420, 120, 260);
+        private const double PanelArrowThreshold = 0.88;
+        private static readonly System.Drawing.Point TownTabPoint = new(80, 268);
 
-        private sealed class TroopStatusInfo
+        // "Troops Training" header on the Town tab: 0.998-1.000 with the tab open, <= 0.41 elsewhere.
+        // At y=497 with two building queues above it; the rows below are placed relative to it.
+        private const string TroopsHeaderTemplate = "troops-training-header.png";
+        private static readonly Rectangle TroopsHeaderArea = new Rectangle(0, 240, 460, 660);
+        private const double TroopsHeaderThreshold = 0.9;
+        private const int TroopsHeaderY = 497;
+
+        // Troop rows (Infantry, Cavalry, Archer) with the header at TroopsHeaderY: name line above, "Idle" or the timer below
+        private static readonly string[] TroopTypes = { "Infantry", "Cavalry", "Archers" };
+        private static readonly int[] TroopRowCenterY = { 565, 638, 711 };
+        private const int TroopRowArrowX = 405;   // the arrow button at the end of the row opens the building
+
+        // Building popup after the row's arrow: "Train" label under the hexagon button; 1.000 present, <= 0.41 elsewhere
+        private const string TrainButtonTemplate = "train.png";
+        private static readonly Rectangle TrainButtonArea = new Rectangle(150, 600, 450, 350);
+        private const double TrainButtonThreshold = 0.8;
+
+        internal sealed class TroopStatusInfo
         {
             public string TroopType { get; set; } = string.Empty;
+            /// <summary>Screen y of the row's centre in the side panel</summary>
+            public int RowCenterY { get; set; }
             public bool IsReady { get; set; }
             public TimeSpan RemainingTime { get; set; } = TimeSpan.Zero;
             public DateTime FinishTimeUtc { get; set; } = DateTime.MinValue;
@@ -44,60 +68,6 @@ namespace Bot.Core.Tasks.Modules
             return account.TroopTrainingSettings ?? new TroopTrainingSettings();
         }
 
-
-        private static async Task<bool> PerformCurvedSwipeAsync(int instanceNumber, LogService logger, Rectangle swipeArea, CancellationToken cancellationToken)
-        {
-            try
-            {
-                // Calculate start and end points
-                var startX = swipeArea.Left + 10; // Start 10 pixels from left edge
-                var endX = swipeArea.Right - 10;  // End 10 pixels from right edge
-                var centerY = swipeArea.Top + (swipeArea.Height / 2);
-
-                // Add slight curve to end point for more human-like movement
-                var random = new Random();
-                var curveOffsetY = random.Next(-10, 11); // Random curve offset between -10 and +10 pixels
-                var endY = centerY + curveOffsetY;
-
-                logger.LogInfo($"[Instance {instanceNumber}] Performing curved swipe from ({startX},{centerY}) to ({endX},{endY})");
-
-                // Execute the swipe using ADB V2 controller
-                var connection = await AdbMigrationHelper.GetConnectionAsync(instanceNumber, logger, cancellationToken);
-                if (connection == null)
-                {
-                    logger.LogError($"[Instance {instanceNumber}] Failed to get ADB connection for swipe");
-                    return false;
-                }
-
-                // Cast to AdbControllerV2 to access SwipeAsync method
-                if (connection is AdbControllerV2 adbController)
-                {
-                    bool swipeResult = await adbController.SwipeAsync(startX, centerY, endX, endY, 500, cancellationToken);
-
-                    if (swipeResult)
-                    {
-                        logger.LogInfo($"[Instance {instanceNumber}] Curved swipe executed successfully");
-                        await Task.Delay(300, cancellationToken); // Small delay after swipe
-                        return true;
-                    }
-                    else
-                    {
-                        logger.LogError($"[Instance {instanceNumber}] Swipe execution failed");
-                        return false;
-                    }
-                }
-                else
-                {
-                    logger.LogError($"[Instance {instanceNumber}] ADB connection is not AdbControllerV2 type");
-                    return false;
-                }
-            }
-            catch (Exception ex)
-            {
-                logger.LogError($"[Instance {instanceNumber}] Error performing curved swipe: {ex.Message}");
-                return false;
-            }
-        }
 
         protected override async Task<TaskExecutionDetails> ExecuteTaskLogicAsync(AccountSettings account, LogService logger, CancellationToken cancellationToken, bool isReRun = false, IUserNotificationService? userNotifications = null)
         {
@@ -115,9 +85,6 @@ namespace Bot.Core.Tasks.Modules
 
                 logger.LogInfo($"[{account.AccountName}] ✅ Bot confirmed in BaseView.");
 
-                var botConfig = ConfigLoader.Load("configs/default_config.json");
-                var maxWaitTime = TimeSpan.FromMinutes(botConfig.CycleManagement.MaxTroopTrainWaitMinutes);
-
                 // Track which troops have been successfully trained in this session
                 var session = new TrainingSession();
                 logger.LogInfo($"[{account.AccountName}] 📝 Initialized progress tracking for this session");
@@ -130,7 +97,7 @@ namespace Bot.Core.Tasks.Modules
                         return TaskExecutionDetails.Failed("Failed to get troop statuses.");
                     }
 
-                    if (!await HandleTrainingRoundAsync(account, logger, cancellationToken, troopStatuses, session, maxWaitTime))
+                    if (!await HandleTrainingRoundAsync(account, logger, cancellationToken, troopStatuses, session))
                     {
                         break;
                     }
@@ -173,10 +140,13 @@ namespace Bot.Core.Tasks.Modules
             public DateTime? LatestFinishTimeUtc;
         }
 
-        /// <summary>One round of the training loop. True: look at the troops again; false: nothing more to do or wait for.</summary>
+        /// <summary>
+        /// One round of the training loop. True: look at the troops again; false: nothing more to do. Troops still
+        /// training are left for a later cycle (training takes many hours).
+        /// </summary>
         private async Task<bool> HandleTrainingRoundAsync(
             AccountSettings account, LogService logger, CancellationToken cancellationToken,
-            List<TroopStatusInfo> troopStatuses, TrainingSession session, TimeSpan maxWaitTime)
+            List<TroopStatusInfo> troopStatuses, TrainingSession session)
         {
             var readyToCollectAndRetrain = troopStatuses.Where(s => s.IsReady).ToList();
             var stillTraining = troopStatuses.Where(s => !s.IsReady && s.RemainingTime > TimeSpan.Zero).ToList();
@@ -196,9 +166,9 @@ namespace Bot.Core.Tasks.Modules
                 return true;
             }
 
-            if (stillTraining.Any() && await WaitForNextTroopAsync(account, logger, cancellationToken, stillTraining, maxWaitTime))
+            foreach (var troop in stillTraining)
             {
-                return true;
+                logger.LogInfo($"[{account.AccountName}] ⏳ {troop.TroopType} still training: {troop.RemainingTime} remaining (finishes {troop.FinishTimeUtc:u})");
             }
 
             session.LatestFinishTimeUtc = stillTraining.Any() ? stillTraining.Max(t => t.FinishTimeUtc) : null;
@@ -262,28 +232,6 @@ namespace Bot.Core.Tasks.Modules
             logger.LogInfo($"[{account.AccountName}] 📝 Session progress: {string.Join(", ", session.Processed)} completed");
         }
 
-        /// <summary>Logs the troops still training and waits for the first one that finishes within the limit. False when none does.</summary>
-        private static async Task<bool> WaitForNextTroopAsync(
-            AccountSettings account, LogService logger, CancellationToken cancellationToken, List<TroopStatusInfo> stillTraining, TimeSpan maxWaitTime)
-        {
-            logger.LogInfo($"[{account.AccountName}] ⏳ Found {stillTraining.Count} troop types still training:");
-            foreach (var troop in stillTraining)
-            {
-                logger.LogInfo($"[{account.AccountName}]   - {troop.TroopType}: {troop.RemainingTime} remaining (Finishes UTC: {troop.FinishTimeUtc:o})");
-            }
-
-            var troopToWaitFor = stillTraining.Where(t => t.RemainingTime <= maxWaitTime).OrderBy(t => t.RemainingTime).FirstOrDefault();
-            if (troopToWaitFor == null)
-            {
-                return false;
-            }
-
-            logger.LogInfo($"[{account.AccountName}] ⏳ Waiting for {troopToWaitFor.TroopType}. Time remaining: {troopToWaitFor.RemainingTime}.");
-            logger.LogInfo($"User Info: Waiting for {troopToWaitFor.TroopType}. Time remaining: {troopToWaitFor.RemainingTime}.", category: LogCategories.UserAction);
-            await Task.Delay(troopToWaitFor.RemainingTime.Add(TimeSpan.FromSeconds(15)), cancellationToken);
-            return true;
-        }
-
         private async Task<List<TroopStatusInfo>?> GetCurrentTroopStatuses(AccountSettings account, LogService logger, CancellationToken cancellationToken)
         {
             const int maxAttempts = 3;
@@ -300,29 +248,27 @@ namespace Bot.Core.Tasks.Modules
             return null;
         }
 
-        /// <summary>One try: opens the side menu and reads the three troop statuses. Null when the menu did not open or the read failed.</summary>
+        /// <summary>One try: opens the side panel on the Town tab and reads the three troop statuses. Null when that failed.</summary>
         private async Task<List<TroopStatusInfo>?> TryReadTroopStatusesAsync(
             AccountSettings account, LogService logger, CancellationToken cancellationToken, int attempt, int maxAttempts)
         {
             try
             {
-                logger.LogInfo($"[{account.AccountName}] 🖱️ Opening side menu for status check (Attempt {attempt}/{maxAttempts})");
-                if (!await ClickRandomInRectAsync(account.InstanceNumber, logger, GameCoordinates.MenuTriggerArea))
+                logger.LogInfo($"[{account.AccountName}] 🖱️ Opening side panel for status check (Attempt {attempt}/{maxAttempts})");
+                if (!await OpenTownTabAsync(account, logger, cancellationToken))
                 {
                     return null;
                 }
-                await Task.Delay(GameCoordinates.Delays.AfterMenuClick, cancellationToken);
 
                 var screenshot = await TakeScreenshotAsync(account.InstanceNumber, logger);
-                if (screenshot == null || !CheckForSideMenu(account, logger, screenshot))
+                int? headerY = screenshot == null ? null : FindTroopsHeaderY(screenshot, account.InstanceNumber, logger);
+                if (screenshot == null || headerY == null)
                 {
+                    logger.LogWarning($"[{account.AccountName}] ❌ 'Troops Training' section not found on the side panel");
                     return null;
                 }
 
-                await Task.Delay(500, cancellationToken);
-
-                var statuses = ReadAllTroopStatuses(logger, screenshot);
-
+                var statuses = ReadAllTroopStatuses(logger, screenshot, headerY.Value);
                 logger.LogInfo($"[{account.AccountName}] 📊 Troop status check complete (Attempt {attempt}).");
                 return statuses;
             }
@@ -333,12 +279,62 @@ namespace Bot.Core.Tasks.Modules
             }
         }
 
-        private List<TroopStatusInfo> ReadAllTroopStatuses(LogService logger, byte[] screenshot)
+        /// <summary>
+        /// Opens the side panel unless it is open, then selects the Town tab (the panel reopens on the tab it was left
+        /// on; daily tasks leave it on Daily). Checks first, so a retry doesn't close an open panel and tap the city.
+        /// </summary>
+        private async Task<bool> OpenTownTabAsync(AccountSettings account, LogService logger, CancellationToken cancellationToken)
+        {
+            int instance = account.InstanceNumber;
+            if (!(await MatchAsync(PanelCloseArrowTemplate, PanelCloseArrowArea, PanelArrowThreshold, instance, logger)).found)
+            {
+                var arrow = await MatchAsync(PanelOpenArrowTemplate, PanelOpenArrowArea, PanelArrowThreshold, instance, logger);
+                if (!arrow.found)
+                {
+                    logger.LogWarning($"[{account.AccountName}] Side panel arrow not found, going back to the base view");
+                    await new LocatorService(logger, account).EnsureViewAsync(ViewType.BaseView, instance, cancellationToken);
+                    return false;
+                }
+                await ClickCenterInRectAsync(instance, logger, arrow.rect);
+                await Task.Delay(1500, cancellationToken);
+            }
+            await ClickAsync(instance, logger, TownTabPoint);
+            await Task.Delay(1200, cancellationToken);
+            return true;
+        }
+
+        /// <summary>Screen y of the "Troops Training" header on the side panel's Town tab, or null when it isn't shown.</summary>
+        internal int? FindTroopsHeaderY(byte[] screenshot, int instance, LogService logger)
+        {
+            _templateMatcher ??= new UnifiedTemplateMatchingService(logger);
+            var (found, rect, confidence) = _templateMatcher.MatchTemplate(
+                screenshot, Path.Combine(ImageTemplateFolder, TroopsHeaderTemplate), instance,
+                threshold: TroopsHeaderThreshold, scales: new[] { 1.0 }, verboseLogging: false, searchArea: TroopsHeaderArea);
+            logger.LogInfo($"'Troops Training' header: found={found}, confidence={confidence:F3}, y={rect.Y}");
+            return found ? rect.Y : null;
+        }
+
+        private async Task<(bool found, Rectangle rect, double confidence)> MatchAsync(
+            string templateName, Rectangle area, double threshold, int instance, LogService logger)
+        {
+            var screenshot = await TakeScreenshotAsync(instance, logger);
+            if (screenshot == null) return (false, Rectangle.Empty, 0);
+
+            _templateMatcher ??= new UnifiedTemplateMatchingService(logger);
+            var result = _templateMatcher.MatchTemplate(
+                screenshot, Path.Combine(ImageTemplateFolder, templateName), instance,
+                threshold: threshold, scales: new[] { 1.0 }, verboseLogging: false, searchArea: area);
+            return (result.found, result.matchRect, result.confidence);
+        }
+
+        /// <summary>Reads "Idle" or the remaining time of each troop row; headerY is where the "Troops Training" header was found.</summary>
+        internal List<TroopStatusInfo> ReadAllTroopStatuses(LogService logger, byte[] screenshot, int headerY)
         {
             // Simplified timer config
             var timerOcrConfig = new OcrConfiguration {
                 CharacterWhitelist = "0123456789:",
-                ScaleFactor = 4
+                ScaleFactor = 4,
+                PageSegMode = PageSegMode.SingleLine
             };
             using var timerOcrService = new OcrService(logger, timerOcrConfig);
 
@@ -351,28 +347,39 @@ namespace Bot.Core.Tasks.Modules
             using var wordOcrService = new OcrService(logger, wordOcrConfig);
 
             var statuses = new List<TroopStatusInfo>();
-            var troopAreas = new Dictionary<string, Rectangle>
+            for (int i = 0; i < TroopTypes.Length; i++)
             {
-                { "Infantry", InfantryStatusArea },
-                { "Cavalry", CavalryStatusArea },
-                { "Archers", ArchersStatusArea }
-            };
+                string troopType = TroopTypes[i];
+                int rowY = TroopRowCenterY[i] + headerY - TroopsHeaderY;
+                var statusLine = new Rectangle(150, rowY + 2, 150, 26);   // below the troop name
 
-            foreach (var troop in troopAreas)
-            {
-                string timerText = timerOcrService.ExtractTextFromScreenArea(screenshot, troop.Value);
-                var status = ParseTroopStatus(timerText, troop.Key, logger, isTimerCheck: true);
+                // The timer is white on the green progress bar: read straight off the screen the colons came out as 7s
+                byte[] timerImage = WhiteText(screenshot, statusLine);
+                string timerText = timerOcrService.ExtractTextFromScreenArea(timerImage, new Rectangle(0, 0, statusLine.Width, statusLine.Height));
+                var status = ParseTroopStatus(timerText, troopType, logger, isTimerCheck: true);
 
                 if (!status.IsReady && status.RemainingTime == TimeSpan.Zero)
                 {
-                    logger.LogInfo($"[{troop.Key}] Not a timer, checking for words...");
-                    string wordText = wordOcrService.ExtractTextFromScreenArea(screenshot, troop.Value);
-                    status = ParseTroopStatus(wordText, troop.Key, logger, isTimerCheck: false);
+                    logger.LogInfo($"[{troopType}] Not a timer, checking for words...");
+                    string wordText = wordOcrService.ExtractTextFromScreenArea(screenshot, statusLine);
+                    status = ParseTroopStatus(wordText, troopType, logger, isTimerCheck: false);
                 }
 
+                status.RowCenterY = rowY;
                 statuses.Add(status);
             }
             return statuses;
+        }
+
+        /// <summary>The white pixels of an area (the timer digits) in white on black, as PNG bytes for the OCR.</summary>
+        private static byte[] WhiteText(byte[] screenshot, Rectangle area)
+        {
+            using var image = Cv2.ImDecode(screenshot, ImreadModes.Color);
+            using var region = new Mat(image, new Rect(area.X, area.Y, area.Width, area.Height));
+            using var hsv = region.CvtColor(ColorConversionCodes.BGR2HSV);
+            using var mask = hsv.InRange(new Scalar(0, 0, 190), new Scalar(180, 60, 255));
+            using var bgr = mask.CvtColor(ColorConversionCodes.GRAY2BGR);
+            return bgr.ToBytes(".png");
         }
 
         private TroopStatusInfo ParseTroopStatus(string ocrText, string troopType, LogService logger, bool isTimerCheck)
@@ -536,59 +543,31 @@ namespace Bot.Core.Tasks.Modules
         private async Task<PrimaryTrainingResult> TrainPrimaryTroopAsync(
             AccountSettings account, LogService logger, CancellationToken cancellationToken, TroopStatusInfo primaryTroop, bool canRetry)
         {
-            Rectangle troopArea = GetTroopCompletionArea(primaryTroop.TroopType);
-            var centerPoint = troopArea.GetCenter();
-
-            // Click the primary troop in side menu to enter training interface
-            logger.LogInfo($"[{account.AccountName}] 🖱️ Clicking {primaryTroop.TroopType} in side menu to enter training interface at coordinates ({centerPoint.X}, {centerPoint.Y}) - Area: {troopArea}");
-            if (!await ClickRandomInRectAsyncWithRetry(account.InstanceNumber, logger, troopArea, cancellationToken, 2))
+            var rowArrow = new System.Drawing.Point(TroopRowArrowX, primaryTroop.RowCenterY);
+            logger.LogInfo($"[{account.AccountName}] 🖱️ Opening the {primaryTroop.TroopType} building via the side panel arrow at {rowArrow}");
+            if (!await ClickAsync(account.InstanceNumber, logger, rowArrow))
             {
                 if (!canRetry) return PrimaryTrainingResult.Abort;
                 await Task.Delay(GameCoordinates.Delays.BetweenRetries, cancellationToken);
                 return PrimaryTrainingResult.Retry;
             }
             await Task.Delay(GameCoordinates.Delays.AfterMenuClick, cancellationToken);
-
-            // Step 1: Pre-train sequence - Wait 1 second, then double-click in the specified box
-            logger.LogInfo($"[{account.AccountName}] ⏳ Waiting 1 second before train preparation...");
             await Task.Delay(1000, cancellationToken);
 
-            // Double-click in box 326,550 373,586 (width=47, height=36)
-            var preTrainClickArea = new Rectangle(326, 550, 47, 36);
-            logger.LogInfo($"[{account.AccountName}] 🖱️ Pre-train setup: clicking in preparation area twice...");
-
-            // First click
-            if (!await ClickRandomInRectAsyncWithRetry(account.InstanceNumber, logger, preTrainClickArea, cancellationToken, 1))
-            {
-                logger.LogWarning($"[{account.AccountName}] ⚠️ Failed first pre-train click, continuing anyway...");
-            }
-
-            // 0.2 second delay
-            await Task.Delay(200, cancellationToken);
-
-            // Second click
-            if (!await ClickRandomInRectAsyncWithRetry(account.InstanceNumber, logger, preTrainClickArea, cancellationToken, 1))
-            {
-                logger.LogWarning($"[{account.AccountName}] ⚠️ Failed second pre-train click, continuing anyway...");
-            }
-
-            // Step 2: Look for Train button FIRST with 2-second timeout and strict error handling
+            // The camera moves to the building and shows its Details / Train popup
             logger.LogInfo($"[{account.AccountName}] 🔍 Looking for 'Train' button...");
-            bool trainButtonFound = await FindAndClickImageWithTimeoutAsync("train.png", account.InstanceNumber, logger,
-                threshold: 0.7,
-                timeoutSeconds: 2,
+            bool trainButtonFound = await FindAndClickImageWithTimeoutAsync(TrainButtonTemplate, account.InstanceNumber, logger,
+                threshold: TrainButtonThreshold,
+                timeoutSeconds: 3,
                 useEnhancedMatching: false,
-                searchArea: null,
+                searchArea: TrainButtonArea,
                 cancellationToken: cancellationToken);
 
             if (!trainButtonFound)
             {
-                logger.LogError($"[{account.AccountName}] ❌ CRITICAL ERROR: Failed to find 'train.png' - SKIPPING TROOP TRAINING MODULE");
-                return PrimaryTrainingResult.Abort; // Immediately exit with error when train.png fails
+                logger.LogError($"[{account.AccountName}] ❌ 'Train' button not found on the {primaryTroop.TroopType} building");
+                return PrimaryTrainingResult.Abort;
             }
-
-            // Train button found, proceeding to next step
-            logger.LogInfo($"[{account.AccountName}] ✅ Found train.png, proceeding to next step");
 
             // Wait 0.5 seconds after clicking train button
             await Task.Delay(500, cancellationToken);
@@ -600,7 +579,8 @@ namespace Bot.Core.Tasks.Modules
                 timeoutSeconds: 2,
                 useEnhancedMatching: false,
                 searchArea: null,
-                cancellationToken: cancellationToken);
+                cancellationToken: cancellationToken,
+                click: false);  // only confirms the training screen: a tap takes one troop off the amount
 
             if (!minusButtonFound)
             {
@@ -610,7 +590,7 @@ namespace Bot.Core.Tasks.Modules
             logger.LogInfo($"[{account.AccountName}] ✅ Found minus-button.png, we're in the correct training area");
             await Task.Delay(500, cancellationToken);
 
-            await SelectLevel1IfRequiredAsync(account, logger, cancellationToken, null);
+            await SelectTierAsync(account, logger, cancellationToken, primaryTroop.TroopType);
 
             // Step 4: Click in the train box (409,1078 586,1136)
             var trainBoxArea = new Rectangle(409, 1078, 177, 58); // width = 586-409=177, height = 1136-1078=58
@@ -668,12 +648,13 @@ namespace Bot.Core.Tasks.Modules
                     timeoutSeconds: 2,
                     useEnhancedMatching: false,
                     searchArea: null,
-                    cancellationToken: cancellationToken);
+                    cancellationToken: cancellationToken,
+                    click: false);
 
                 if (minusFound)
                 {
-                    logger.LogInfo($"[{account.AccountName}] ✅ Found minus-button after {readyTroopType}, checking for level 1...");
-                    await SelectLevel1IfRequiredAsync(account, logger, cancellationToken, readyTroopType);
+                    logger.LogInfo($"[{account.AccountName}] ✅ Found minus-button after {readyTroopType}, selecting the tier...");
+                    await SelectTierAsync(account, logger, cancellationToken, readyTroopType);
                 }
             }
 
@@ -690,85 +671,89 @@ namespace Bot.Core.Tasks.Modules
             }
         }
 
+        // Tier strip on the training screen: five tile slots 133 px apart. Opening the screen or switching
+        // Barracks/Stable/Range selects the highest unlocked tier (X on llsa, with XI locked to its right).
+        private static readonly int[] TierSlotX = { 77, 209, 342, 475, 608 };
+        private const int TierTileY = 700;
+        // Share of gold-glow pixels around a tile: 0.37-0.40 on the selected tile, <= 0.11 on the others
+        private const double SelectedGlowThreshold = 0.25;
+
         /// <summary>
-        /// With the "Train Level 1 only" setting: checks via OCR that Rookie Infantry is selected and, if not, swipes to the level 1 troops and taps them.
-        /// troopLabel is the troop type being processed (null for the primary troop), used in the log messages.
+        /// Index in <see cref="TierSlotX"/> of the tier tile with the gold selection glow, or null when no tile
+        /// clearly has it (not on the training screen).
         /// </summary>
-        private async Task SelectLevel1IfRequiredAsync(AccountSettings account, LogService logger, CancellationToken cancellationToken, string? troopLabel)
+        internal static int? FindSelectedTierSlot(byte[] screenshot)
         {
-            var forLabel = troopLabel == null ? "" : $" for {troopLabel}";
-            var onLabel = troopLabel == null ? "" : $" on {troopLabel}";
+            using var image = Cv2.ImDecode(screenshot, ImreadModes.Color);
+            using var hsv = image.CvtColor(ColorConversionCodes.BGR2HSV);
+            using var glow = hsv.InRange(new Scalar(15, 60, 180), new Scalar(35, 255, 255));
+            var scores = TierSlotX.Select(x => TierGlowScore(glow, x)).ToArray();
+            int best = Array.IndexOf(scores, scores.Max());
+            bool clear = scores[best] >= SelectedGlowThreshold
+                && scores.Where((_, i) => i != best).All(s => s < SelectedGlowThreshold);
+            return clear ? best : null;
+        }
 
-            // Check for train level 1 only setting
-            var troopSettings = GetTroopTrainingSettings(account);
-            logger.LogInfo($"[{account.AccountName}] 🔧 Train Level 1 Only setting{forLabel}: {troopSettings.TrainLevel1Only}");
-            if (!troopSettings.TrainLevel1Only)
+        /// <summary>Gold pixels in the band above the tile's hexagon and the strips beside it.</summary>
+        private static double TierGlowScore(Mat glow, int x)
+        {
+            var bands = new[] { new Rect(x - 30, 626, 60, 14), new Rect(x - 66, 680, 8, 40), new Rect(x + 58, 680, 8, 40) };
+            int total = 0, lit = 0;
+            foreach (var band in bands)
             {
-                return;
+                using var part = new Mat(glow, band);
+                lit += Cv2.CountNonZero(part);
+                total += band.Width * band.Height;
             }
+            return (double)lit / total;
+        }
 
-            logger.LogInfo($"[{account.AccountName}] 🎯 Train Level 1 Only mode enabled{forLabel}, checking for Rookie Infantry...");
-
-            // Use OCR to check for "Rookie Infantry" in area 202,6 518,71
-            var rookieCheckArea = new Rectangle(202, 6, 316, 65); // width = 518-202=316, height = 71-6=65
-
+        /// <summary>
+        /// With "Train second highest tier": selects the tile left of the selected (highest) one, e.g. IX next to X.
+        /// Leaves the highest tier selected when the strip can't be read or nothing is left of it.
+        /// </summary>
+        private async Task SelectSecondHighestTierAsync(AccountSettings account, LogService logger, CancellationToken cancellationToken, string troopLabel)
+        {
             var screenshot = await TakeScreenshotAsync(account.InstanceNumber, logger);
-            if (screenshot == null)
+            int? selected = screenshot == null ? null : FindSelectedTierSlot(screenshot);
+            if (selected == null || selected == 0)
             {
-                logger.LogWarning($"[{account.AccountName}] ⚠️ Failed to take screenshot for rookie check{onLabel}, proceeding with training");
+                logger.LogWarning($"[{account.AccountName}] ⚠️ {troopLabel}: no tier left of the selected one found (slot {selected?.ToString() ?? "none"}), training the selected tier");
                 return;
             }
 
-            // Create OCR config for text detection
-            var textOcrConfig = new OcrConfiguration
-            {
-                CharacterWhitelist = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz ",
-                ScaleFactor = 3,
-                PageSegMode = PageSegMode.SingleLine
-            };
-
-            using var ocrService = new OcrService(logger, textOcrConfig);
-            string detectedText = ocrService.ExtractTextFromScreenArea(screenshot, rookieCheckArea);
-
-            logger.LogInfo($"[{account.AccountName}] 📝 OCR detected text{forLabel}: '{detectedText}'");
-
-            // Check if "Rookie Infantry" is detected (case insensitive, allowing for OCR errors)
-            bool isRookieInfantry = detectedText.ToLowerInvariant().Contains("rookie") &&
-                                   detectedText.ToLowerInvariant().Contains("infantry");
-
-            if (isRookieInfantry)
-            {
-                logger.LogInfo($"[{account.AccountName}] ✅ Rookie Infantry already selected{forLabel}, proceeding with training");
-                return;
-            }
-
-            logger.LogInfo($"[{account.AccountName}] 🔄 Rookie Infantry not detected{forLabel}, performing swipe to navigate to level 1 troops...");
-
-            // Perform curved swipe from left to right in area 24,655 710,773
-            var swipeArea = new Rectangle(24, 655, 686, 118); // width = 710-24=686, height = 773-655=118
-            bool swipeSuccess = await PerformCurvedSwipeAsync(account.InstanceNumber, logger, swipeArea, cancellationToken);
-
-            if (!swipeSuccess)
-            {
-                logger.LogWarning($"[{account.AccountName}] ⚠️ Swipe failed{forLabel}, continuing with current selection...");
-                return;
-            }
-
-            logger.LogInfo($"[{account.AccountName}] ✅ Swipe completed successfully{forLabel}");
-            await Task.Delay(1000, cancellationToken); // Wait for UI to settle
-
-            // Click random location in area 77,678 119,732
-            var clickArea = new Rectangle(77, 678, 42, 54); // width = 119-77=42, height = 732-678=54
-            logger.LogInfo($"[{account.AccountName}] 🖱️ Clicking in level 1 selection area{forLabel}...");
-
-            if (await ClickRandomInRectAsyncWithRetry(account.InstanceNumber, logger, clickArea, cancellationToken, 1))
-            {
-                logger.LogInfo($"[{account.AccountName}] ✅ Successfully clicked level 1 selection area{forLabel}");
-                await Task.Delay(500, cancellationToken);
-            }
+            int target = selected.Value - 1;
+            logger.LogInfo($"[{account.AccountName}] 🎯 {troopLabel}: selecting the second highest tier (slot {target}, left of slot {selected})");
+            await ClickAsync(account.InstanceNumber, logger, new System.Drawing.Point(TierSlotX[target], TierTileY));
+            int? now = await WaitForSelectedTierAsync(account.InstanceNumber, logger, target, cancellationToken);
+            if (now == target)
+                logger.LogInfo($"[{account.AccountName}] ✅ {troopLabel}: second highest tier selected");
             else
+                logger.LogWarning($"[{account.AccountName}] ⚠️ {troopLabel}: selected slot is {now?.ToString() ?? "unknown"} after the tap, expected {target}");
+        }
+
+        /// <summary>
+        /// The selected tier slot after a tap. The glow can be unclear right after it (seen once on Cavalry, which
+        /// still trained IX), so this looks up to three times until it shows the target.
+        /// </summary>
+        private async Task<int?> WaitForSelectedTierAsync(int instance, LogService logger, int target, CancellationToken cancellationToken)
+        {
+            int? now = null;
+            for (int look = 0; look < 3 && now != target; look++)
             {
-                logger.LogWarning($"[{account.AccountName}] ⚠️ Failed to click level 1 selection area{forLabel}, continuing anyway...");
+                await Task.Delay(look == 0 ? 1000 : 700, cancellationToken);
+                var check = await TakeScreenshotAsync(instance, logger);
+                now = check == null ? null : FindSelectedTierSlot(check);
+            }
+            return now;
+        }
+
+        /// <summary>Picks the tier to train: the second highest with that setting, else the game's default (highest).</summary>
+        private async Task SelectTierAsync(AccountSettings account, LogService logger, CancellationToken cancellationToken, string troopType)
+        {
+            if (GetTroopTrainingSettings(account).TrainSecondHighestTier)
+            {
+                await SelectSecondHighestTierAsync(account, logger, cancellationToken, troopType);
             }
         }
 
@@ -781,11 +766,11 @@ namespace Bot.Core.Tasks.Modules
                 var locator = new LocatorService(logger, account);
                 await locator.EnsureViewAsync(ViewType.BaseView, account.InstanceNumber, cancellationToken);
                 
-                var finalScreenshotCheck = await TakeScreenshotAsync(account.InstanceNumber, logger);
-                if (finalScreenshotCheck != null && CheckForSideMenu(account, logger, finalScreenshotCheck))
+                var close = await MatchAsync(PanelCloseArrowTemplate, PanelCloseArrowArea, PanelArrowThreshold, account.InstanceNumber, logger);
+                if (close.found)
                 {
-                    logger.LogInfo($"[{account.AccountName}] Side menu still open, closing it.");
-                    await ClickRandomInRectAsync(account.InstanceNumber, logger, new Rectangle(453, 514, 19, 70));
+                    logger.LogInfo($"[{account.AccountName}] Side panel still open, closing it.");
+                    await ClickCenterInRectAsync(account.InstanceNumber, logger, close.rect);
                     await Task.Delay(GameCoordinates.Delays.AfterClick, cancellationToken);
                 }
 
@@ -829,21 +814,6 @@ namespace Bot.Core.Tasks.Modules
             return false;
         }
 
-        private static Rectangle GetTroopCompletionArea(string troopType)
-        {
-            var lowerTroopType = troopType.ToLowerInvariant();
-            Rectangle result = lowerTroopType switch
-            {
-                "infantry" => InfantryStatusArea, 
-                "cavalry" => CavalryStatusArea,  
-                "archers" => ArchersStatusArea,  
-                _ => throw new ArgumentException($"Unknown troop type: '{troopType}'. Expected: Infantry, Cavalry, or Archers")
-            };
-
-            return result;
-        }
-
-        
         protected override Task OnInitializeAsync(LogService logger, CancellationToken cancellationToken)
         {
             return Task.CompletedTask;
@@ -852,7 +822,7 @@ namespace Bot.Core.Tasks.Modules
 
         private async Task<bool> FindAndClickImageWithTimeoutAsync(string imageName, int instanceNumber, LogService logger, 
             double threshold = 0.6, int timeoutSeconds = 2, bool useEnhancedMatching = false, 
-            Rectangle? searchArea = null, CancellationToken cancellationToken = default)
+            Rectangle? searchArea = null, CancellationToken cancellationToken = default, bool click = true)
         {
             const int pollIntervalMs = 200; // Check every 200ms
             var startTime = DateTime.UtcNow;
@@ -887,7 +857,7 @@ namespace Bot.Core.Tasks.Modules
                     {
                         var elapsed = DateTime.UtcNow - startTime;
                         logger.LogInfo($"Found '{imageName}' at {matchRect} with confidence {confidence:F3} after {elapsed.TotalSeconds:F1}s");
-                        return await ClickRandomInRectAsync(instanceNumber, logger, matchRect);
+                        return !click || await ClickRandomInRectAsync(instanceNumber, logger, matchRect);
                     }
 
                     // Store the best confidence for potential error reporting
@@ -911,43 +881,5 @@ namespace Bot.Core.Tasks.Modules
             return false;
         }
 
-        private bool CheckForSideMenu(AccountSettings account, LogService logger, byte[] screenshot)
-        {
-            try
-            {
-                if (_templateMatcher == null)
-                {
-                    _templateMatcher = new UnifiedTemplateMatchingService(logger);
-                }
-                var sideMenuPath = Path.Combine(ImageTemplateFolder, "side-menu.png");
-
-                // Side menu is a fixed UI element, so we can use a tighter scale range
-                double[] sideMenuScales = new[] { 1.0 };
-                
-                var (found, _, confidence) = _templateMatcher.MatchTemplate(
-                    screenshot,
-                    sideMenuPath,
-                    account.InstanceNumber,
-                    threshold: 0.5,
-                    scales: sideMenuScales,
-                    verboseLogging: false
-                );
-
-                if (found)
-                {
-                    logger.LogInfo($"[{account.AccountName}] ✅ Side menu detected (confidence: {confidence:F3})");
-                }
-                else
-                {
-                    logger.LogWarning($"[{account.AccountName}] ❌ Side menu not detected (best confidence: {confidence:F3})");
-                }
-                return found;
-            }
-            catch (Exception ex)
-            {
-                logger.LogError($"[{account.AccountName}] Exception in CheckForSideMenu: {ex.Message}");
-                return false; 
-            }
-        }
     }
 }

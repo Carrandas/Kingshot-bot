@@ -15,7 +15,7 @@ ITask (Interface)
 │   └── Common automation patterns
 └── Concrete Tasks (Tasks/Modules/), about 30
     ├── System: StartupTask, AccountDetectionTask, ChangeAccountTask, RecoveryTask
-    ├── Map/combat: AutoHuntTask (+ AutoHunt/ coordinator), AutoRallyTask, FarmingTask, AutoShieldTask, AutoHealTask
+    ├── Map/combat: AutoHuntTask (+ AutoHunt/ coordinator), AutoJoinRallyTask, FarmingTask, AutoShieldTask, AutoHealTask
     ├── Town: AutoBuildTask, TroopTrainingTask, AutoTechnologyTask, SuggestionBoxTask, ResidentWelcomeTask
     ├── Daily rewards: CollectOnlineRewardsTask, CollectRewardsTask, NomadicMerchantTask, PetAdventureTask, PetSkillTask, MysticTrialTask,
     │   JourneyTask, TruegoldCrucibleTask, WaterEssenceTask, ConquestCollectTask, CollectVipTask,

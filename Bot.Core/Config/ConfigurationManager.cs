@@ -190,8 +190,7 @@ namespace Bot.Core.Config
                     MinWaitTimeBetweenCyclesMinutes = 20,
                     MaxWaitTimeBetweenCyclesMinutes = 40,
                     ShutdownEmulatorsAfterCycle = false,
-                    MaxCycles = 0,
-                    MaxTroopTrainWaitMinutes = 30
+                    MaxCycles = 0
                 }
             };
         }

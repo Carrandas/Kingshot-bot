@@ -275,12 +275,6 @@
                                  ToolTip="Maximum number of cycles (0 = unlimited)" 
                                  Grid.Row="2" Grid.Column="1"/>
 
-                        <!-- Row 3: Max Troop Train Wait -->
-                        <TextBlock Text="Max Troop Train Wait (Mins):" Grid.Row="3" Grid.Column="0" 
-                                   ToolTip="Max idle time waiting for troops to finish before rerunning training."/>
-                        <TextBox Text="{Binding MaxTroopTrainWaitMinutes}" 
-                                 Grid.Row="3" Grid.Column="1"/>
-
                         <!-- Row 4: Shutdown After Cycle -->
                         <CheckBox Content="Shutdown Emulators After Cycle" 
                                   IsChecked="{Binding ShutdownEmulatorsAfterCycle}" 

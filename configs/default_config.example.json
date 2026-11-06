@@ -19,11 +19,6 @@
       "AutoHuntSettings": {
         "useEqualize": true
       },
-      "autoRallySettings": {
-        "autoJoin": false,
-        "autoJoinMinHours": 3.0,
-        "autoJoinCheckIntervalHours": 1.0
-      },
       "autoBuildSettings": {
         "MaxSpeedupMinutes": 30,
         "EnableAutoSpeedup": true
@@ -38,7 +33,7 @@
         "maxFarmingMarches": 0
       },
       "troopTrainingSettings": {
-        "trainLevel1Only": false
+        "trainSecondHighestTier": false
       },
       "farmingBoostSettings": {
         "enableGatherBoost": false,
@@ -58,7 +53,6 @@
     "maxWaitTimeBetweenCyclesMinutes": 40,
     "shutdownEmulatorsAfterCycle": false,
     "maxCycles": 0,
-    "maxTroopTrainWaitMinutes": 30,
     "persistentAccountWaitMinutes": 0
   },
   "performance": {

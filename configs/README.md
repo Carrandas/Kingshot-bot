@@ -54,7 +54,7 @@ Then edit `configs/config.json` (or just use the in-app settings UI, which write
 | `farmingTargets` | Resources to gather, each with a numeric `resourceType` (`0` = Bread, `1` = Wood, `2` = Stone, `3` = Iron) and a tile `level`. |
 | `isEnabled` | Whether this account participates in automation. |
 | `customConfigPath` | Optional path to an alternate config for this account (`null` for none). |
-| `AutoHuntSettings`, `autoRallySettings`, `autoBuildSettings`, `autoShieldSettings`, `farmingSettings`, `troopTrainingSettings`, `farmingBoostSettings`, `allianceTechnologySettings`, `conquestCollectSettings` | Per-task option objects. Any field you omit falls back to that task's built-in default, so these objects can be as small as you like. |
+| `AutoHuntSettings`, `autoBuildSettings`, `autoShieldSettings`, `farmingSettings`, `troopTrainingSettings`, `farmingBoostSettings`, `allianceTechnologySettings`, `conquestCollectSettings` | Per-task option objects. Any field you omit falls back to that task's built-in default, so these objects can be as small as you like. |
 | `doNotShutdown` | Keep this instance running even when the cycle would otherwise shut emulators down. |
 
 > Enum-typed values (such as task types, resource types, and shield/boost

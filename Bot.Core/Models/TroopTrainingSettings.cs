@@ -6,17 +6,21 @@ namespace Bot.Core.Models
 {
     public class TroopTrainingSettings : INotifyPropertyChanged
     {
-        private bool _trainLevel1Only = false;
+        private bool _trainSecondHighestTier = false;
 
-        [JsonPropertyName("trainLevel1Only")]
-        public bool TrainLevel1Only
+        /// <summary>
+        /// Train the tier below the highest unlocked one (e.g. IX when X is unlocked): lower-tier troops can be
+        /// upgraded during some events for extra points.
+        /// </summary>
+        [JsonPropertyName("trainSecondHighestTier")]
+        public bool TrainSecondHighestTier
         {
-            get => _trainLevel1Only;
+            get => _trainSecondHighestTier;
             set
             {
-                if (_trainLevel1Only != value)
+                if (_trainSecondHighestTier != value)
                 {
-                    _trainLevel1Only = value;
+                    _trainSecondHighestTier = value;
                     OnPropertyChanged();
                 }
             }

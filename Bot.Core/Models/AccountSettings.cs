@@ -27,7 +27,6 @@ namespace Bot.Core.Models
         ResidentWelcome,
         AllianceTechnology,
         AutoTechnology,
-        AutoRally,
         CollectRewards,
         PetAdventure,
         CollectOnlineRewards,
@@ -57,7 +56,6 @@ namespace Bot.Core.Models
             FarmingTargets = new ObservableCollection<FarmingTarget>();
             Characters = new ObservableCollection<CharacterEntry>();
             AutoHuntSettings = new AutoHuntSettings();
-            AutoRallySettings = new AutoRallySettings();
             AutoBuildSettings = new AutoBuildSettings();
             AutoShieldSettings = new AutoShieldSettings();
             FarmingSettings = new FarmingSettings();
@@ -156,9 +154,6 @@ namespace Bot.Core.Models
         }
 
         public AutoHuntSettings AutoHuntSettings { get; set; }
-        
-        [JsonPropertyName("autoRallySettings")]
-        public AutoRallySettings AutoRallySettings { get; set; }
         
         [JsonPropertyName("autoBuildSettings")]
         public AutoBuildSettings AutoBuildSettings { get; set; }

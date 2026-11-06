@@ -76,7 +76,6 @@ namespace Bot.Core.Tasks
             tasks[TaskType.ResidentWelcome] = new ResidentWelcomeTask();
             tasks[TaskType.AllianceTechnology] = new AllianceTechnologyTask();
             tasks[TaskType.AutoTechnology] = new AutoTechnologyTask();
-            tasks[TaskType.AutoRally] = new AutoRallyTask();
             tasks[TaskType.CollectRewards] = new CollectRewardsTask();
             tasks[TaskType.PetAdventure] = new PetAdventureTask();
             tasks[TaskType.CollectOnlineRewards] = new CollectOnlineRewardsTask();
@@ -782,7 +781,6 @@ namespace Bot.Core.Tasks
             { TaskType.MysticTrial, 25 },
             { TaskType.Arena, 25 },
             { TaskType.AutoJoinRally, 26 },
-            { TaskType.AutoRally, 26 },
             { TaskType.ChangeAccount, 999 }    // ChangeAccount should always run last
         };
 

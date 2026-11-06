@@ -84,9 +84,6 @@ namespace Bot.Core.ImageDetection
         FARMING_FARM_BUTTON,
         FARMING_RESOURCE_NODE,
 
-        // Auto Rally templates
-        AUTO_RALLY_RALLY_BUTTON,
-        AUTO_RALLY_WAR_ICON,
 
         // Troop Training templates
         TROOPTRAINING_TRAIN_BUTTON,
@@ -194,9 +191,6 @@ namespace Bot.Core.ImageDetection
             [GameTemplates.FARMING_FARM_BUTTON] = Path.Combine(_templatesBasePath, "farming", "farm-button.png"),
             [GameTemplates.FARMING_RESOURCE_NODE] = Path.Combine(_templatesBasePath, "farming", "resource-node.png"),
 
-            // Auto Rally templates
-            [GameTemplates.AUTO_RALLY_RALLY_BUTTON] = Path.Combine(_templatesBasePath, "Auto Rally", "rally-button.png"),
-            [GameTemplates.AUTO_RALLY_WAR_ICON] = Path.Combine(_templatesBasePath, "Auto Rally", "war-icon.png"),
 
             // Troop Training templates
             [GameTemplates.TROOPTRAINING_TRAIN_BUTTON] = Path.Combine(_templatesBasePath, "trooptraining", "train-button.png"),

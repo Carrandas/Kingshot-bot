@@ -235,9 +235,6 @@ namespace Bot.Core.Models
         [JsonPropertyName("maxCycles")]
         public int MaxCycles { get; set; } = 0; // 0 = infinite cycles
         
-        [JsonPropertyName("maxTroopTrainWaitMinutes")]
-        public int MaxTroopTrainWaitMinutes { get; set; } = 5; // Max time to wait for troop training re-run
-        
         [JsonPropertyName("persistentAccountWaitMinutes")]
         public int PersistentAccountWaitMinutes { get; set; } = 0; // Wait time between task cycles for persistent accounts (0 = no wait)
     }

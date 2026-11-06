@@ -39,7 +39,6 @@ namespace Bot.GUI.Converters
             { TaskType.ClaimMissions, "Claim Missions (BETA)" },
             { TaskType.ResidentWelcome, "Resident Welcome" },
             { TaskType.AllianceTechnology, "Alliance Technology" },
-            { TaskType.AutoRally, "Auto Rally (BETA)" },
             { TaskType.CollectRewards, "Collect Store Rewards" },
             { TaskType.PetAdventure, "Pet Adventure" },
             { TaskType.PetSkill, "Pet Skill" },

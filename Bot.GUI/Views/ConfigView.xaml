@@ -57,11 +57,6 @@
                      ToolTip="Maximum number of cycles to perform. 0 means unlimited."
                      Grid.Row="2" Grid.Column="1" Grid.ColumnSpan="3"/>
 
-            <!-- Row 3 -->
-            <TextBlock Text="Max Troop Train Wait (minutes):" Grid.Row="3" Grid.Column="0"/>
-            <TextBox Text="{Binding MaxTroopTrainWaitMinutes}"
-                     ToolTip="Maximum time to wait for troop training before timing out"
-                     Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="3"/>
         </Grid>
     </GroupBox>
 </UserControl>
