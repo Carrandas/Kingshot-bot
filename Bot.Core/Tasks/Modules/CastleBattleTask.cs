@@ -195,7 +195,7 @@ namespace Bot.Core.Tasks.Modules
             var screenshot = await TakeScreenshotAsync(instance, logger);
             var injured = screenshot != null ? ReadInjured(screenshot, logger) : new int?[3];
             var want = PickHealTarget(injured, amount, typed);
-            if (typed != want) await TypeHealAmountAsync(want.Type, want.Value, instance, logger, cancellationToken);
+            if (typed != want) await TypeHealAmountAsync(want.Type, want.Value, injured, instance, logger, cancellationToken);
             await ClickAsync(instance, logger, HealHelpPoint);
             await Task.Delay(700, cancellationToken);
             return want;
@@ -242,14 +242,26 @@ namespace Bot.Core.Tasks.Modules
 
         private async Task<bool> OpenHealPopupAsync(string character, int instance, LogService logger, CancellationToken cancellationToken)
         {
-            var icon = await MatchAsync(BattleHealIconTemplate, HealIconArea, Threshold, instance, logger);
-            if (!icon.found) icon = await MatchAsync(HealIconTemplate, HealIconArea, HealThreshold, instance, logger);
-            if (!icon.found) return false;
-            await ClickCenterInRectAsync(instance, logger, icon.rect);
+            var icon = await FindHealIconAsync(instance, logger);
+            if (icon.found) await ClickCenterInRectAsync(instance, logger, icon.rect);
+            else return false;
             await Task.Delay(1500, cancellationToken);
             if ((await MatchAsync(HealTitleTemplate, HealTitleArea, Threshold, instance, logger)).found) return true;
             logger.LogWarning($"[{character}] Castle Battle: the heal icon did not open Heal Injured");
             return false;
+        }
+
+        /// <summary>The battle or the normal heal icon; looks a few times, as the icon can change while it animates</summary>
+        private async Task<(bool found, Rectangle rect)> FindHealIconAsync(int instance, LogService logger)
+        {
+            for (int attempt = 0; attempt < 3; attempt++)
+            {
+                if (attempt > 0) await Task.Delay(700);
+                var icon = await MatchAsync(BattleHealIconTemplate, HealIconArea, Threshold, instance, logger);
+                if (!icon.found) icon = await MatchAsync(HealIconTemplate, HealIconArea, HealThreshold, instance, logger);
+                if (icon.found) return (true, icon.rect);
+            }
+            return (false, Rectangle.Empty);
         }
 
         /// <summary>The right button of the open Heal Injured popup; None when the popup is gone or the button is none of these</summary>
@@ -265,12 +277,15 @@ namespace Bot.Core.Tasks.Modules
 
         /// <summary>Infantry amount box > type > OK of the input bar</summary>
         /// <summary>The batch in one box (0 = infantry, 1 = cavalry, 2 = archers), 0 in the other two</summary>
-        private async Task TypeHealAmountAsync(int type, int amount, int instance, LogService logger, CancellationToken cancellationToken)
+        private async Task TypeHealAmountAsync(int type, int amount, int?[] injured, int instance, LogService logger, CancellationToken cancellationToken)
         {
-            // the popup (and Cancel healing) can fill boxes to their max: zero the others first, so the total never jumps
+            // the popup (and Cancel healing) can fill boxes to their max: zero the others first, so the total never jumps.
+            // A type with no injured has no row (the rows below move up): skip rows without a count, or the input bar's
+            // OK lands on the bottom bar's Town and closes the popup. No count read at all: zero all three as before.
+            bool anyRead = injured.Any(n => n != null);
             for (int i = 0; i < HealBoxes.Length; i++)
             {
-                if (i != type) await TypeIntoBoxAsync(HealBoxes[i], 0, instance, logger, cancellationToken);
+                if (i != type && (!anyRead || injured[i] != null)) await TypeIntoBoxAsync(HealBoxes[i], 0, instance, logger, cancellationToken);
             }
             await TypeIntoBoxAsync(HealBoxes[type], amount, instance, logger, cancellationToken);
         }

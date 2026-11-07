@@ -84,15 +84,19 @@ namespace Bot.Core.Services
             Dispatch(() =>
             {
                 bool changed = false;
+                var matched = new HashSet<CharacterEntry>();
                 foreach (var (name, kingdom) in rows)
                 {
                     var existing = Find(account, name, kingdom);
                     if (existing == null)
                     {
-                        account.Characters.Add(new CharacterEntry { Name = name, Kingdom = kingdom, Enabled = true });
+                        var added = new CharacterEntry { Name = name, Kingdom = kingdom, Enabled = true };
+                        account.Characters.Add(added);
+                        matched.Add(added);
                         changed = true;
                         continue;
                     }
+                    matched.Add(existing);
                     // Only a real change (e.g. a new alliance tag), not an OCR variant of the same name such as "llsa" for "Ilsa"
                     if (NormalizeKey(existing.Name) != NormalizeKey(name) || !TagOf(existing.Name).Equals(TagOf(name), StringComparison.OrdinalIgnoreCase))
                     {
@@ -101,8 +105,30 @@ namespace Bot.Core.Services
                     }
                     if (kingdom.HasValue && existing.Kingdom != kingdom) { existing.Kingdom = kingdom; changed = true; }
                 }
+                changed |= RemoveDuplicates(account, matched);
                 if (changed) Changed?.Invoke(account);
             });
+        }
+
+        /// <summary>
+        /// Drops entries no scanned row matched while one that did has the same name: OCR variants added by an
+        /// earlier scan ("[SKY]Asi" next to "[KFC]Asli"). The kept entry takes over a tick and an account ID it lacks.
+        /// Characters the scan did not see at all stay (a row can fail to read).
+        /// </summary>
+        private static bool RemoveDuplicates(AccountSettings account, HashSet<CharacterEntry> matched)
+        {
+            bool removed = false;
+            foreach (var entry in account.Characters.Where(c => !matched.Contains(c)).ToList())
+            {
+                var keeper = matched.FirstOrDefault(m => SameName(m.Name, entry.Name)
+                    && (!m.Kingdom.HasValue || !entry.Kingdom.HasValue || m.Kingdom == entry.Kingdom));
+                if (keeper == null) continue;
+                keeper.Enabled |= entry.Enabled;
+                keeper.AccountId ??= entry.AccountId;
+                account.Characters.Remove(entry);
+                removed = true;
+            }
+            return removed;
         }
 
         // Character active in the game on each instance, as Change Account last saw it

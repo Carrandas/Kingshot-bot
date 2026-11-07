@@ -71,6 +71,16 @@ namespace Bot.Core.IntegrationTests
             Assert.That(injured, Is.EqualTo(new int?[] { infantry, cavalry, archers }));
         }
 
+        // no injured cavalry: its row is gone and the archers move up; the empty third row must read as absent,
+        // or the bot types into nothing and the input bar's OK lands on the bottom bar's Town
+        [Test]
+        public void MissingTroopTypeHasNoRow()
+        {
+            var injured = CastleBattleTask.ReadInjured(Fixtures.Load("castle-heal-popup-two-rows.png"), new LogService(0));
+
+            Assert.That(injured, Is.EqualTo(new int?[] { 88_855, 56_777, null }));
+        }
+
         [Test]
         public void TeamFlagsAlongTheTop()
         {

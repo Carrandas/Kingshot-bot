@@ -76,6 +76,37 @@ namespace Bot.Core.Tests
         }
 
         [Test]
+        public void Merge_RemovesOcrDuplicates_AndKeepsTheirTick()
+        {
+            // the roster after the castle battle: misreads "[SKY]Asi"/"[SKY]lsa" were added next to the real entries
+            var account = new AccountSettings();
+            account.Characters.Add(new CharacterEntry { Name = "Asli Farm", Kingdom = 754, Enabled = false });
+            account.Characters.Add(new CharacterEntry { Name = "[SKY]Asli", Kingdom = 196, Enabled = false, AccountId = "34431520" });
+            account.Characters.Add(new CharacterEntry { Name = "[SKY]llsa", Kingdom = 196, Enabled = false, AccountId = "1104083889" });
+            account.Characters.Add(new CharacterEntry { Name = "[SKY]Asi", Kingdom = 196, Enabled = true });
+            account.Characters.Add(new CharacterEntry { Name = "[SKY]lsa", Kingdom = 196, Enabled = false });
+
+            CharacterRoster.Merge(account, new (string, int?)[] { ("Asli Farm", 754), ("[KFC]Asli", 196), ("[KFC]llsa", 196) });
+
+            Assert.That(account.Characters.Select(c => c.Name), Is.EqualTo(new[] { "Asli Farm", "[KFC]Asli", "[KFC]llsa" }));
+            Assert.That(account.Characters[1].AccountId, Is.EqualTo("34431520"));
+            Assert.That(account.Characters[1].Enabled, Is.True, "the duplicate's tick carries over");
+            Assert.That(account.Characters[2].Enabled, Is.False);
+        }
+
+        [Test]
+        public void Merge_KeepsCharactersTheScanMissed()
+        {
+            var account = new AccountSettings();
+            account.Characters.Add(new CharacterEntry { Name = "[KFC]Asli", Kingdom = 1 });
+            account.Characters.Add(new CharacterEntry { Name = "[KFC]Ilsa", Kingdom = 1 });
+
+            CharacterRoster.Merge(account, new (string, int?)[] { ("[KFC]Asli", 1) });
+
+            Assert.That(account.Characters, Has.Count.EqualTo(2), "a row that failed to read is no reason to drop a character");
+        }
+
+        [Test]
         public void Find_IgnoresTheKingdomWhenUnknown_ButNotWhenItDiffers()
         {
             var account = new AccountSettings();
