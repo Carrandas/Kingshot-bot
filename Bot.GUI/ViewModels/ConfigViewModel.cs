@@ -29,7 +29,8 @@ namespace Bot.GUI.ViewModels
         {
             TaskType.Startup,
             TaskType.Recovery,
-            TaskType.AccountDetection
+            TaskType.AccountDetection,
+            TaskType.CastleBattle   // its own mode on the Bot tab, never in the cycle's task list
         };
         
         private static readonly HashSet<TaskType> DisabledTasks = new()

@@ -43,7 +43,21 @@ namespace Bot.Core.Services
             var kb = NormalizeKey(b);
             if (ka.Length == 0 || kb.Length == 0) return false;
             if (ka == kb) return true;
+            if (Math.Min(ka.Length, kb.Length) >= 3 && IsOneDropped(ka, kb)) return true;
             return Math.Min(ka.Length, kb.Length) >= 5 && Levenshtein(ka, kb) <= 1;
+        }
+
+        /// <summary>
+        /// One name is the other with one character left out: OCR drops a thin letter next to the tag
+        /// ("[SKY]Asli" read as "[SKY]Asi", "[SKY]Ilsa" as "[SKY]lsa"). A swapped letter ("Asli"/"Asla") is no match.
+        /// </summary>
+        private static bool IsOneDropped(string a, string b)
+        {
+            var (longer, shorter) = a.Length > b.Length ? (a, b) : (b, a);
+            if (longer.Length != shorter.Length + 1) return false;
+            int i = 0;
+            while (i < shorter.Length && shorter[i] == longer[i]) i++;
+            return string.CompareOrdinal(shorter, i, longer, i + 1, shorter.Length - i) == 0;
         }
 
         public static CharacterEntry? Find(AccountSettings account, string name, int? kingdom)

@@ -290,13 +290,13 @@ namespace Bot.Core.Tasks.Modules
         }
 
         /// <summary>
-        /// Reads the visible rows of the Characters screen. The list can take a moment to fill, so it looks up to 3 times
-        /// until the active row (green tick) is found.
+        /// Reads the visible rows of the Characters screen. The list can take a moment to fill (~10 s during a castle
+        /// battle), so it looks up to 6 times until the active row (green tick) is found.
         /// </summary>
         private async Task<List<CharacterRow>> ScanCharactersAsync(AccountSettings account, LogService logger, CancellationToken cancellationToken)
         {
             var rows = new List<CharacterRow>();
-            for (int attempt = 1; attempt <= 3; attempt++)
+            for (int attempt = 1; attempt <= 6; attempt++)
             {
                 var screenshot = await TakeScreenshotAsync(account.InstanceNumber, logger);
                 if (screenshot != null)
@@ -304,8 +304,8 @@ namespace Bot.Core.Tasks.Modules
                     rows = ReadRows(screenshot, account, logger);
                     if (rows.Any(r => r.IsActive)) break;
                 }
-                logger.LogInfo($"[{account.AccountName}] Characters list not ready (attempt {attempt}/3, {rows.Count} rows)");
-                await Task.Delay(1000, cancellationToken);
+                logger.LogInfo($"[{account.AccountName}] Characters list not ready (attempt {attempt}/6, {rows.Count} rows)");
+                await Task.Delay(1500, cancellationToken);
             }
 
             foreach (var row in rows)

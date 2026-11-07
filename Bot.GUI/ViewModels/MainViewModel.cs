@@ -311,6 +311,93 @@ namespace Bot.GUI.ViewModels
             }
         }
 
+        /// <summary>
+        /// Castle Battle mode: stops the cycle, then runs Castle Battle passes on every ticked character of the instance
+        /// (switching between them) until Stop or the settings' max hours. A schedule that was running starts again when
+        /// the time is up (not after Stop).
+        /// </summary>
+        public async Task RunCastleBattleAsync(AccountSettings account, string? onlyCharacter = null)
+        {
+            if (CastleBattleStatus.IsRunning) return;
+            bool wasOnSchedule = _cycleService.IsRunning && _currentConfig?.CycleManagement.MaxCycles == 0;
+            if (IsBotRunning)
+            {
+                _logger.LogInfo("Castle Battle: stopping the cycle first", category: LogCategories.UserAction);
+                await StopEverythingAsync();
+            }
+            if (IsBotRunning) return;
+            if (_botCancellationTokenSource.IsCancellationRequested)
+            {
+                _botCancellationTokenSource.Dispose();
+                _botCancellationTokenSource = new CancellationTokenSource();
+            }
+
+            var token = _botCancellationTokenSource.Token;
+            var endsUtc = DateTime.UtcNow.AddHours(Math.Max(1, account.CastleBattleSettings.MaxHours));
+            _logger.LogInfo($"⚔ Castle Battle started until {endsUtc.ToLocalTime():HH:mm}", category: LogCategories.UserAction);
+            CastleBattleStatus.Start(endsUtc);
+            SetIndividualInstanceRunning(true);
+            bool timeUp = false;
+            try
+            {
+                await Task.Run(() => CastleBattleLoopAsync(account, onlyCharacter, endsUtc, token), token);
+                timeUp = !token.IsCancellationRequested;
+            }
+            catch (OperationCanceledException)
+            {
+                _logger.LogInfo("⚔ Castle Battle stopped");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError($"Castle Battle failed: {ex}", category: LogCategories.TaskExecution);
+            }
+            finally
+            {
+                SetIndividualInstanceRunning(false);
+                CastleBattleStatus.Stop();
+            }
+
+            if (timeUp && wasOnSchedule)
+            {
+                _logger.LogInfo("⚔ Castle Battle time is up: back to Run on schedule");
+                LaunchBotCommand.Execute(null);
+            }
+        }
+
+        private async Task CastleBattleLoopAsync(AccountSettings account, string? onlyCharacter, DateTime endsUtc, CancellationToken token)
+        {
+            while (DateTime.UtcNow < endsUtc)
+            {
+                token.ThrowIfCancellationRequested();
+                var characters = onlyCharacter != null
+                    ? new System.Collections.Generic.List<string?> { onlyCharacter }
+                    : account.Characters.Where(c => c.Enabled).Select(c => (string?)c.Name).ToList();
+                if (characters.Count == 0) characters.Add(null);  // never scanned: whoever is active
+
+                foreach (var name in characters.TakeWhile(_ => DateTime.UtcNow < endsUtc))
+                {
+                    await RunCastleBattlePassAsync(account, name, token);
+                }
+                // one character: nothing to switch to, so give the rallies a moment between passes
+                if (characters.Count == 1) await Task.Delay(TimeSpan.FromSeconds(20), token);
+            }
+        }
+
+        private async Task RunCastleBattlePassAsync(AccountSettings account, string? name, CancellationToken token)
+        {
+            var active = CharacterRoster.GetActiveName(account.InstanceNumber);
+            if (name != null && (active == null || !CharacterRoster.SameName(active, name)))
+                CastleBattleStatus.Set(name, CastleBattlePhase.Switching);
+
+            var result = await _cycleService.RunSingleTaskAsync(account, TaskType.CastleBattle, name, token);
+            token.ThrowIfCancellationRequested();
+            if (!result.Success)
+            {
+                _logger.LogWarning($"⚔ Castle Battle pass{(name != null ? $" on {name}" : "")} failed: {result.Message}");
+                await Task.Delay(TimeSpan.FromSeconds(5), token);
+            }
+        }
+
         private DateTime _lastInitializeGuiCall = DateTime.MinValue;
         private const int INITIALIZE_GUI_DEBOUNCE_MS = 100;
 
@@ -370,13 +457,13 @@ namespace Bot.GUI.ViewModels
             return i >= 0 && i + 1 < args.Length ? args[i + 1] : null;
         }
 
-        /// <summary>Command line switches for unattended runs: --schedule / --cycle / --once, --task, --launch. Only the first one that applies runs.</summary>
+        /// <summary>Command line switches for unattended runs: --schedule / --cycle / --once, --castle-battle, --task, --launch. Only the first one that applies runs.</summary>
         private void AutoLaunchFromCommandLine(BotConfig config)
         {
             if (_autoLaunchDone) return;
 
             var args = Environment.GetCommandLineArgs();
-            _autoLaunchDone = TryAutoStartCycle(args) || TryAutoRunTask(args, config) || TryAutoLaunchInstances(args);
+            _autoLaunchDone = TryAutoStartCycle(args) || TryAutoCastleBattle(args, config) || TryAutoRunTask(args, config) || TryAutoLaunchInstances(args);
         }
 
         // "--schedule" (or the older "--cycle") presses Run on schedule, "--once" presses Run once, for unattended runs
@@ -404,6 +491,23 @@ namespace Bot.GUI.ViewModels
             }
 
             AutoRunSingleTask(args, taskArg, taskAccount);
+            return true;
+        }
+
+        // "--castle-battle" presses Castle Battle on the first instance
+        private bool TryAutoCastleBattle(string[] args, BotConfig config)
+        {
+            if (!HasArg(args, "--castle-battle") || config.Accounts.FirstOrDefault() is not AccountSettings battleAccount)
+            {
+                return false;
+            }
+
+            // "--character <name>": only that character, e.g. to try it on one
+            var characterArg = ArgValue(args, "--character");
+            var character = characterArg == null ? null
+                : battleAccount.Characters.FirstOrDefault(c => CharacterRoster.SameName(c.Name, characterArg))?.Name ?? characterArg;
+            _logger.LogInfo($"Auto-starting the Castle Battle{(character != null ? $" on {character} only" : "")} (--castle-battle)");
+            System.Windows.Application.Current?.Dispatcher.BeginInvoke(async () => await RunCastleBattleAsync(battleAccount, character));
             return true;
         }
 

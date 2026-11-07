@@ -51,6 +51,27 @@
             <Setter Property="ToolTipService.ShowOnDisabled" Value="True"/>
         </Style>
 
+        <Style TargetType="TabItem">
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TabItem">
+                        <Border x:Name="Bg" Background="{StaticResource CardBrush}" CornerRadius="8,8,0,0" Padding="18,8" Margin="0,0,6,0">
+                            <ContentPresenter ContentSource="Header" HorizontalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="Bg" Property="Background" Value="{StaticResource AccentBrush}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
         <Style x:Key="HeaderText" TargetType="TextBlock">
             <Setter Property="Foreground" Value="{StaticResource MutedBrush}"/>
             <Setter Property="FontSize" Value="11"/>
@@ -75,6 +96,9 @@
                     <Button Content="①  Run once" Background="#FF0D7377" Style="{StaticResource ActionButton}"
                             Command="{Binding RunOnceCommand}"
                             ToolTip="Run the task list once on every enabled character, then stop"/>
+                    <Button Content="⚔  Castle Battle" Background="#FF8E44AD" Style="{StaticResource ActionButton}"
+                            Command="{Binding StartCastleBattleCommand}"
+                            ToolTip="Stop the cycle and join castle battle rallies on every ticked character until Stop (settings on the Castle Battle tab)"/>
                     <Button Content="{Binding DataContext.ViewModel.PauseResumeButtonText, RelativeSource={RelativeSource AncestorType=Window}}"
                             Background="#FFFF9800" Style="{StaticResource ActionButton}"
                             ToolTip="Pause holds the bot at its next tap; Resume carries on from there"
@@ -145,8 +169,10 @@
                 </DockPanel>
             </Border>
 
+            <TabControl Grid.Column="1" SelectedIndex="{Binding SelectedTabIndex}" Background="Transparent" BorderThickness="0" Padding="0,8,0,0">
+            <TabItem Header="Cycle">
             <!-- Tasks of the selected character -->
-            <Border Grid.Column="1" Style="{StaticResource CardStyle}">
+            <Border Style="{StaticResource CardStyle}">
                 <DockPanel Grid.IsSharedSizeScope="True">
                     <Grid DockPanel.Dock="Top" Margin="10,0,10,8">
                         <Grid.ColumnDefinitions>
@@ -218,6 +244,118 @@
                     </ScrollViewer>
                 </DockPanel>
             </Border>
+            </TabItem>
+
+            <!-- Castle Battle: settings and the state of each character -->
+            <TabItem Header="Castle Battle">
+                <Border Style="{StaticResource CardStyle}">
+                    <DockPanel>
+                        <StackPanel DockPanel.Dock="Top">
+                            <TextBlock Text="{Binding BattleStatusText}" Foreground="White" FontSize="14" FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,0,0,14"/>
+
+                            <Grid DataContext="{Binding BattleSettings}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="90"/>
+                                    <ColumnDefinition Width="70"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+                                <Grid.Resources>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Foreground" Value="#FFCCCCCC"/>
+                                        <Setter Property="FontSize" Value="12"/>
+                                        <Setter Property="VerticalAlignment" Value="Center"/>
+                                        <Setter Property="Margin" Value="0,0,6,0"/>
+                                    </Style>
+                                    <Style TargetType="TextBox">
+                                        <Setter Property="Width" Value="44"/>
+                                        <Setter Property="Height" Value="26"/>
+                                        <Setter Property="Margin" Value="0,0,12,0"/>
+                                        <Setter Property="VerticalContentAlignment" Value="Center"/>
+                                        <Setter Property="HorizontalContentAlignment" Value="Center"/>
+                                    </Style>
+                                </Grid.Resources>
+
+                                <TextBlock Grid.Row="0" Grid.Column="1" Text="TEAM" Style="{StaticResource HeaderText}" Margin="0,0,0,4"/>
+
+                                <TextBlock Grid.Row="1" Grid.Column="0" Text="Offensive" ToolTip="Red Rally rows: attacking a tower or castle"/>
+                                <ComboBox Grid.Row="1" Grid.Column="1" Width="54" HorizontalAlignment="Left" Margin="0,4"
+                                          ItemsSource="{Binding DataContext.TeamOptions, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                          SelectedItem="{Binding OffensiveTeam}" ToolTip="Team flag at the top of the deploy screen; the flag keeps its troops and ratio"/>
+
+                                <TextBlock Grid.Row="2" Grid.Column="0" Text="Defensive" ToolTip="Blue Def. Lineup rows: defending a tower or castle we hold"/>
+                                <ComboBox Grid.Row="2" Grid.Column="1" Width="54" HorizontalAlignment="Left" Margin="0,4"
+                                          ItemsSource="{Binding DataContext.TeamOptions, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                          SelectedItem="{Binding DefensiveTeam}" ToolTip="Team flag at the top of the deploy screen; the flag keeps its troops and ratio"/>
+
+                                <StackPanel Grid.Row="3" Grid.ColumnSpan="6" Orientation="Horizontal" Margin="0,10,0,0">
+                                    <TextBlock Text="Heal amount" ToolTip="Starting heal batch; each character then keeps its own (BATCH column)"/>
+                                    <TextBox Width="56" Text="{Binding HealAmount, UpdateSourceTrigger=PropertyChanged}" ToolTip="Troops per Heal tap"/>
+                                    <TextBlock Text="Reinforce every"/>
+                                    <TextBox Text="{Binding ReinforceIntervalMinutes, UpdateSourceTrigger=PropertyChanged}"/>
+                                    <TextBlock Text="min    Stop after"/>
+                                    <TextBox Text="{Binding MaxHours, UpdateSourceTrigger=PropertyChanged}"/>
+                                    <TextBlock Text="hours"/>
+                                </StackPanel>
+                            </Grid>
+
+                            <Grid Margin="10,20,10,8">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="140"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="70"/>
+                                    <ColumnDefinition Width="70"/>
+                                    <ColumnDefinition Width="70"/>
+                                    <ColumnDefinition Width="80"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text="CHARACTER" Style="{StaticResource HeaderText}"/>
+                                <TextBlock Grid.Column="1" Text="STATE" Style="{StaticResource HeaderText}"/>
+                                <TextBlock Grid.Column="2" Text="JOINED" Style="{StaticResource HeaderText}" ToolTip="Rallies joined this battle"/>
+                                <TextBlock Grid.Column="3" Text="HELPS" Style="{StaticResource HeaderText}" ToolTip="Heal > Help rounds this battle"/>
+                                <TextBlock Grid.Column="4" Text="BATCH" Style="{StaticResource HeaderText}" ToolTip="Heal batch: troops per Heal, learned per character"/>
+                                <TextBlock Grid.Column="5" Text="UPDATED" Style="{StaticResource HeaderText}"/>
+                            </Grid>
+                        </StackPanel>
+
+                        <ItemsControl ItemsSource="{Binding BattleRows}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Background="{StaticResource RowBrush}" Margin="0,0,0,4" Padding="10,8" CornerRadius="8">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="140"/>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="70"/>
+                                                <ColumnDefinition Width="70"/>
+                                                <ColumnDefinition Width="70"/>
+                                                <ColumnDefinition Width="80"/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Grid.Column="0" Text="{Binding Character}" Foreground="White" FontSize="13"/>
+                                            <StackPanel Grid.Column="1" Orientation="Horizontal">
+                                                <TextBlock Text="{Binding State}" Foreground="White" FontSize="13"/>
+                                                <TextBlock Text="{Binding Detail}" Foreground="{StaticResource MutedBrush}" FontSize="12" Margin="8,0,0,0" VerticalAlignment="Center"/>
+                                            </StackPanel>
+                                            <TextBlock Grid.Column="2" Text="{Binding Joined}" Foreground="#FFCCCCCC" FontSize="12"/>
+                                            <TextBlock Grid.Column="3" Text="{Binding Heals}" Foreground="#FFCCCCCC" FontSize="12"/>
+                                            <TextBlock Grid.Column="4" Text="{Binding HealBatch}" Foreground="#FFCCCCCC" FontSize="12"/>
+                                            <TextBlock Grid.Column="5" Text="{Binding Updated}" Foreground="#FFCCCCCC" FontSize="12"/>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </DockPanel>
+                </Border>
+            </TabItem>
+            </TabControl>
         </Grid>
     </Grid>
 </UserControl>

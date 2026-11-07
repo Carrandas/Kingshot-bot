@@ -61,6 +61,7 @@ namespace Bot.Core.Tasks.Modules
             [TaskType.MysticTrial] = "Mystic Trial",
             [TaskType.Arena] = "Arena",
             [TaskType.AutoJoinRally] = "Auto Join Rally",
+            [TaskType.CastleBattle] = "Castle Battle",
             [TaskType.TruegoldCrucible] = "Truegold Crucible",
             [TaskType.AllianceTriumph] = "Alliance Triumph",
             [TaskType.WaterEssence] = "Water Essence",

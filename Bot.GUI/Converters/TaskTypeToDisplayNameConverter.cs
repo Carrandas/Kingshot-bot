@@ -14,7 +14,8 @@ namespace Bot.GUI.Converters
         {
             TaskType.Startup,
             TaskType.Recovery,
-            TaskType.AccountDetection
+            TaskType.AccountDetection,
+            TaskType.CastleBattle   // its own mode on the Bot tab, never in the cycle's task list
         };
         
         private static readonly HashSet<TaskType> DisabledTasks = new()
@@ -45,6 +46,7 @@ namespace Bot.GUI.Converters
             { TaskType.MysticTrial, "Mystic Trial" },
             { TaskType.Arena, "Arena" },
             { TaskType.AutoJoinRally, "Auto Join Rally" },
+            { TaskType.CastleBattle, "Castle Battle" },
             { TaskType.CollectOnlineRewards, "Collect Online Rewards" },
             { TaskType.Journey, "Journey" },
             { TaskType.TruegoldCrucible, "Truegold Crucible" },

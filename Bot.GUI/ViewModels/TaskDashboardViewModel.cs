@@ -40,6 +40,11 @@ namespace Bot.GUI.ViewModels
         public ICommand RunOnceCommand { get; }
         public ICommand RunTaskCommand { get; }
         public ICommand ScanCharactersCommand { get; }
+        public ICommand StartCastleBattleCommand { get; }
+
+        /// <summary>Castle Battle tab: one row per character with its phase</summary>
+        public ObservableCollection<BattleRow> BattleRows { get; } = new();
+        public int[] TeamOptions { get; } = { 1, 2, 3, 4, 5, 6, 7, 8 };
 
         public TaskDashboardViewModel(MainViewModel main, CycleManagementService cycleService, TaskManager taskManager, ConfigViewModel configVM)
         {
@@ -52,6 +57,10 @@ namespace Bot.GUI.ViewModels
             RunOnceCommand = new RelayCommand(_ => { _main.RunOnceCommand.Execute(null); RefreshSoon(); }, _ => !IsBusy);
             RunTaskCommand = new AsyncRelayCommand(p => RunSingleAsync(p as TaskRow), p => !IsBusy && p is TaskRow);
             ScanCharactersCommand = new AsyncRelayCommand(_ => ScanCharactersAsync(), _ => !IsBusy && SelectedAccount != null);
+            // allowed while the cycle runs: the battle stops it first
+            StartCastleBattleCommand = new AsyncRelayCommand(_ => StartCastleBattleAsync(),
+                _ => SelectedAccount?.CastleBattleSettings.IsValid == true && !CastleBattleStatus.IsRunning && !_singleRunActive);
+            CastleBattleStatus.Changed += () => OnUi(RefreshBattle);
 
             _cycleService.OnScheduleChanged += () => OnUi(Refresh);
             TaskRunHistory.Changed += () => OnUi(Refresh);
@@ -79,10 +88,12 @@ namespace Bot.GUI.ViewModels
             set
             {
                 if (_selectedAccount == value) return;
-                if (_selectedAccount != null) { _selectedAccount.Characters.CollectionChanged -= OnCharactersChanged; _selectedAccount.HiddenTasks.CollectionChanged -= OnHiddenTasksChanged; }
+                if (_selectedAccount != null) { _selectedAccount.Characters.CollectionChanged -= OnCharactersChanged; _selectedAccount.HiddenTasks.CollectionChanged -= OnHiddenTasksChanged; _selectedAccount.CastleBattleSettings.PropertyChanged -= OnBattleSettingsChanged; }
                 _selectedAccount = value;
-                if (_selectedAccount != null) { _selectedAccount.Characters.CollectionChanged += OnCharactersChanged; _selectedAccount.HiddenTasks.CollectionChanged += OnHiddenTasksChanged; }
+                if (_selectedAccount != null) { _selectedAccount.Characters.CollectionChanged += OnCharactersChanged; _selectedAccount.HiddenTasks.CollectionChanged += OnHiddenTasksChanged; _selectedAccount.CastleBattleSettings.PropertyChanged += OnBattleSettingsChanged; }
                 OnPropertyChanged();
+                OnPropertyChanged(nameof(BattleSettings));
+                OnBattleSettingsChanged(null, new PropertyChangedEventArgs(null));
                 OnPropertyChanged(nameof(ShowAccountPicker));
                 RebuildCharacters();
             }
@@ -104,7 +115,59 @@ namespace Bot.GUI.ViewModels
             }
         }
 
-        public bool IsBusy => _cycleService.IsRunning || _singleRunActive;
+        public bool IsBusy => _cycleService.IsRunning || _singleRunActive || CastleBattleStatus.IsRunning;
+
+        /// <summary>Castle Battle settings of the selected instance (both characters share them)</summary>
+        public CastleBattleSettings? BattleSettings => _selectedAccount?.CastleBattleSettings;
+
+        /// <summary>0 = Cycle, 1 = Castle Battle; a running battle shows its tab</summary>
+        private int _selectedTabIndex;
+        public int SelectedTabIndex { get => _selectedTabIndex; set { if (_selectedTabIndex != value) { _selectedTabIndex = value; OnPropertyChanged(); } } }
+        private bool _battleWasRunning;
+
+        private string _battleStatusText = string.Empty;
+        public string BattleStatusText { get => _battleStatusText; private set { if (_battleStatusText != value) { _battleStatusText = value; OnPropertyChanged(); } } }
+
+        // the bot changes HealAmount from its own thread: handle it on the UI thread
+        private void OnBattleSettingsChanged(object? sender, PropertyChangedEventArgs e) => OnUi(() =>
+        {
+            CommandManager.InvalidateRequerySuggested();
+            if (sender != null && e.PropertyName != nameof(CastleBattleSettings.IsValid)) _configVM.SaveConfigIfNotApplying();
+            if (e.PropertyName == nameof(CastleBattleSettings.HealAmounts)) RefreshBattle();
+        });
+
+        private async System.Threading.Tasks.Task StartCastleBattleAsync()
+        {
+            if (_selectedAccount == null) return;
+            var run = _main.RunCastleBattleAsync(_selectedAccount);
+            RefreshSoon();
+            await run;
+            Refresh();
+        }
+
+        /// <summary>Castle Battle tab: the status line and one row per ticked character</summary>
+        private void RefreshBattle()
+        {
+            CommandManager.InvalidateRequerySuggested();
+            OnPropertyChanged(nameof(IsBusy));
+            BattleStatusText = CastleBattleStatus.EndsUtc is DateTime ends
+                ? $"Castle Battle running until {Local(ends)} ({Relative(ends)})"
+                : "Stopped. Castle Battle joins rallies and heals on every ticked character until Stop or the max hours.";
+
+            var entries = CastleBattleStatus.All();
+            var names = Characters.Where(c => c.Entry?.Enabled != false).Select(c => c.Name).ToList();
+            names.AddRange(entries.Select(e => e.Character).Where(n => !names.Exists(x => CharacterRoster.SameName(x, n))));
+            while (BattleRows.Count > names.Count) BattleRows.RemoveAt(BattleRows.Count - 1);
+            for (int i = 0; i < names.Count; i++)
+            {
+                if (i == BattleRows.Count) BattleRows.Add(new BattleRow());
+                var name = names[i];
+                BattleRows[i].Update(name, entries.FirstOrDefault(e => CharacterRoster.SameName(e.Character, name)), BattleSettings?.HealAmountFor(name));
+            }
+            if (CastleBattleStatus.IsRunning) CycleStatus = BattleStatusText;
+            if (CastleBattleStatus.IsRunning && !_battleWasRunning) SelectedTabIndex = 1;
+            _battleWasRunning = CastleBattleStatus.IsRunning;
+        }
 
         private string _cycleStatus = string.Empty;
         public string CycleStatus { get => _cycleStatus; private set { if (_cycleStatus != value) { _cycleStatus = value; OnPropertyChanged(); } } }
@@ -136,6 +199,7 @@ namespace Bot.GUI.ViewModels
             }
             SelectedCharacter = Characters.FirstOrDefault(c => c.Name == keep) ?? Characters.FirstOrDefault(c => c.Entry?.Enabled != false) ?? Characters.FirstOrDefault();
             RebuildTasks();
+            RefreshBattle();
         }
 
         private void OnCharacterEntryChanged(object? sender, PropertyChangedEventArgs e)
@@ -145,6 +209,7 @@ namespace Bot.GUI.ViewModels
             {
                 _configVM.SaveConfigIfNotApplying();
                 OnUi(Refresh);
+                OnUi(RefreshBattle);
             }
         }
 
@@ -249,6 +314,7 @@ namespace Bot.GUI.ViewModels
         {
             string runningText = current != null ? $": {TaskTypeToDisplayNameConverter.GetDisplayName(current.Value)}" : "";
 
+            if (CastleBattleStatus.EndsUtc is DateTime battleEnds) return $"Castle Battle running until {Local(battleEnds)}";
             if (_singleRunActive) return SingleRunText;
             if (cycleRunning) return $"Cycle {_cycleService.CurrentCycle} running{runningText}";
             if (nextCycle != null) return $"Next cycle at {Local(nextCycle.Value)} ({Relative(nextCycle.Value)})";
@@ -384,6 +450,44 @@ namespace Bot.GUI.ViewModels
 
         public event PropertyChangedEventHandler? PropertyChanged;
         protected void OnPropertyChanged([CallerMemberName] string? name = null) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+    }
+
+    /// <summary>A character's line on the Castle Battle tab</summary>
+    public class BattleRow : INotifyPropertyChanged
+    {
+        public string Character { get; private set; } = string.Empty;
+        public string State { get; private set; } = string.Empty;
+        public string Detail { get; private set; } = string.Empty;
+        public string Joined { get; private set; } = string.Empty;
+        public string Heals { get; private set; } = string.Empty;
+        public string Updated { get; private set; } = string.Empty;
+        public string HealBatch { get; private set; } = string.Empty;
+
+        public void Update(string character, CastleBattleStatus.Entry? entry, int? healBatch)
+        {
+            HealBatch = healBatch?.ToString() ?? string.Empty;
+            Character = character;
+            SetEntry(entry);
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(null));
+        }
+
+        private void SetEntry(CastleBattleStatus.Entry? entry)
+        {
+            if (entry == null)
+            {
+                State = "-";
+                Detail = Updated = string.Empty;
+                Joined = Heals = "0";
+                return;
+            }
+            State = CastleBattleStatus.Describe(entry.Phase);
+            Detail = entry.Detail;
+            Joined = entry.RalliesJoined.ToString();
+            Heals = entry.HealRounds.ToString();
+            Updated = entry.UpdatedUtc.ToLocalTime().ToString("HH:mm:ss");
+        }
+
+        public event PropertyChangedEventHandler? PropertyChanged;
     }
 
     /// <summary>A character on the selected instance, or (Entry null) "whoever is active" before the first scan</summary>

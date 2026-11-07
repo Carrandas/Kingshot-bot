@@ -22,6 +22,8 @@ namespace Bot.Core.Tests
         [TestCase("[KFC]Asli", "[XYZ]Asli")]   // tag changed
         [TestCase("Larryboy", "Larryb0y")]
         [TestCase("Larryboy", "Larrybey")]     // one character off, 5+ characters
+        [TestCase("[KFC]Asli", "[SKY]Asi")]    // castle battle Characters screen: a letter dropped next to the tag
+        [TestCase("[KFC]Ilsa", "[SKY]lsa")]
         public void SameName_True(string a, string b)
         {
             Assert.That(CharacterRoster.SameName(a, b), Is.True);

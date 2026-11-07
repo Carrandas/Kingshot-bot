@@ -13,6 +13,7 @@ This file is committed: instructions for Claude Code working on this repo.
 | `dotnet run --project Bot.GUI/Bot.GUI.csproj` | Run app |
 | `KingshotAuto.exe --schedule` / `--once` | Start and press Run on schedule / Run once (`--cycle` = `--schedule`; `--launch` = Launch on every instance) |
 | `KingshotAuto.exe --task MysticTrial --character llsa` | Start and press ▶ for one task on one character (name matched like the roster; runs even when the task's switch is off) |
+| `KingshotAuto.exe --castle-battle` | Start and press Castle Battle (stops the cycle; joins rallies and heals on every ticked character until Stop) |
 | `dotnet test Bot.Core.Tests` | Unit tests (code only, no emulator) |
 | `dotnet test Bot.Core.IntegrationTests` | Screenshot tests: task detection on saved screenshots |
 | `.\Build.ps1 -Version "x.x.x"` | Package a portable zip + NSIS installer into `dist/` |
@@ -81,6 +82,12 @@ data/                 # next to the exe, created at runtime: daily_gates.json, t
 7. Once-a-day tasks: the game resets at 00:00 UTC. Use `DailyGate` (saved in `data/daily_gates.json`, keyed per game account via `Schedule.AccountKey(AccountDetectionTask.GetCachedAccountId(...), account)`): `if (DailyGate.DoneToday(TaskType, key)) return TaskExecutionDetails.SkippedBecause("Already done today");` first, `DailyGate.MarkDone(TaskType, key)` after the run (CollectVip, ClaimMail, NomadicMerchant, TruegoldCrucible, SuggestionBox, MysticTrial, Arena; Arena can also wait for a UTC time of day, `ArenaSettings.RunAfterUtc`). Older gates: AllianceTriumph (memory), CollectRewards (disk). A gate or timer skip must return `SkippedBecause` / `Skipped = true`, or the dashboard shows it as a real run.
    Any task with a gate or timer implements `IScheduledTask`: `GetNextRunUtc` (next run for the dashboard; deterministic, no file reads) and `ClearSchedule` (the ▶ button runs regardless).
 8. Suggestion Box: the letters come from a fixed list. The built-in answer table is `KnownAnswers` in `SuggestionBoxTask`; learned answers go to `data/suggestion_box_answers.json`. Result: +3% right, 0% neutral (some letters have no +3% answer), -2% wrong.
+
+## Castle Battle (beta)
+- Its own mode, not a cycle task: the Bot tab's **⚔ Castle Battle** button (or `--castle-battle [--character <name>]`) stops the cycle and runs `CastleBattleTask` passes on every ticked character until Stop or the max hours (`MainViewModel.RunCastleBattleAsync`). `TaskType.CastleBattle` is a system task in the GUI, so it never shows in the cycle list.
+- A pass: read the heal % and the Marching tracker. Below 70% with no march out, join one rally (the game allows one at a time). A red "Rally" row gets the offensive flag, a blue "Def. Lineup" row the defensive flag; the flags keep their own troops and ratio, so there is no Balance step. Then heal.
+- Healing: the Heal Injured popup's right button alternates Heal and Help. The batch goes in one troop box (0 in the others: Cancel healing and the popup refill them to the max). Each pass first tries the character's batch + 100 (`CastleBattleSettings.HealAmounts`); Speedups after Help = too big: Cancel healing > Confirm, 100 fewer. Never tap Speedups, Finish (gems) or the Cancel spot unless Speedups shows (it is Quick Select otherwise).
+- Not built yet: the garrison swap after a win (send the defensive flag via building > Garrison > Dispatch Troops, recall the offensive one ~3 s before it arrives), reinforcing, resources from the Backpack.
 
 ## Key Patterns
 - **Config**: Singleton `ConfigurationManager`, JSON-serialized task settings per account.

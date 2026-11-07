@@ -91,6 +91,7 @@ namespace Bot.Core.Tasks
             tasks[TaskType.MysticTrial] = new MysticTrialTask();
             tasks[TaskType.Arena] = new ArenaTask();
             tasks[TaskType.AutoJoinRally] = new AutoJoinRallyTask();
+            tasks[TaskType.CastleBattle] = new CastleBattleTask();
             return tasks;
         }
 
@@ -781,6 +782,7 @@ namespace Bot.Core.Tasks
             { TaskType.MysticTrial, 25 },
             { TaskType.Arena, 25 },
             { TaskType.AutoJoinRally, 26 },
+            { TaskType.CastleBattle, 27 },     // never in a cycle list (the Castle Battle mode runs it); listed for completeness
             { TaskType.ChangeAccount, 999 }    // ChangeAccount should always run last
         };
 
