@@ -85,7 +85,10 @@ namespace Bot.Core.Tasks
             try
             {
                 // Skip auto tasks for Alliance Help, Auto Heal, and Startup to prevent recursion and startup interference
-                if (TaskType == TaskType.AutoAllianceHelp || TaskType == TaskType.AutoHeal || TaskType == TaskType.Startup)
+                // Bear Hunt mode: Alliance Help would go to the base and back every pass; with the bear crowd on the map those
+                // transitions time out and recovery restarted the game (2026-11-08)
+                if (TaskType == TaskType.AutoAllianceHelp || TaskType == TaskType.AutoHeal || TaskType == TaskType.Startup
+                    || (TaskType == TaskType.BearHunt && BearHuntStatus.IsRunning))
                 {
                     logger.LogInfo($"[{account.AccountName}] Skipping auto tasks for {Name} (excluded task type)");
                     return true;

@@ -25,29 +25,20 @@ namespace Bot.Core.Tasks.Modules
     ///    flag (red "Rally") or the defensive one (blue "Def. Lineup"); each flag keeps its own troops and ratio.
     /// Not in the cycle's task list.
     /// </summary>
-    public class CastleBattleTask : BaseTaskWithCommonPatterns
+    public class CastleBattleTask : RallyTaskBase
     {
         public override TaskType TaskType => TaskType.CastleBattle;
         public override string Name => "Castle Battle";
 
         // This folder
-        private const string DeployButtonTemplate = "deploy-button.png";   // deploy screen: 1.00 there, <= 0.54 on War/Balance/map
         private const string HealTitleTemplate = "heal-title.png";         // "Heal Injured": 1.00, <= 0.31 elsewhere
         private const string HealButtonHealTemplate = "heal-btn-heal.png";
         private const string HealButtonHelpTemplate = "heal-btn-help.png";
         private const string HealButtonSpeedupsTemplate = "heal-btn-speedups.png";
         private const string HealCancelTitleTemplate = "heal-cancel-title.png";  // "Cancel healing" confirmation: 1.00, <= 0.38 elsewhere
         private const string BattleHealIconTemplate = "heal-icon-battle.png"; // the battle's heal icon (handshake + green "+"): 1.00, <= 0.41 elsewhere
-        // Shared with Auto Join Rally / Auto Heal
-        private static readonly string AllianceMenuTemplate = Path.Combine("autojoinrally", "alliance-menu.png");
-        private static readonly string WarTileTemplate = Path.Combine("autojoinrally", "war-tile.png");
-        private static readonly string WarTitleTemplate = Path.Combine("autojoinrally", "war-title.png");
         private static readonly string HealIconTemplate = Path.Combine("autoheal", "heal.png");
 
-        private static readonly Rectangle AllianceMenuArea = new Rectangle(480, 1160, 150, 110);
-        private static readonly Rectangle WarTileArea = new Rectangle(0, 600, 360, 160);
-        private static readonly Rectangle WarTitleArea = new Rectangle(60, 0, 200, 80);
-        private static readonly Rectangle DeployButtonArea = new Rectangle(400, 1160, 310, 100);
         private static readonly Rectangle HealIconArea = new Rectangle(480, 880, 238, 200);
         private static readonly Rectangle HealTitleArea = new Rectangle(200, 160, 320, 90);
         // right button of Heal Injured, Heal or Help in turn; Finish (gems) is left of it at (308,937)
@@ -68,24 +59,10 @@ namespace Bot.Core.Tasks.Modules
         private static readonly System.Drawing.Point CancelConfirmPoint = new System.Drawing.Point(512, 789);
         private static readonly Rectangle HealCancelTitleArea = new Rectangle(200, 400, 320, 100);
 
-        // War > Rally list: the join "+" sits at the right of each row; green = can join (2,500 green pixels), grey = joined/full (0)
-        private static readonly Rect JoinColumn = new Rect(560, 150, 160, 1000);
-        // Marching tracker, top left of the map: "Marching 1/6", then one row per march ("Rallying" / target "X:650, Y:600" / ...)
-        private static readonly Rectangle MarchCountArea = new Rectangle(175, 200, 80, 30);
-        private static readonly Rectangle MarchRowArea = new Rectangle(58, 244, 190, 30);
         private static readonly Rectangle HealPercentArea = new Rectangle(512, 978, 92, 26);   // under the heal icon
         private const int HealBlocksJoinPercent = 70;   // at 70% or more: only heal, no rallies
-
-        private static readonly System.Drawing.Point BackPoint = new System.Drawing.Point(45, 40);
-        private static readonly System.Drawing.Point DeployPoint = new System.Drawing.Point(548, 1215);
-
-        private const double Threshold = 0.85;      // screen elements 1.00 present, <= 0.66 elsewhere
         private const double HealThreshold = 0.65;  // as Auto Heal
         private const int MaxJoinsPerPass = 1;      // the game allows one rally at a time (a second join gives an error)
-        private const int MaxScrolls = 3;
-        // slow, short drags: a fast swipe flings the list past rows unjudged
-        private static readonly System.Drawing.Point ListScrollFrom = new System.Drawing.Point(360, 950);
-        private static readonly System.Drawing.Point ListScrollTo = new System.Drawing.Point(360, 650);
         private const int HealStep = 100;             // a batch the help no longer covers (allies went offline): 100 fewer
         private const int MinHealAmount = 100;
         private const int MaxHealRounds = 50;         // Heal / Help taps per pass, then rallies get their turn (18 allies online covered ~1,000 a batch)
@@ -185,7 +162,6 @@ namespace Bot.Core.Tasks.Modules
             return healed;
         }
 
-        /// <summary>Types the batch when it changed, then Heal. Returns the amount now in the box.</summary>
         /// <summary>
         /// Puts the batch on one troop type (infantry, cavalry or archers; 0 in the other boxes): the one typed last while
         /// it has a full batch left, else the one with the most injured. Types only when that changed, then Heal. Returns what is in the boxes now.
@@ -275,7 +251,6 @@ namespace Bot.Core.Tasks.Modules
             return HealButton.None;
         }
 
-        /// <summary>Infantry amount box > type > OK of the input bar</summary>
         /// <summary>The batch in one box (0 = infantry, 1 = cavalry, 2 = archers), 0 in the other two</summary>
         private async Task TypeHealAmountAsync(int type, int amount, int?[] injured, int instance, LogService logger, CancellationToken cancellationToken)
         {
@@ -344,30 +319,11 @@ namespace Bot.Core.Tasks.Modules
 
         #region March state
 
-        /// <summary>What the Marching tracker says: busy/total march queues and the first row's text</summary>
-        internal sealed record MarchInfo(int Busy, int Total, string FirstRow)
-        {
-            public bool HasFreeQueue => Total == 0 || Busy < Total;
-        }
-
         private async Task<MarchInfo> ReadMarchesAsync(string character, int instance, LogService logger)
         {
-            var screenshot = await TakeScreenshotAsync(instance, logger);
-            if (screenshot == null) return new MarchInfo(0, 0, "");
-            var info = ReadMarchTracker(screenshot, logger);
+            var info = await ReadMarchTrackerAsync(instance, logger);
             logger.LogInfo($"[{character}] Castle Battle: marching {info.Busy}/{info.Total}, first row '{info.FirstRow}' ({Classify(info)})");
             return info;
-        }
-
-        /// <summary>OCR of the Marching tracker; 0/0 and "" when it isn't shown (no marches)</summary>
-        internal static MarchInfo ReadMarchTracker(byte[] screenshot, LogService logger)
-        {
-            string count = ReadWhiteText(screenshot, MarchCountArea, "0123456789/", logger);
-            string row = ReadWhiteText(screenshot, MarchRowArea, null, logger);
-            var m = Regex.Match(count, @"(\d)\s*/\s*(\d)", RegexOptions.None, RegexTimeouts.Default);
-            return m.Success
-                ? new MarchInfo(int.Parse(m.Groups[1].Value), int.Parse(m.Groups[2].Value), row)
-                : new MarchInfo(0, 0, row);
         }
 
         /// <summary>Phase from the tracker's first row. Unknown texts are logged by the caller so they can be added.</summary>
@@ -389,7 +345,7 @@ namespace Bot.Core.Tasks.Modules
             CastleBattleStatus.Set(character, phase, detail);
         }
 
-        /// <summary>White text masked into white-on-black, then one line of OCR</summary>
+        /// <summary>The percentage under the heal icon, from a fresh screenshot</summary>
         private async Task<int?> ReadHealPercentAsync(int instance, LogService logger)
         {
             var screenshot = await TakeScreenshotAsync(instance, logger);
@@ -405,29 +361,6 @@ namespace Bot.Core.Tasks.Modules
             string text = ReadMaskedText(screenshot, HealPercentArea, new Scalar(10, 120, 170), new Scalar(85, 255, 255), "0123456789%", logger);
             var m = Regex.Match(text, @"(\d{1,3})", RegexOptions.None, RegexTimeouts.Default);
             return m.Success && int.Parse(m.Groups[1].Value) <= 100 ? int.Parse(m.Groups[1].Value) : null;
-        }
-
-        private static string ReadWhiteText(byte[] screenshot, Rectangle area, string? whitelist, LogService logger) =>
-            ReadMaskedText(screenshot, area, new Scalar(0, 0, 200), new Scalar(180, 60, 255), whitelist, logger);
-
-        /// <summary>The text colour masked into white-on-black, then one line of OCR</summary>
-        private static string ReadMaskedText(byte[] screenshot, Rectangle area, Scalar low, Scalar high, string? whitelist, LogService logger)
-        {
-            byte[] masked;
-            using (var image = Cv2.ImDecode(screenshot, ImreadModes.Color))
-            {
-                var roi = new Rect(area.X, area.Y, area.Width, area.Height).Intersect(new Rect(0, 0, image.Width, image.Height));
-                using var region = new Mat(image, roi);
-                using var hsv = region.CvtColor(ColorConversionCodes.BGR2HSV);
-                using var mask = hsv.InRange(low, high);
-                using var bgr = mask.CvtColor(ColorConversionCodes.GRAY2BGR);
-                masked = bgr.ToBytes(".png");
-            }
-            var config = new OcrConfiguration { ScaleFactor = 2, PageSegMode = Tesseract.PageSegMode.SingleLine };
-            if (whitelist != null) config.CharacterWhitelist = whitelist;
-            using var ocr = new OcrService(logger, config);
-            string text = ocr.ExtractTextFromScreenArea(masked, new Rectangle(0, 0, area.Width, area.Height)) ?? "";
-            return Regex.Replace(text, @"\s+", " ", RegexOptions.None, RegexTimeouts.Default).Trim();
         }
 
         #endregion
@@ -477,171 +410,6 @@ namespace Bot.Core.Tasks.Modules
             return JoinAsync(character, button.Center, team, instance, logger, cancellationToken);
         }
 
-        private async Task<bool> OpenWarAsync(string character, int instance, LogService logger, CancellationToken cancellationToken)
-        {
-            var menu = await MatchAsync(AllianceMenuTemplate, AllianceMenuArea, Threshold, instance, logger);
-            if (!menu.found)
-            {
-                logger.LogWarning($"[{character}] Castle Battle: Alliance button not found ({menu.confidence:F2})");
-                return false;
-            }
-            await ClickCenterInRectAsync(instance, logger, menu.rect);
-            await Task.Delay(2000, cancellationToken);
-
-            var tile = await MatchAsync(WarTileTemplate, WarTileArea, Threshold, instance, logger);
-            if (!tile.found)
-            {
-                logger.LogWarning($"[{character}] Castle Battle: War tile not found ({tile.confidence:F2})");
-                await ClickAsync(instance, logger, BackPoint);
-                await Task.Delay(1500, cancellationToken);
-                return false;
-            }
-            await ClickCenterInRectAsync(instance, logger, tile.rect);
-            for (int i = 0; i < 5; i++)
-            {
-                await Task.Delay(1000, cancellationToken);
-                if (await IsOnWarAsync(instance, logger)) return true;
-            }
-            logger.LogWarning($"[{character}] Castle Battle: War screen did not open");
-            return false;
-        }
-
-        private async Task<bool> IsOnWarAsync(int instance, LogService logger) =>
-            (await MatchAsync(WarTitleTemplate, WarTitleArea, Threshold, instance, logger)).found;
-
-        /// <summary>War screen > Alliance screen > map</summary>
-        private async Task LeaveWarAsync(int instance, LogService logger, CancellationToken cancellationToken)
-        {
-            for (int i = 0; i < 2; i++)
-            {
-                await ClickAsync(instance, logger, BackPoint);
-                await Task.Delay(1500, cancellationToken);
-            }
-        }
-
-        /// <summary>A green join "+" and whether its row is a blue "Def. Lineup" (else a red attack "Rally")</summary>
-        internal readonly record struct JoinButton(System.Drawing.Point Center, bool Defensive);
-
-        /// <summary>Join buttons on screen; when there are none, scrolls the list down slowly (full rallies show a grey "+") a few times</summary>
-        private async Task<List<JoinButton>> FindJoinButtonsWithScrollAsync(int instance, LogService logger, CancellationToken cancellationToken)
-        {
-            var buttons = await FindJoinButtonsAsync(instance, logger);
-            for (int i = 0; i < MaxScrolls && buttons.Count == 0; i++)
-            {
-                await SwipeAsync(instance, logger, ListScrollFrom, ListScrollTo, 1500);
-                await Task.Delay(1000, cancellationToken);
-                buttons = await FindJoinButtonsAsync(instance, logger);
-            }
-            return buttons;
-        }
-
-        private async Task<List<JoinButton>> FindJoinButtonsAsync(int instance, LogService logger)
-        {
-            var screenshot = await TakeScreenshotAsync(instance, logger);
-            return screenshot == null ? new List<JoinButton>() : FindJoinButtons(screenshot);
-        }
-
-        /// <summary>The green join "+" buttons on the War > Rally list, top to bottom (grey ones are skipped)</summary>
-        internal static List<JoinButton> FindJoinButtons(byte[] screenshot)
-        {
-            var result = new List<JoinButton>();
-            using var image = Cv2.ImDecode(screenshot, ImreadModes.Color);
-            using var region = new Mat(image, JoinColumn.Intersect(new Rect(0, 0, image.Width, image.Height)));
-            using var hsv = region.CvtColor(ColorConversionCodes.BGR2HSV);
-            using var mask = hsv.InRange(new Scalar(40, 120, 120), new Scalar(80, 255, 255));
-            using var labels = new Mat();
-            using var stats = new Mat();
-            using var centroids = new Mat();
-            int count = Cv2.ConnectedComponentsWithStats(mask, labels, stats, centroids);
-            for (int i = 1; i < count; i++)
-            {
-                int w = stats.At<int>(i, (int)ConnectedComponentsTypes.Width);
-                int h = stats.At<int>(i, (int)ConnectedComponentsTypes.Height);
-                int area = stats.At<int>(i, (int)ConnectedComponentsTypes.Area);
-                // the button: 59x57, 2,506 green pixels
-                if (area < 1800 || w is < 45 or > 75 || h is < 45 or > 75) continue;
-                int x = stats.At<int>(i, (int)ConnectedComponentsTypes.Left) + w / 2 + JoinColumn.X;
-                int y = stats.At<int>(i, (int)ConnectedComponentsTypes.Top) + h / 2 + JoinColumn.Y;
-                result.Add(new JoinButton(new System.Drawing.Point(x, y), IsDefensiveRow(image, y)));
-            }
-            return result.OrderBy(b => b.Center.Y).ToList();
-        }
-
-        /// <summary>
-        /// The row header above a join button (~170 px up): blue "Def. Lineup" (HSV hue 110, sat 134) or red "Rally"
-        /// (hue 3, sat 159). Looks along x=100 between 120 and 260 px above the button for the first saturated pixel.
-        /// </summary>
-        private static bool IsDefensiveRow(Mat image, int plusY)
-        {
-            using var hsv = image.CvtColor(ColorConversionCodes.BGR2HSV);
-            for (int y = plusY - 120; y >= Math.Max(0, plusY - 260); y--)
-            {
-                var px = hsv.At<Vec3b>(y, 100);
-                if (px.Item1 < 100 || px.Item2 < 150) continue;
-                if (px.Item0 is >= 95 and <= 125) return true;
-                if (px.Item0 <= 12 || px.Item0 >= 168) return false;
-            }
-            return false;
-        }
-
-        /// <summary>"+" > team flag (its saved troops and ratio) > Deploy. True when the game went back to the War list.</summary>
-        private async Task<bool> JoinAsync(string character, System.Drawing.Point plus, int team, int instance, LogService logger, CancellationToken cancellationToken)
-        {
-            await ClickAsync(instance, logger, plus);
-            await Task.Delay(2000, cancellationToken);
-            if (!(await MatchAsync(DeployButtonTemplate, DeployButtonArea, Threshold, instance, logger)).found)
-            {
-                logger.LogWarning($"[{character}] Castle Battle: no deploy screen after the join button");
-                await BackToWarAsync(instance, logger, cancellationToken);
-                return false;
-            }
-
-            await ClickAsync(instance, logger, FlagPoint(team));
-            await Task.Delay(1500, cancellationToken);
-            await ClickAsync(instance, logger, DeployPoint);
-            await Task.Delay(2500, cancellationToken);
-            if (await IsOnWarAsync(instance, logger))
-            {
-                logger.LogInfo($"[{character}] Castle Battle: joined a rally with team {team}");
-                return true;
-            }
-            logger.LogWarning($"[{character}] Castle Battle: Deploy did not go back to the War list (no free march?)");
-            await BackToWarAsync(instance, logger, cancellationToken);
-            return false;
-        }
-
-        /// <summary>Team flags 1-8 along the top of the deploy screen</summary>
-        internal static System.Drawing.Point FlagPoint(int team) => new System.Drawing.Point(63 + 74 * (Math.Clamp(team, 1, 8) - 1), 122);
-
-        private async Task BackToWarAsync(int instance, LogService logger, CancellationToken cancellationToken)
-        {
-            for (int i = 0; i < 3 && !await IsOnWarAsync(instance, logger); i++)
-            {
-                await ClickAsync(instance, logger, BackPoint);
-                await Task.Delay(1500, cancellationToken);
-            }
-        }
-
         #endregion
-
-        private async Task<(bool found, Rectangle rect, double confidence)> MatchAsync(
-            string templateName, Rectangle area, double threshold, int instance, LogService logger)
-        {
-            var screenshot = await TakeScreenshotAsync(instance, logger);
-            if (screenshot == null) return (false, Rectangle.Empty, 0);
-
-            if (_templateMatcher == null) _templateMatcher = new UnifiedTemplateMatchingService(logger);
-            // names with a folder ("autoheal/heal.png") come from another task's folder
-            var path = templateName.Contains(Path.DirectorySeparatorChar)
-                ? Path.Combine(AppContext.BaseDirectory, "templates", "images", templateName)
-                : Path.Combine(ImageTemplateFolder, templateName);
-            var result = _templateMatcher.MatchTemplate(
-                screenshot, path, instance,
-                threshold: threshold,
-                scales: new[] { 1.0 },
-                verboseLogging: false,
-                searchArea: area);
-            return (result.found, result.matchRect, result.confidence);
-        }
     }
 }

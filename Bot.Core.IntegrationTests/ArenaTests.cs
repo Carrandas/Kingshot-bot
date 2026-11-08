@@ -39,6 +39,16 @@ namespace Bot.Core.IntegrationTests
             Assert.That(opponents.Select(o => o.Weaker), Is.All.True);
         }
 
+        /// <summary>The names above the powers (the NPCs' names are not players', so they stay in the screenshot)</summary>
+        [Test]
+        public void ReadsNpcOpponentNames()
+        {
+            var opponents = ArenaTask.ReadOpponents(Fixtures.Load("arena-npc-opponents.png"), new LogService(0));
+
+            Assert.That(opponents.Select(o => o.Name), Is.EqualTo(new[] { "Common Guardsman", "Elite Guardsman", "Common Guardsman", "Superior Guardsman", "Common Guardsman" }));
+            Assert.That(opponents.Where(o => ArenaTask.IsAllianceMember(o.Name, "KFC")), Is.Empty);
+        }
+
         [TestCase("arena-challenge-list.png", 4)]
         [TestCase("arena-npc-opponents.png", 5)]
         [TestCase("arena-one-challenge-left.png", 1)]

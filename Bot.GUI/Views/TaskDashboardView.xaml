@@ -99,6 +99,9 @@
                     <Button Content="⚔  Castle Battle" Background="#FF8E44AD" Style="{StaticResource ActionButton}"
                             Command="{Binding StartCastleBattleCommand}"
                             ToolTip="Stop the cycle and join castle battle rallies on every ticked character until Stop (settings on the Castle Battle tab)"/>
+                    <Button Content="🐻  Bear Hunt" Background="#FF8D6E63" Style="{StaticResource ActionButton}"
+                            Command="{Binding StartBearHuntCommand}"
+                            ToolTip="Stop the cycle and do the bear now: the saved bear when it is on, else a bear starting now (settings on the Bear Hunt tab)"/>
                     <Button Content="{Binding DataContext.ViewModel.PauseResumeButtonText, RelativeSource={RelativeSource AncestorType=Window}}"
                             Background="#FFFF9800" Style="{StaticResource ActionButton}"
                             ToolTip="Pause holds the bot at its next tap; Resume carries on from there"
@@ -347,6 +350,116 @@
                                             <TextBlock Grid.Column="3" Text="{Binding Heals}" Foreground="#FFCCCCCC" FontSize="12"/>
                                             <TextBlock Grid.Column="4" Text="{Binding HealBatch}" Foreground="#FFCCCCCC" FontSize="12"/>
                                             <TextBlock Grid.Column="5" Text="{Binding Updated}" Foreground="#FFCCCCCC" FontSize="12"/>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </DockPanel>
+                </Border>
+            </TabItem>
+
+            <!-- Bear Hunt: the switch, when the next bear is, the flags and the state of each character -->
+            <TabItem Header="Bear Hunt">
+                <Border Style="{StaticResource CardStyle}">
+                    <DockPanel>
+                        <StackPanel DockPanel.Dock="Top">
+                            <CheckBox IsChecked="{Binding BearHuntEnabled}" Margin="0,0,0,8"
+                                      ToolTip="The Bear Hunt task's cycle switch: the cycle reads the next bear once a day, and the bot runs the bear by itself">
+                                <TextBlock Text="Bear Hunt on" Foreground="White" FontSize="14" FontWeight="SemiBold"/>
+                            </CheckBox>
+                            <TextBlock Text="{Binding BearStatusText}" Foreground="White" FontSize="13" TextWrapping="Wrap" Margin="0,0,0,4"/>
+                            <TextBlock Text="{Binding NextBearText}" Foreground="{StaticResource MutedBrush}" FontSize="12" Margin="0,0,0,14"/>
+
+                            <StackPanel DataContext="{Binding BearSettings}">
+                                <StackPanel.Resources>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Foreground" Value="#FFCCCCCC"/>
+                                        <Setter Property="FontSize" Value="12"/>
+                                        <Setter Property="VerticalAlignment" Value="Center"/>
+                                        <Setter Property="Margin" Value="0,0,6,0"/>
+                                    </Style>
+                                    <Style TargetType="TextBox">
+                                        <Setter Property="Width" Value="44"/>
+                                        <Setter Property="Height" Value="26"/>
+                                        <Setter Property="Margin" Value="0,0,14,0"/>
+                                        <Setter Property="VerticalContentAlignment" Value="Center"/>
+                                        <Setter Property="HorizontalContentAlignment" Value="Center"/>
+                                    </Style>
+                                    <Style TargetType="ComboBox">
+                                        <Setter Property="Width" Value="54"/>
+                                        <Setter Property="Margin" Value="0,0,14,0"/>
+                                    </Style>
+                                </StackPanel.Resources>
+
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                                    <TextBlock Text="Our trap"/>
+                                    <ComboBox ItemsSource="{Binding DataContext.TrapOptions, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                              SelectedItem="{Binding Trap}" ToolTip="The Task List shows Bear Hunt - Trap 1 and Trap 2: the one of our alliance"/>
+                                    <TextBlock Text="Next bear (UTC)"/>
+                                    <TextBox Width="130" Text="{Binding NextBearUtcText, UpdateSourceTrigger=LostFocus}"
+                                             ToolTip="yyyy-MM-dd HH:mm in UTC. Filled by the cycle from the Task List (tap the UTC banner on the map); type it to set it by hand"/>
+                                    <TextBlock Text="First character"/>
+                                    <ComboBox Width="120" IsEditable="True"
+                                              ItemsSource="{Binding DataContext.CharacterNames, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                              Text="{Binding FirstCharacter, UpdateSourceTrigger=LostFocus}"
+                                              ToolTip="Sends its rally first; the others follow. Empty: the roster's order"/>
+                                </StackPanel>
+
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                                    <TextBlock Text="Own rally flag"/>
+                                    <ComboBox ItemsSource="{Binding DataContext.TeamOptions, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                              SelectedItem="{Binding OwnTeam}" ToolTip="Set this flag once in the game: 5% infantry, 10% cavalry, 85% archers"/>
+                                    <TextBlock Text="Join flag"/>
+                                    <ComboBox ItemsSource="{Binding DataContext.TeamOptions, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                              SelectedItem="{Binding JoinTeam}" ToolTip="Team flag for joining the alliance's bear rallies"/>
+                                    <TextBlock Text="Join up to"/>
+                                    <TextBox Text="{Binding MaxJoins, UpdateSourceTrigger=PropertyChanged}" ToolTip="Rallies joined at once per character: the top ones of the War list"/>
+                                    <TextBlock Text="Own rally away (s)"/>
+                                    <TextBox Text="{Binding RallyRoundSeconds, UpdateSourceTrigger=PropertyChanged}"
+                                             ToolTip="5 min rally + the walk there and back; the next own rally goes when this has passed"/>
+                                </StackPanel>
+
+                                <TextBlock TextWrapping="Wrap" Foreground="{StaticResource MutedBrush}" FontSize="11"
+                                           Text="Beta: the bear icon and the trap's rally screens are not calibrated yet. Until then the own rally saves screenshots under logs/screenshots/bearhunt/ and skips; joining, Auto-Join Stop and the recall of gatherers work. No own rally after the start + 24:30."/>
+                            </StackPanel>
+
+                            <Grid Margin="10,20,10,8">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="140"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="70"/>
+                                    <ColumnDefinition Width="70"/>
+                                    <ColumnDefinition Width="80"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text="CHARACTER" Style="{StaticResource HeaderText}"/>
+                                <TextBlock Grid.Column="1" Text="STATE" Style="{StaticResource HeaderText}"/>
+                                <TextBlock Grid.Column="2" Text="OWN" Style="{StaticResource HeaderText}" ToolTip="Own rallies sent this bear"/>
+                                <TextBlock Grid.Column="3" Text="JOINED" Style="{StaticResource HeaderText}" ToolTip="Rallies joined this bear"/>
+                                <TextBlock Grid.Column="4" Text="UPDATED" Style="{StaticResource HeaderText}"/>
+                            </Grid>
+                        </StackPanel>
+
+                        <ItemsControl ItemsSource="{Binding BearRows}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Background="{StaticResource RowBrush}" Margin="0,0,0,4" Padding="10,8" CornerRadius="8">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="140"/>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="70"/>
+                                                <ColumnDefinition Width="70"/>
+                                                <ColumnDefinition Width="80"/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Grid.Column="0" Text="{Binding Character}" Foreground="White" FontSize="13"/>
+                                            <StackPanel Grid.Column="1" Orientation="Horizontal">
+                                                <TextBlock Text="{Binding State}" Foreground="White" FontSize="13"/>
+                                                <TextBlock Text="{Binding Detail}" Foreground="{StaticResource MutedBrush}" FontSize="12" Margin="8,0,0,0" VerticalAlignment="Center"/>
+                                            </StackPanel>
+                                            <TextBlock Grid.Column="2" Text="{Binding Own}" Foreground="#FFCCCCCC" FontSize="12"/>
+                                            <TextBlock Grid.Column="3" Text="{Binding Joined}" Foreground="#FFCCCCCC" FontSize="12"/>
+                                            <TextBlock Grid.Column="4" Text="{Binding Updated}" Foreground="#FFCCCCCC" FontSize="12"/>
                                         </Grid>
                                     </Border>
                                 </DataTemplate>

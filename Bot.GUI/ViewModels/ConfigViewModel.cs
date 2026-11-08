@@ -1049,6 +1049,7 @@ namespace Bot.GUI.ViewModels
             {
                 settings.RunAfterEnabled = sourceSettings.RunAfterEnabled;
                 settings.RunAfterUtc = sourceSettings.RunAfterUtc;
+                settings.SkipAllianceMembers = sourceSettings.SkipAllianceMembers;
             }
 
             SaveConfig();

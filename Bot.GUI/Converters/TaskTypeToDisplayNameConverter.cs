@@ -47,6 +47,7 @@ namespace Bot.GUI.Converters
             { TaskType.Arena, "Arena" },
             { TaskType.AutoJoinRally, "Auto Join Rally" },
             { TaskType.CastleBattle, "Castle Battle" },
+            { TaskType.BearHunt, "Bear Hunt" },
             { TaskType.CollectOnlineRewards, "Collect Online Rewards" },
             { TaskType.Journey, "Journey" },
             { TaskType.TruegoldCrucible, "Truegold Crucible" },

@@ -42,7 +42,8 @@ namespace Bot.Core.Models
         MysticTrial,
         AutoJoinRally,
         Arena,
-        CastleBattle  // not in the cycle: the Bot tab's Castle Battle mode runs it
+        CastleBattle,  // not in the cycle: the Bot tab's Castle Battle mode runs it
+        BearHunt       // in the cycle: reads the next bear once a day; the Bot tab's Bear Hunt mode does the bear
     }
 
     public class AccountSettings : INotifyPropertyChanged
@@ -66,6 +67,7 @@ namespace Bot.Core.Models
             ConquestCollectSettings = new ConquestCollectSettings();
             ArenaSettings = new ArenaSettings();
             CastleBattleSettings = new CastleBattleSettings();
+            BearHuntSettings = new BearHuntSettings();
 
             // Subscribe to nested settings PropertyChanged events to propagate changes
             TroopTrainingSettings.PropertyChanged += (sender, e) => OnPropertyChanged($"TroopTrainingSettings.{e.PropertyName}");
@@ -183,6 +185,9 @@ namespace Bot.Core.Models
 
         [JsonPropertyName("castleBattleSettings")]
         public CastleBattleSettings CastleBattleSettings { get; set; }
+
+        [JsonPropertyName("bearHuntSettings")]
+        public BearHuntSettings BearHuntSettings { get; set; }
 
         private bool _doNotShutdown = false;
         [JsonPropertyName("doNotShutdown")]
