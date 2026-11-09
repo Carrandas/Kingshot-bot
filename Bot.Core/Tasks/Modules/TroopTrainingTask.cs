@@ -51,12 +51,22 @@ namespace Bot.Core.Tasks.Modules
         private static readonly Rectangle TrainButtonArea = new Rectangle(150, 600, 450, 350);
         private const double TrainButtonThreshold = 0.8;
 
+        // A "Completed" row's check button doesn't open the popup: the camera moves to the building and a hand points
+        // at the bubble of trained troops above it (the same spot for every building). Tapping the bubble collects
+        // them and the row turns "Idle". Hand: 0.72-1.00 present (it bobs), <= 0.42 elsewhere in the area (Train popup's hand included).
+        private const string ReadyHandTemplate = "ready-hand.png";
+        private static readonly Rectangle ReadyHandArea = new Rectangle(280, 230, 260, 250);
+        private const double ReadyHandThreshold = 0.6;
+        private static readonly System.Drawing.Point ReadyBubblePoint = new(357, 428);
+
         internal sealed class TroopStatusInfo
         {
             public string TroopType { get; set; } = string.Empty;
             /// <summary>Screen y of the row's centre in the side panel</summary>
             public int RowCenterY { get; set; }
             public bool IsReady { get; set; }
+            /// <summary>"Completed": the trained troops wait in the building and must be collected before training again</summary>
+            public bool AwaitsCollection { get; set; }
             public TimeSpan RemainingTime { get; set; } = TimeSpan.Zero;
             public DateTime FinishTimeUtc { get; set; } = DateTime.MinValue;
             public string RawOcrText { get; set; } = string.Empty;
@@ -314,6 +324,17 @@ namespace Bot.Core.Tasks.Modules
             return found ? rect.Y : null;
         }
 
+        /// <summary>The hand pointing at a building's bubble of trained troops (after a "Completed" row's button)</summary>
+        internal bool ShowsTroopsToCollect(byte[] screenshot, int instance, LogService logger)
+        {
+            _templateMatcher ??= new UnifiedTemplateMatchingService(logger);
+            var (found, _, confidence) = _templateMatcher.MatchTemplate(
+                screenshot, Path.Combine(ImageTemplateFolder, ReadyHandTemplate), instance,
+                threshold: ReadyHandThreshold, scales: new[] { 1.0 }, verboseLogging: false, searchArea: ReadyHandArea);
+            logger.LogInfo($"Troops-to-collect hand: found={found}, confidence={confidence:F3}");
+            return found;
+        }
+
         private async Task<(bool found, Rectangle rect, double confidence)> MatchAsync(
             string templateName, Rectangle area, double threshold, int instance, LogService logger)
         {
@@ -418,6 +439,7 @@ namespace Bot.Core.Tasks.Modules
                     if (keyword != null)
                     {
                         status.IsReady = true;
+                        status.AwaitsCollection = keyword.StartsWith("complete", StringComparison.Ordinal);
                         status.RemainingTime = TimeSpan.Zero;
                         status.FinishTimeUtc = DateTime.UtcNow;
                         logger.LogInfo($"[{troopType}] Status: Ready (found word '{word}' similar to '{keyword}')");
@@ -477,6 +499,8 @@ namespace Bot.Core.Tasks.Modules
                 return false;
             }
 
+            await CollectFinishedTroopsAsync(account, logger, cancellationToken, readyTroops);
+
             const int maxRetries = 2;
 
             for (int attempt = 1; attempt <= maxRetries; attempt++)
@@ -504,6 +528,36 @@ namespace Bot.Core.Tasks.Modules
 
             logger.LogError($"[{account.AccountName}] ❌ Failed to process ready troops after {maxRetries} attempts");
             return false;
+        }
+
+        /// <summary>
+        /// Collects the trained troops of every "Completed" row (row button > the bubble the hand points at), then
+        /// reopens the Town tab for the training step: the rows are "Idle" then and their arrows open the Train popup.
+        /// </summary>
+        private async Task CollectFinishedTroopsAsync(AccountSettings account, LogService logger, CancellationToken cancellationToken, List<TroopStatusInfo> troops)
+        {
+            var finished = troops.Where(t => t.AwaitsCollection).ToList();
+            if (finished.Count == 0) return;
+
+            int instance = account.InstanceNumber;
+            foreach (var troop in finished)
+            {
+                if (!await OpenTownTabAsync(account, logger, cancellationToken)) return;
+                await ClickAsync(instance, logger, new System.Drawing.Point(TroopRowArrowX, troop.RowCenterY));
+                await Task.Delay(GameCoordinates.Delays.AfterMenuClick, cancellationToken);
+                await Task.Delay(1000, cancellationToken);
+
+                var screenshot = await TakeScreenshotAsync(instance, logger);
+                if (screenshot == null || !ShowsTroopsToCollect(screenshot, instance, logger))
+                {
+                    logger.LogWarning($"[{account.AccountName}] No troops bubble to collect at the {troop.TroopType} building");
+                    continue;
+                }
+                await ClickAsync(instance, logger, ReadyBubblePoint);
+                await Task.Delay(2000, cancellationToken);
+                logger.LogInfo($"[{account.AccountName}] 📥 Collected the trained {troop.TroopType}");
+            }
+            await OpenTownTabAsync(account, logger, cancellationToken);
         }
 
         /// <summary>Step 5 and the way back: trains the other ready troops, then returns to the base view.</summary>
