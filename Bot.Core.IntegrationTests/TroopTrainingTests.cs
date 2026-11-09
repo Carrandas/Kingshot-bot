@@ -59,6 +59,36 @@ namespace Bot.Core.IntegrationTests
             }));
         }
 
+        // Side panel > Town on llsa with trained troops waiting ("Completed"): they must be collected before training.
+        // "completed": after collecting Infantry by hand; "collected": after collecting Cavalry too.
+        [TestCase("training-panel-llsa-completed.png", false, true, true)]
+        [TestCase("training-panel-llsa-collected.png", false, false, true)]
+        public void SidePanel_CompletedRowsAwaitCollection(string screenshot, bool infantry, bool cavalry, bool archers)
+        {
+            var shot = Fixtures.Load(screenshot);
+            var task = new TroopTrainingTask();
+            var logger = new LogService(0);
+
+            int? headerY = task.FindTroopsHeaderY(shot, 0, logger);
+            Assert.That(headerY, Is.EqualTo(497));
+
+            var statuses = task.ReadAllTroopStatuses(logger, shot, headerY!.Value);
+            Assert.That(statuses.Select(s => (s.TroopType, s.IsReady, s.AwaitsCollection)), Is.EqualTo(new[]
+            {
+                ("Infantry", true, infantry), ("Cavalry", true, cavalry), ("Archers", true, archers)
+            }));
+        }
+
+        // After a "Completed" row's button: a hand points at the Barracks' troops bubble. The Train popup's hand
+        // (after an "Idle" row's arrow) points elsewhere and must not count.
+        [TestCase("training-troops-to-collect.png", true)]
+        [TestCase("training-train-popup.png", false)]
+        [TestCase("training-panel-llsa-completed.png", false)]
+        public void ShowsTroopsToCollect(string screenshot, bool expected)
+        {
+            Assert.That(new TroopTrainingTask().ShowsTroopsToCollect(Fixtures.Load(screenshot), 0, new LogService(0)), Is.EqualTo(expected));
+        }
+
         [Test]
         public void SidePanel_HeaderNotFoundOnTheTrainingScreen()
         {
