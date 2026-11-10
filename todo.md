@@ -129,6 +129,12 @@ Unattended runs: `KingshotAuto.exe --schedule` (Run on schedule) or `--once` (Ru
 
 - [ ] Red dots not handled: Events, Deals, Flamedragon, pets (paw), scales, bottom bar (Heroes, Backpack, Shop, Alliance)
 - [ ] Human-like random delays
+- [ ] **Dashboard: show the Bear Hunt as the next run** (2026-11-10): the Bot tab showed "next cycle 22:09 (in 1.9h)" while the scheduled Bear Hunt starts at 21:00 local (`BearHuntSettings.NextBearUtc` minus the prep time). Show whichever comes first
+- [ ] **Fishing event (idea)**: a real-time minigame, unlike Finder's Fortune. Move the hook down while dodging fish that swim right to left. Needs a video feed instead of 270 ms screenshots (`screenrecord` h264 / scrcpy stream, 20-30 fps) and timed holds (`input swipe` with a duration, or `sendevent`). Start from a recording of one round to measure fish speed, the controls and the gaps. Asli finished all fishing challenges by hand on 2026-11-10, so no rush
+- [ ] **Faster character switch** (asked 2026-11-10, during the Bear Hunt): after a switch, skip the check that we landed on the right character (or do it later, e.g. on the first screen the next task opens anyway). Applies to the Bear Hunt switches and to the cycle's Change Account
+- [ ] **Start LDPlayer button** (asked 2026-11-10): a GUI button that starts LDPlayer set up for the bot and opens Kingshot: `ldconsole modify --index 0 --resolution 720,1280,320 --cpu 4 --memory 4096` (2 CPUs / 2 GB maxed out during the Bear Hunt of 2026-11-10) (and ADB debugging on, `basicSettings.adbDebug` in `vms/config/leidian0.config`) while it is off, then `launch --index 0`, wait for adb, `runapp --packagename com.run.tower.defense`. LDPlayer came back reset to 2560x1440 without ADB debugging on 2026-11-10. `InstanceManager` / `AdbRecoveryService` already do parts of this
+- [x] **Bear Hunt: skip nearly full rallies** (2026-11-10): a War row with less than 100,000 free (`BearHuntTask.MinFreeTroops`, OCR of the "current/max" line) is skipped; not yet seen live
+- [ ] **Bear Hunt: no joins that arrive too late** (2026-11-10): in the last ~5:30 the bot still joins rallies whose "Rallying: mm:ss" timer + the march lands after the bear ends. Read the row timer (top right of the row) and skip those; stop joining once no rally can arrive in time
 - [ ] Safety rule for every new claim: tap only template-matched free/claim elements, never price or gem-cost buttons
 
 ## Truegold Crucible (new task, 2026-10-23)

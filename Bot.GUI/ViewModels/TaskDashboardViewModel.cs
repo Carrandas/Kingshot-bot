@@ -41,6 +41,13 @@ namespace Bot.GUI.ViewModels
         public ICommand RunTaskCommand { get; }
         public ICommand ScanCharactersCommand { get; }
         public ICommand StartCastleBattleCommand { get; }
+        public ICommand StartBearHuntCommand { get; }
+
+        /// <summary>Bear Hunt tab: one row per character with its phase</summary>
+        public ObservableCollection<BearRow> BearRows { get; } = new();
+        public int[] TrapOptions { get; } = { 1, 2 };
+        /// <summary>Choices for the first character: the roster's names</summary>
+        public ObservableCollection<string> CharacterNames { get; } = new();
 
         /// <summary>Castle Battle tab: one row per character with its phase</summary>
         public ObservableCollection<BattleRow> BattleRows { get; } = new();
@@ -58,16 +65,17 @@ namespace Bot.GUI.ViewModels
             RunTaskCommand = new AsyncRelayCommand(p => RunSingleAsync(p as TaskRow), p => !IsBusy && p is TaskRow);
             ScanCharactersCommand = new AsyncRelayCommand(_ => ScanCharactersAsync(), _ => !IsBusy && SelectedAccount != null);
             // allowed while the cycle runs: the battle stops it first
-            StartCastleBattleCommand = new AsyncRelayCommand(_ => StartCastleBattleAsync(),
-                _ => SelectedAccount?.CastleBattleSettings.IsValid == true && !CastleBattleStatus.IsRunning && !_singleRunActive);
+            StartCastleBattleCommand = new AsyncRelayCommand(_ => StartCastleBattleAsync(), _ => CanStartMode(SelectedAccount?.CastleBattleSettings.IsValid));
             CastleBattleStatus.Changed += () => OnUi(RefreshBattle);
+            StartBearHuntCommand = new AsyncRelayCommand(_ => StartBearHuntAsync(), _ => CanStartMode(SelectedAccount?.BearHuntSettings.IsValid));
+            BearHuntStatus.Changed += () => OnUi(RefreshBear);
 
             _cycleService.OnScheduleChanged += () => OnUi(Refresh);
             TaskRunHistory.Changed += () => OnUi(Refresh);
 
             // Relative times ("in 12 min") go stale: redraw twice a minute
             var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(30) };
-            timer.Tick += (_, _) => Refresh();
+            timer.Tick += (_, _) => { Refresh(); RefreshBear(); };
             timer.Start();
 
             // A config reload refills Accounts with new objects: keep the same instance selected
@@ -81,6 +89,10 @@ namespace Bot.GUI.ViewModels
             SelectedAccount = Accounts.FirstOrDefault();
         }
 
+        /// <summary>Castle Battle and Bear Hunt exclude each other and a single run; a running cycle is stopped by them</summary>
+        private bool CanStartMode(bool? settingsValid) =>
+            settingsValid == true && !CastleBattleStatus.IsRunning && !BearHuntStatus.IsRunning && !_singleRunActive;
+
         private AccountSettings? _selectedAccount;
         public AccountSettings? SelectedAccount
         {
@@ -88,11 +100,12 @@ namespace Bot.GUI.ViewModels
             set
             {
                 if (_selectedAccount == value) return;
-                if (_selectedAccount != null) { _selectedAccount.Characters.CollectionChanged -= OnCharactersChanged; _selectedAccount.HiddenTasks.CollectionChanged -= OnHiddenTasksChanged; _selectedAccount.CastleBattleSettings.PropertyChanged -= OnBattleSettingsChanged; }
+                if (_selectedAccount != null) { _selectedAccount.Characters.CollectionChanged -= OnCharactersChanged; _selectedAccount.HiddenTasks.CollectionChanged -= OnHiddenTasksChanged; _selectedAccount.CastleBattleSettings.PropertyChanged -= OnBattleSettingsChanged; _selectedAccount.BearHuntSettings.PropertyChanged -= OnBearSettingsChanged; }
                 _selectedAccount = value;
-                if (_selectedAccount != null) { _selectedAccount.Characters.CollectionChanged += OnCharactersChanged; _selectedAccount.HiddenTasks.CollectionChanged += OnHiddenTasksChanged; _selectedAccount.CastleBattleSettings.PropertyChanged += OnBattleSettingsChanged; }
+                if (_selectedAccount != null) { _selectedAccount.Characters.CollectionChanged += OnCharactersChanged; _selectedAccount.HiddenTasks.CollectionChanged += OnHiddenTasksChanged; _selectedAccount.CastleBattleSettings.PropertyChanged += OnBattleSettingsChanged; _selectedAccount.BearHuntSettings.PropertyChanged += OnBearSettingsChanged; }
                 OnPropertyChanged();
                 OnPropertyChanged(nameof(BattleSettings));
+                OnPropertyChanged(nameof(BearSettings));
                 OnBattleSettingsChanged(null, new PropertyChangedEventArgs(null));
                 OnPropertyChanged(nameof(ShowAccountPicker));
                 RebuildCharacters();
@@ -115,12 +128,12 @@ namespace Bot.GUI.ViewModels
             }
         }
 
-        public bool IsBusy => _cycleService.IsRunning || _singleRunActive || CastleBattleStatus.IsRunning;
+        public bool IsBusy => _cycleService.IsRunning || _singleRunActive || CastleBattleStatus.IsRunning || BearHuntStatus.IsRunning;
 
         /// <summary>Castle Battle settings of the selected instance (both characters share them)</summary>
         public CastleBattleSettings? BattleSettings => _selectedAccount?.CastleBattleSettings;
 
-        /// <summary>0 = Cycle, 1 = Castle Battle; a running battle shows its tab</summary>
+        /// <summary>0 = Cycle, 1 = Castle Battle, 2 = Bear Hunt; a running battle or bear hunt shows its tab</summary>
         private int _selectedTabIndex;
         public int SelectedTabIndex { get => _selectedTabIndex; set { if (_selectedTabIndex != value) { _selectedTabIndex = value; OnPropertyChanged(); } } }
         private bool _battleWasRunning;
@@ -135,6 +148,95 @@ namespace Bot.GUI.ViewModels
             if (sender != null && e.PropertyName != nameof(CastleBattleSettings.IsValid)) _configVM.SaveConfigIfNotApplying();
             if (e.PropertyName == nameof(CastleBattleSettings.HealAmounts)) RefreshBattle();
         });
+
+        #region Bear Hunt
+
+        /// <summary>Bear Hunt settings of the selected instance (all its characters share them)</summary>
+        public BearHuntSettings? BearSettings => _selectedAccount?.BearHuntSettings;
+
+        /// <summary>The Bear Hunt switch: the task's cycle switch (the cycle reads the next bear, the GUI starts the bear mode)</summary>
+        public bool BearHuntEnabled
+        {
+            get => _selectedAccount?.EnabledTasks.Contains(TaskType.BearHunt) == true;
+            set
+            {
+                if (_selectedAccount == null || value == BearHuntEnabled) return;
+                if (value) _selectedAccount.EnabledTasks.Add(TaskType.BearHunt);
+                else _selectedAccount.EnabledTasks.Remove(TaskType.BearHunt);
+                _configVM.SaveConfigIfNotApplying();
+                RebuildTasks();
+                RefreshBear();
+            }
+        }
+
+        private string _bearStatusText = string.Empty;
+        public string BearStatusText { get => _bearStatusText; private set { if (_bearStatusText != value) { _bearStatusText = value; OnPropertyChanged(); } } }
+
+        private string _nextBearText = string.Empty;
+        public string NextBearText { get => _nextBearText; private set { if (_nextBearText != value) { _nextBearText = value; OnPropertyChanged(); } } }
+        private bool _bearWasRunning;
+
+        // the bot sets NextBearUtc from its own thread: handle it on the UI thread
+        private void OnBearSettingsChanged(object? sender, PropertyChangedEventArgs e) => OnUi(() =>
+        {
+            CommandManager.InvalidateRequerySuggested();
+            if (sender != null && e.PropertyName != nameof(BearHuntSettings.IsValid)) _configVM.SaveConfigIfNotApplying();
+            RefreshBear();
+        });
+
+        private async System.Threading.Tasks.Task StartBearHuntAsync()
+        {
+            if (_selectedAccount == null) return;
+            var run = _main.RunBearHuntAsync(_selectedAccount);
+            RefreshSoon();
+            await run;
+            Refresh();
+        }
+
+        /// <summary>Bear Hunt tab: the status line, the next bear and one row per ticked character</summary>
+        private void RefreshBear()
+        {
+            CommandManager.InvalidateRequerySuggested();
+            OnPropertyChanged(nameof(IsBusy));
+            OnPropertyChanged(nameof(BearHuntEnabled));
+            NextBearText = BearSettings?.NextBearUtc is DateTime next
+                ? $"Next bear: {Local(next)} local ({Relative(next)})"
+                : "Next bear: not known yet (the cycle reads the Task List once a day, or type it in)";
+            BearStatusText = BuildBearStatus();
+
+            var entries = BearHuntStatus.All();
+            var names = Characters.Where(c => c.Entry?.Enabled != false).Select(c => c.Name).ToList();
+            names.AddRange(entries.Select(e => e.Character).Where(n => !names.Exists(x => CharacterRoster.SameName(x, n))));
+            while (BearRows.Count > names.Count) BearRows.RemoveAt(BearRows.Count - 1);
+            for (int i = 0; i < names.Count; i++)
+            {
+                if (i == BearRows.Count) BearRows.Add(new BearRow());
+                BearRows[i].Update(names[i], entries.FirstOrDefault(e => CharacterRoster.SameName(e.Character, names[i])));
+            }
+            if (BearHuntStatus.IsRunning) CycleStatus = BearStatusText;
+            if (BearHuntStatus.IsRunning && !_bearWasRunning) SelectedTabIndex = 2;
+            _bearWasRunning = BearHuntStatus.IsRunning;
+        }
+
+        private string BuildBearStatus()
+        {
+            if (BearHuntStatus.BearStartUtc is DateTime start)
+                return start > DateTime.UtcNow
+                    ? $"Bear Hunt: getting ready, bear at {Local(start)} ({Relative(start)})"
+                    : $"Bear Hunt running until {Local(start + (BearSettings?.EventLength ?? TimeSpan.FromMinutes(30)))}";
+            return BearHuntEnabled
+                ? "On: the bot stops the cycle 10 min before the bear, calls the troops home, then rallies and joins."
+                : "Off. Switch it on to run the bear by itself, or press Bear Hunt to start now.";
+        }
+
+        /// <summary>Roster names for the first-character choice</summary>
+        private void RefreshCharacterNames()
+        {
+            CharacterNames.Clear();
+            foreach (var c in Characters.Where(c => c.Entry != null)) CharacterNames.Add(c.Name);
+        }
+
+        #endregion
 
         private async System.Threading.Tasks.Task StartCastleBattleAsync()
         {
@@ -200,6 +302,8 @@ namespace Bot.GUI.ViewModels
             SelectedCharacter = Characters.FirstOrDefault(c => c.Name == keep) ?? Characters.FirstOrDefault(c => c.Entry?.Enabled != false) ?? Characters.FirstOrDefault();
             RebuildTasks();
             RefreshBattle();
+            RefreshCharacterNames();
+            RefreshBear();
         }
 
         private void OnCharacterEntryChanged(object? sender, PropertyChangedEventArgs e)
@@ -210,6 +314,7 @@ namespace Bot.GUI.ViewModels
                 _configVM.SaveConfigIfNotApplying();
                 OnUi(Refresh);
                 OnUi(RefreshBattle);
+                OnUi(RefreshBear);
             }
         }
 
@@ -315,6 +420,7 @@ namespace Bot.GUI.ViewModels
             string runningText = current != null ? $": {TaskTypeToDisplayNameConverter.GetDisplayName(current.Value)}" : "";
 
             if (CastleBattleStatus.EndsUtc is DateTime battleEnds) return $"Castle Battle running until {Local(battleEnds)}";
+            if (BearHuntStatus.IsRunning) return BuildBearStatus();
             if (_singleRunActive) return SingleRunText;
             if (cycleRunning) return $"Cycle {_cycleService.CurrentCycle} running{runningText}";
             if (nextCycle != null) return $"Next cycle at {Local(nextCycle.Value)} ({Relative(nextCycle.Value)})";
@@ -485,6 +591,31 @@ namespace Bot.GUI.ViewModels
             Joined = entry.RalliesJoined.ToString();
             Heals = entry.HealRounds.ToString();
             Updated = entry.UpdatedUtc.ToLocalTime().ToString("HH:mm:ss");
+        }
+
+        public event PropertyChangedEventHandler? PropertyChanged;
+    }
+
+    /// <summary>A character's line on the Bear Hunt tab</summary>
+    public class BearRow : INotifyPropertyChanged
+    {
+        public string Character { get; private set; } = string.Empty;
+        public string State { get; private set; } = string.Empty;
+        public string Detail { get; private set; } = string.Empty;
+        public string Own { get; private set; } = string.Empty;
+        public string Joined { get; private set; } = string.Empty;
+        public string Updated { get; private set; } = string.Empty;
+
+        public void Update(string character, BearHuntStatus.Entry? entry)
+        {
+            Character = character;
+            entry ??= BearHuntStatus.Entry.New(character) with { Phase = BearHuntPhase.Waiting };
+            State = BearHuntStatus.Describe(entry.Phase);
+            Detail = entry.Detail;
+            Own = entry.OwnRallies.ToString();
+            Joined = entry.Joins.ToString();
+            Updated = entry.UpdatedUtc.ToLocalTime().ToString("HH:mm:ss");
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(null));
         }
 
         public event PropertyChangedEventHandler? PropertyChanged;

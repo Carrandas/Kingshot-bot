@@ -973,6 +973,9 @@
                                                                Margin="5,0,0,0"
                                                                Foreground="#FFB0B0B0" FontSize="12"/>
                                                 </Grid>
+                                                <CheckBox Content="Skip own guildies" Margin="0,8,0,0"
+                                                          IsChecked="{Binding SelectedAccount.ArenaSettings.SkipAllianceMembers}"
+                                                          ToolTip="Don't fight opponents whose name starts with your alliance tag (taken from the character's name, e.g. [KFC]llsa skips every [KFC] player)."/>
                                             </StackPanel>
                                         </Border>
 

@@ -218,20 +218,21 @@ namespace Bot.Core.Tasks.Modules
         /// </summary>
         private async Task<int?> PickOpponentAsync(AccountSettings account, LogService logger, int instance, CancellationToken cancellationToken)
         {
-            var opponents = await ReadOpponentsAsync(instance, logger);
+            string? skipTag = account.ArenaSettings?.SkipAllianceMembers == true ? AllianceTagOf(CharacterRoster.GetActiveName(instance)) : null;
+            var opponents = Targets(await ReadOpponentsAsync(instance, logger), skipTag);
             if (!opponents.Any(o => o.Weaker)
                 && (await MatchAsync(FreeRefreshTemplate, FreeRefreshArea, Threshold, instance, logger)).found)
             {
                 logger.LogInfo($"[{account.AccountName}] Arena: nobody weaker, Free Refresh");
                 await ClickAsync(instance, logger, FreeRefreshPoint);
                 await Task.Delay(2000, cancellationToken);
-                opponents = await ReadOpponentsAsync(instance, logger);
+                opponents = Targets(await ReadOpponentsAsync(instance, logger), skipTag);
             }
 
             var weakest = opponents.Where(o => o.Power != null).OrderBy(o => o.Power).FirstOrDefault();
             if (weakest == null)
             {
-                logger.LogWarning($"[{account.AccountName}] Arena: could not read the opponents' power");
+                logger.LogWarning($"[{account.AccountName}] Arena: could not read the opponents' power{(skipTag != null ? $" (or all are [{skipTag}])" : "")}");
                 return null;
             }
             logger.LogInfo($"[{account.AccountName}] Arena: powers {string.Join(", ", opponents.Select(o => o.Text))}; fighting row {weakest.Row + 1} ({weakest.Text})");
@@ -303,7 +304,33 @@ namespace Bot.Core.Tasks.Modules
             }
         }
 
-        internal sealed record Opponent(int Row, string Text, long? Power, bool Weaker);
+        internal sealed record Opponent(int Row, string Text, long? Power, bool Weaker, string Name = "");
+
+        // The opponent's name ("[KFC]llsa", "Common Guardsman"), dark grey above the power: y 312-345 for the first row
+        private const int NameDy = -52, NameHeight = 44, NameX = 150, NameWidth = 430;
+        private static readonly Regex TagPattern = new Regex(@"^\s*\[(\w{1,6})\]", RegexOptions.None, RegexTimeouts.Default);
+
+        /// <summary>The alliance tag in a character's name: "[KFC]llsa" gives "KFC"; null without a tag</summary>
+        internal static string? AllianceTagOf(string? characterName)
+        {
+            var m = TagPattern.Match(characterName ?? "");
+            return m.Success ? m.Groups[1].Value : null;
+        }
+
+        /// <summary>
+        /// The name read on the Challenge List starts with our tag. OCR garbles the brackets ("KFCIMAS", "[KFC|Darth"),
+        /// so only the letters after any leading symbols count.
+        /// </summary>
+        internal static bool IsAllianceMember(string name, string tag)
+        {
+            string text = name ?? "";
+            string trimmed = text.Substring(text.TakeWhile(c => !char.IsLetterOrDigit(c)).Count());
+            return tag.Length > 0 && trimmed.StartsWith(tag, StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>The opponents we may fight: everyone, or everyone without our alliance tag</summary>
+        private static List<Opponent> Targets(List<Opponent> opponents, string? skipTag) =>
+            skipTag == null ? opponents : opponents.Where(o => !IsAllianceMember(o.Name, skipTag)).ToList();
 
         private async Task<List<Opponent>> ReadOpponentsAsync(int instance, LogService logger)
         {
@@ -324,10 +351,11 @@ namespace Bot.Core.Tasks.Modules
                 CharacterWhitelist = "0123456789.,KMB",
                 PageSegMode = mode.Psm
             })).ToList();
+            using var nameOcr = new OcrService(logger, new OcrConfiguration { ScaleFactor = 2, PageSegMode = Tesseract.PageSegMode.SingleLine });
             try
             {
                 for (int row = 0; row < Rows; row++)
-                    opponents.Add(ReadOpponent(image, row, ocrs));
+                    opponents.Add(ReadOpponent(image, row, ocrs) with { Name = ReadName(image, FirstRowY + row * RowStep, nameOcr) });
             }
             finally
             {
@@ -367,6 +395,17 @@ namespace Bot.Core.Tasks.Modules
                 if (power != null) return new Opponent(row, read, power, weaker);
             }
             return new Opponent(row, read, null, weaker);
+        }
+
+        /// <summary>The name line, dark text on the beige row, in white on black</summary>
+        private static string ReadName(Mat image, int y, OcrService ocr)
+        {
+            var roi = new Rect(NameX, y + NameDy, NameWidth, NameHeight).Intersect(new Rect(0, 0, image.Width, image.Height));
+            using var region = new Mat(image, roi);
+            using var hsv = region.CvtColor(ColorConversionCodes.BGR2HSV);
+            using var mask = hsv.InRange(new Scalar(0, 0, 0), new Scalar(180, 255, 130));
+            using var bgr = mask.CvtColor(ColorConversionCodes.GRAY2BGR);
+            return (ocr.ExtractTextFromScreenArea(bgr.ToBytes(".png"), new Rectangle(0, 0, roi.Width, roi.Height)) ?? "").Trim();
         }
 
         /// <summary>

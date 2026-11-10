@@ -92,6 +92,7 @@ namespace Bot.Core.Tasks
             tasks[TaskType.Arena] = new ArenaTask();
             tasks[TaskType.AutoJoinRally] = new AutoJoinRallyTask();
             tasks[TaskType.CastleBattle] = new CastleBattleTask();
+            tasks[TaskType.BearHunt] = new BearHuntTask();
             return tasks;
         }
 
@@ -783,6 +784,7 @@ namespace Bot.Core.Tasks
             { TaskType.Arena, 25 },
             { TaskType.AutoJoinRally, 26 },
             { TaskType.CastleBattle, 27 },     // never in a cycle list (the Castle Battle mode runs it); listed for completeness
+            { TaskType.BearHunt, 28 },         // the cycle only reads the next bear; the Bear Hunt mode runs the passes
             { TaskType.ChangeAccount, 999 }    // ChangeAccount should always run last
         };
 

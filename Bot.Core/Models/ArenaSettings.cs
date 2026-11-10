@@ -10,6 +10,25 @@ namespace Bot.Core.Models
     {
         private bool _runAfterEnabled;
         private string _runAfterUtc = "21:30";
+        private bool _skipAllianceMembers = true;
+
+        /// <summary>
+        /// Don't fight opponents whose name starts with our alliance tag (taken from the character's name, e.g. "[KFC]llsa").
+        /// On by default.
+        /// </summary>
+        [JsonPropertyName("skipAllianceMembers")]
+        public bool SkipAllianceMembers
+        {
+            get => _skipAllianceMembers;
+            set
+            {
+                if (_skipAllianceMembers != value)
+                {
+                    _skipAllianceMembers = value;
+                    OnPropertyChanged();
+                }
+            }
+        }
 
         /// <summary>
         /// Off: Arena runs in the first cycle of the day. On: only in cycles from <see cref="RunAfterUtc"/> on,
