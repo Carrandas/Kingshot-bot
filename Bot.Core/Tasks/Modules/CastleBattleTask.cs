@@ -386,8 +386,7 @@ namespace Bot.Core.Tasks.Modules
             var tried = new List<int>();
             for (int attempt = 0; attempt < MaxJoinsPerPass + 3 && joined < Math.Min(free, MaxJoinsPerPass); attempt++)
             {
-                var buttons = (await FindJoinButtonsWithScrollAsync(instance, logger, cancellationToken))
-                    .Where(b => !tried.Exists(y => Math.Abs(y - b.Center.Y) < 40)).ToList();
+                var buttons = await FindJoinButtonsWithScrollAsync(instance, logger, cancellationToken, tried);
                 logger.LogInfo($"[{character}] Castle Battle: {buttons.Count} rallies to join ({buttons.Count(b => b.Defensive)} Def. Lineup)");
                 if (buttons.Count == 0) break;
                 tried.Add(buttons[0].Center.Y);

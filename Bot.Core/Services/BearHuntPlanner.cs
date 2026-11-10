@@ -10,9 +10,11 @@ namespace Bot.Core.Services
 
     /// <summary>
     /// The bear hunt's decisions, without the game: which character to be on and when to send its own rally.
-    /// Own rallies come first: a character whose troops are home (or back within the switch time) gets the turn;
-    /// otherwise the current character keeps joining, and with all its marches out waits for them (joined rallies
-    /// come back quickly) instead of switching: only own rallies are worth a switch.
+    /// Own rallies come first: a character whose troops are home (or back within the switch time) gets the turn
+    /// (one pass: own rally, then up to <see cref="BearHuntSettings.MaxJoins"/> joins).
+    /// The first character is the main one: after another character's turn the bot goes back to it, and it keeps
+    /// joining; with all its marches out it waits for them (joined rallies come back quickly) instead of switching.
+    /// Asked by the user on 2026-11-10: Asli rally + 6 joins, llsa rally + 6 joins, back to Asli, join until her next rally.
     /// No own rally leaves after the bear's start + 24:30 (it would arrive after the bear has gone).
     /// </summary>
     public static class BearHuntPlanner
@@ -97,6 +99,9 @@ namespace Bot.Core.Services
             var due = OwnRalliesDue(startUtc, settings, order, state);
             var next = due.FirstOrDefault();
             if (next.Name != null && next.ReadyUtc <= nowUtc + settings.SwitchLead) return GoForOwnRally(nowUtc, current, next.Name, next.ReadyUtc);
+
+            // the first character is the main one: the others only get a pass for their own rally (+ its joins), then back
+            if (current != null && !CharacterRoster.SameName(current, order[0])) return new Pick(order[0], TimeSpan.Zero);
 
             // nothing to join anywhere: wait where we are (a switch finds the same empty list)
             if (noRalliesUntilUtc is DateTime quiet && quiet > nowUtc) return WaitHere(nowUtc, settings, order, current, next, quiet);

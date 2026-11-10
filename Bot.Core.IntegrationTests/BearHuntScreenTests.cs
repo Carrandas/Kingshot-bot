@@ -75,5 +75,27 @@ namespace Bot.Core.IntegrationTests
         [TestCase("bearhunt-pet-quick-use.png", false)]
         public void PetConfirmation(string screenshot, bool present) =>
             Assert.That(Found(screenshot, BearHuntTask.PetConfirmTitleTemplate, BearHuntTask.PetConfirmTitleArea, BearHuntTask.TemplateThreshold), Is.EqualTo(present));
+
+        // War list of 2026-11-10 21:07 (other leaders blacked out): the "+" centres are at y 375 and 782.
+        // Asli's own rally was nearly full (27,480 free, skip); the second had room (join).
+        [TestCase(375, 1_775_230, 1_802_710, true)]
+        [TestCase(782, 337_710, 1_679_210, false)]
+        public void ReadsTheRallyTroops(int plusY, long current, long max, bool skip)
+        {
+            string text = BearHuntTask.ReadRallyTroops(Fixtures.Load("bearhunt-war-troops.png"), plusY, new LogService(0));
+            long? free = BearHuntTask.FreeTroops(text);
+
+            Assert.Multiple(() =>
+            {
+                Assert.That(free, Is.EqualTo(max - current), text);
+                Assert.That(free < BearHuntTask.MinFreeTroops, Is.EqualTo(skip));
+            });
+        }
+
+        [TestCase("176,610/1,481,610", 1_305_000L)]
+        [TestCase("176.610 / 1.481.610", 1_305_000L)]
+        [TestCase("", null)]
+        [TestCase("1,481,610/176,610", null)]   // misread: more than the maximum
+        public void FreeTroops(string text, long? free) => Assert.That(BearHuntTask.FreeTroops(text), Is.EqualTo(free));
     }
 }

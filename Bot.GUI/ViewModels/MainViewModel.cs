@@ -412,14 +412,15 @@ namespace Bot.GUI.ViewModels
         /// rallies on every ticked character until the bear is over (or Stop). A schedule that was running starts again
         /// afterwards (not after Stop). <paramref name="bearStartUtc"/> null: the saved bear when it is on, else now.
         /// </summary>
-        public async Task RunBearHuntAsync(AccountSettings account, DateTime? bearStartUtc = null, string? onlyCharacter = null)
+        /// <param name="skipPrep">Treat every character as prepared (a restart during the bear: auto-join, recalls and pet buffs are done)</param>
+        public async Task RunBearHuntAsync(AccountSettings account, DateTime? bearStartUtc = null, string? onlyCharacter = null, bool skipPrep = false)
         {
             // stopping the cycle can take longer than the 30 s schedule tick: don't start a second bear meanwhile
             if (_bearStarting || BearHuntStatus.IsRunning || CastleBattleStatus.IsRunning) return;
             _bearStarting = true;
             try
             {
-                await RunBearHuntCoreAsync(account, bearStartUtc, onlyCharacter);
+                await RunBearHuntCoreAsync(account, bearStartUtc, onlyCharacter, skipPrep);
             }
             finally
             {
@@ -429,7 +430,7 @@ namespace Bot.GUI.ViewModels
 
         private bool _bearStarting;
 
-        private async Task RunBearHuntCoreAsync(AccountSettings account, DateTime? bearStartUtc, string? onlyCharacter)
+        private async Task RunBearHuntCoreAsync(AccountSettings account, DateTime? bearStartUtc, string? onlyCharacter, bool skipPrep)
         {
             var settings = account.BearHuntSettings;
             var start = bearStartUtc ?? BearHuntRunner.ActiveBear(settings, DateTime.UtcNow) ?? DateTime.UtcNow;
@@ -439,6 +440,7 @@ namespace Bot.GUI.ViewModels
             var token = _botCancellationTokenSource.Token;
             _logger.LogInfo($"🐻 Bear Hunt started: bear at {start.ToLocalTime():HH:mm} ({start:HH:mm} UTC), trap {settings.Trap}", category: LogCategories.UserAction);
             BearHuntStatus.Start(start, start + settings.EventLength);
+            if (skipPrep) BearHuntRunner.Characters(account, onlyCharacter).ForEach(BearHuntStatus.MarkPrepared);
             SetIndividualInstanceRunning(true);
             bool finished = await RunBearLoopAsync(account, start, onlyCharacter, token);
             SetIndividualInstanceRunning(false);
@@ -624,10 +626,12 @@ namespace Bot.GUI.ViewModels
             return true;
         }
 
-        // "--bear-hunt [--character <name>]" presses Bear Hunt on the first instance: the saved bear when it is on, else a bear starting now
+        // "--bear-hunt [--character <name>]" presses Bear Hunt on the first instance: the saved bear when it is on, else a bear starting now.
+        // "--bear-hunt-no-prep" does the same without the prep (a restart during the bear)
         private bool TryAutoBearHunt(string[] args, BotConfig config)
         {
-            if (!HasArg(args, "--bear-hunt") || config.Accounts.FirstOrDefault() is not AccountSettings bearAccount)
+            bool skipPrep = HasArg(args, "--bear-hunt-no-prep");
+            if (!(skipPrep || HasArg(args, "--bear-hunt")) || config.Accounts.FirstOrDefault() is not AccountSettings bearAccount)
             {
                 return false;
             }
@@ -635,8 +639,8 @@ namespace Bot.GUI.ViewModels
             var characterArg = ArgValue(args, "--character");
             var character = characterArg == null ? null
                 : bearAccount.Characters.FirstOrDefault(c => CharacterRoster.SameName(c.Name, characterArg))?.Name ?? characterArg;
-            _logger.LogInfo($"Auto-starting the Bear Hunt{(character != null ? $" on {character} only" : "")} (--bear-hunt)");
-            System.Windows.Application.Current?.Dispatcher.BeginInvoke(async () => await RunBearHuntAsync(bearAccount, null, character));
+            _logger.LogInfo($"Auto-starting the Bear Hunt{(character != null ? $" on {character} only" : "")}{(skipPrep ? " without prep (--bear-hunt-no-prep)" : " (--bear-hunt)")}");
+            System.Windows.Application.Current?.Dispatcher.BeginInvoke(async () => await RunBearHuntAsync(bearAccount, null, character, skipPrep));
             return true;
         }
 

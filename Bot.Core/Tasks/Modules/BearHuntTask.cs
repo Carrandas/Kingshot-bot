@@ -64,7 +64,7 @@ namespace Bot.Core.Tasks.Modules
         private static readonly System.Drawing.Point PetConfirmUsePoint = new System.Drawing.Point(510, 812);
         private static readonly System.Drawing.Point PetClosePoint = new System.Drawing.Point(668, 153);
 
-        internal static readonly Rectangle BearIconArea = new Rectangle(400, 880, 320, 300);    // map view y 1024, base view y 928
+        internal static readonly Rectangle BearIconArea = new Rectangle(400, 760, 320, 420);    // base view y 928; map view y 1024 on 2026-11-08, y 833 on 2026-11-10 (0.99; the old top of 880 missed it)
         private static readonly System.Drawing.Point BearPoint = new System.Drawing.Point(360, 480); // the bear, with the map centred on it
         internal static readonly Rectangle BearCardArea = new Rectangle(0, 250, 720, 1000);
         internal static readonly Rectangle HoldRallyArea = new Rectangle(100, 600, 520, 400);
@@ -136,7 +136,6 @@ namespace Bot.Core.Tasks.Modules
         private async Task<string> RunBearAsync(string character, DateTime start, BearHuntSettings settings, LocatorService locator,
             int instance, LogService logger, CancellationToken cancellationToken)
         {
-            bool ownLeft = BearHuntPlanner.CanSendOwnAt(DateTime.UtcNow, start, settings);
             bool sent = false;
             if (BearHuntPlanner.ShouldSendOwn(DateTime.UtcNow, start, settings, BearHuntStatus.Get(character)))
             {
@@ -144,9 +143,8 @@ namespace Bot.Core.Tasks.Modules
                 await locator.EnsureViewAsync(ViewType.MapView, instance, cancellationToken);
             }
 
-            // own troops home but not sent (it failed): keep a march free for it
-            bool keepOne = ownLeft && !sent && BearHuntStatus.Get(character)?.OwnBackUtc <= DateTime.UtcNow + BearHuntPlanner.OwnRetryAfter(0, settings);
-            int joined = await JoinRalliesAsync(character, settings, keepOne, instance, logger, cancellationToken);
+            // the own rally does not take one of the march queues (own rally + 6 joins, the user on 2026-11-10): no queue is kept free for it
+            int joined = await JoinRalliesAsync(character, settings, false, instance, logger, cancellationToken);
             await locator.EnsureViewAsync(ViewType.MapView, instance, cancellationToken);
             return $"{(sent ? "own rally sent, " : "")}joined {joined}";
         }
@@ -405,12 +403,12 @@ namespace Bot.Core.Tasks.Modules
             int joined = 0;
             // a "+" that opened no deploy screen (the rally just joined stays green for a moment, or it just left) is skipped
             var tried = new List<int>();
-            for (int attempt = 0; attempt < allowed + 3 && joined < allowed; attempt++)
+            for (int attempt = 0; attempt < allowed + 6 && joined < allowed; attempt++)
             {
-                var buttons = (await FindJoinButtonsWithScrollAsync(instance, logger, cancellationToken))
-                    .Where(b => !tried.Exists(y => Math.Abs(y - b.Center.Y) < 40)).ToList();
-                var bear = await FirstBearRowAsync(buttons, character, instance, logger);
-                if (bear == null) break;
+                var buttons = await FindJoinButtonsWithScrollAsync(instance, logger, cancellationToken, tried);
+                if (buttons.Count == 0) break;
+                var bear = await FirstBearRowAsync(buttons, character, tried, instance, logger);
+                if (bear == null) continue;     // only other rallies on screen (now in tried): the next call scrolls on
                 tried.Add(bear.Value.Y);
                 if (!await JoinAsync(character, bear.Value, team, instance, logger, cancellationToken)) continue;
                 joined++;
@@ -425,16 +423,29 @@ namespace Bot.Core.Tasks.Modules
         /// The first "+" whose row targets the bear ("Lv. 1 Raging Bear" ~50 px below the "+") and isn't our own rally
         /// (its "+" opens nothing); Titan Roc and other rallies are skipped
         /// </summary>
-        private async Task<System.Drawing.Point?> FirstBearRowAsync(List<JoinButton> buttons, string character, int instance, LogService logger)
+        /// <param name="skipped">Gets the rows passed over (not the bear, our own rally)</param>
+        private async Task<System.Drawing.Point?> FirstBearRowAsync(List<JoinButton> buttons, string character, List<int> skipped, int instance, LogService logger)
         {
             foreach (var center in buttons.Select(b => b.Center))
             {
-                if (!(await MatchAsync(BearTitleTemplate, BearRowArea(center.Y), BearRowThreshold, instance, logger)).found) continue;
+                if (!(await MatchAsync(BearTitleTemplate, BearRowArea(center.Y), BearRowThreshold, instance, logger)).found)
+                {
+                    skipped.Add(center.Y);
+                    continue;
+                }
                 var screenshot = await TakeScreenshotAsync(instance, logger);
                 string leader = screenshot == null ? "" : ReadRallyLeader(screenshot, center.Y, logger);
                 if (IsOwnRally(leader, character))
                 {
                     logger.LogInfo($"[{character}] Bear Hunt: skipping our own rally ({leader})");
+                    skipped.Add(center.Y);
+                    continue;
+                }
+                long? free = screenshot == null ? null : FreeTroops(ReadRallyTroops(screenshot, center.Y, logger));
+                if (free < MinFreeTroops)
+                {
+                    logger.LogInfo($"[{character}] Bear Hunt: skipping {leader}'s rally, only {free:N0} troops free");
+                    skipped.Add(center.Y);
                     continue;
                 }
                 return center;
@@ -462,6 +473,30 @@ namespace Bot.Core.Tasks.Modules
             int top = plusY - 132;
             if (top < 0) return "";
             return ReadMaskedText(screenshot, new Rectangle(285, top, 330, 44), new Scalar(0, 0, 0), new Scalar(180, 255, 110), null, logger);
+        }
+
+        /// <summary>
+        /// A rally with less room than this is skipped: the join would send a few troops instead of our ~125,500
+        /// (2026-11-10: joined with ~100 troops to a 1,775,230/1,802,710 rally)
+        /// </summary>
+        internal const long MinFreeTroops = 100_000;
+
+        /// <summary>The row's troop line ("176,610/1,481,610", dark text) under the leader name, ~70 px above its "+"</summary>
+        internal static string ReadRallyTroops(byte[] screenshot, int plusY, LogService logger)
+        {
+            int top = plusY - 92;
+            if (top < 0) return "";
+            return ReadMaskedText(screenshot, new Rectangle(285, top, 300, 44), new Scalar(0, 0, 0), new Scalar(180, 255, 110), "0123456789,./", logger);
+        }
+
+        /// <summary>Max minus current of "176,610/1,481,610"; null when it can't be read (then the row is joined)</summary>
+        internal static long? FreeTroops(string text)
+        {
+            var m = System.Text.RegularExpressions.Regex.Match(text, @"([\d,.]+)\s*/\s*([\d,.]+)", System.Text.RegularExpressions.RegexOptions.None, RegexTimeouts.Default);
+            if (!m.Success) return null;
+            static long? Number(string s) => long.TryParse(s.Replace(",", "").Replace(".", ""), out var n) ? n : null;
+            long? current = Number(m.Groups[1].Value), max = Number(m.Groups[2].Value);
+            return current is long c && max is long x && x >= c ? x - c : null;
         }
 
         private static void MarkFull(string character)

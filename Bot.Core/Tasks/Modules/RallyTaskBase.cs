@@ -159,18 +159,27 @@ namespace Bot.Core.Tasks.Modules
         /// <summary>A green join "+" and whether its row is a blue "Def. Lineup" (else a red attack "Rally")</summary>
         internal readonly record struct JoinButton(System.Drawing.Point Center, bool Defensive);
 
-        /// <summary>Join buttons on screen; when there are none, scrolls the list down slowly (full rallies show a grey "+") a few times</summary>
-        private protected async Task<List<JoinButton>> FindJoinButtonsWithScrollAsync(int instance, LogService logger, CancellationToken cancellationToken)
+        /// <summary>
+        /// Join buttons on screen, minus the rows at <paramref name="skipped"/> (screen y of "+"s already tried or passed over);
+        /// when none are left, scrolls the list down slowly (full rallies show a grey "+") a few times. A scroll clears
+        /// <paramref name="skipped"/>: the rows moved, so those positions now hold other rallies (2026-11-10: a fresh rally's "+"
+        /// landed near a joined one's old spot after the scroll and the joins stopped at 2).
+        /// </summary>
+        private protected async Task<List<JoinButton>> FindJoinButtonsWithScrollAsync(int instance, LogService logger, CancellationToken cancellationToken, List<int>? skipped = null)
         {
-            var buttons = await FindJoinButtonsAsync(instance, logger);
+            var buttons = NotSkipped(await FindJoinButtonsAsync(instance, logger), skipped);
             for (int i = 0; i < MaxScrolls && buttons.Count == 0; i++)
             {
                 await SwipeAsync(instance, logger, ListScrollFrom, ListScrollTo, 1500);
                 await Task.Delay(1000, cancellationToken);
-                buttons = await FindJoinButtonsAsync(instance, logger);
+                skipped?.Clear();
+                buttons = NotSkipped(await FindJoinButtonsAsync(instance, logger), skipped);
             }
             return buttons;
         }
+
+        private static List<JoinButton> NotSkipped(List<JoinButton> buttons, List<int>? skipped) =>
+            skipped == null ? buttons : buttons.Where(b => !skipped.Exists(y => Math.Abs(y - b.Center.Y) < 40)).ToList();
 
         private async Task<List<JoinButton>> FindJoinButtonsAsync(int instance, LogService logger)
         {

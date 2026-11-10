@@ -62,7 +62,7 @@ namespace Bot.Core.Services
         }
 
         /// <summary>The ticked characters (or just <paramref name="onlyCharacter"/>); the instance's name when never scanned</summary>
-        private static List<string> Characters(AccountSettings account, string? onlyCharacter)
+        public static List<string> Characters(AccountSettings account, string? onlyCharacter)
         {
             if (onlyCharacter != null) return new List<string> { onlyCharacter };
             var names = account.Characters.Where(c => c.Enabled).Select(c => c.Name).ToList();

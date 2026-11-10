@@ -114,17 +114,19 @@ namespace Bot.Core.Tests
             int realFailure = SwitchesWhileOwnRalliesFail(e => BearHuntPlanner.OwnRetryAfter(e.OwnFailures, _settings));
             SetUp();
             int uncalibrated = SwitchesWhileOwnRalliesFail(_ => _settings.RallyRound);
+            TestContext.Out.WriteLine($"switches in 10 min: 20 s retry {oldRetry}, real failure {realFailure}, uncalibrated {uncalibrated}");
+            // each retry on llsa is now two switches (there and back to the main character)
             Assert.Multiple(() =>
             {
                 Assert.That(realFailure, Is.LessThan(oldRetry), $"a 20 s retry hops on every pass ({oldRetry} switches)");
-                Assert.That(realFailure, Is.LessThanOrEqualTo(5));
-                Assert.That(uncalibrated, Is.LessThanOrEqualTo(3));
+                Assert.That(realFailure, Is.LessThanOrEqualTo(6));
+                Assert.That(uncalibrated, Is.LessThanOrEqualTo(4));
             });
-            TestContext.Out.WriteLine($"switches in 10 min: 20 s retry {oldRetry}, real failure {realFailure}, uncalibrated {uncalibrated}");
         }
 
+        /// <summary>The user's order (2026-11-10): Asli rally + joins, llsa rally + joins, back to Asli, who joins until her next rally</summary>
         [Test]
-        public void Start_FirstCharacterSends_ThenTheSecond_WhoKeepsJoining()
+        public void Start_FirstCharacterSends_ThenTheSecond_ThenBackToTheFirst()
         {
             Set("Asli");
             Set("llsa");
@@ -133,14 +135,16 @@ namespace Bot.Core.Tests
             Set("Asli", ownBack: At(5, 30));
             Assert.That(Pick(At(0, 40), "Asli"), Is.EqualTo(new BearHuntPlanner.Pick("llsa", TimeSpan.Zero)), "llsa's own rally is due");
 
-            // llsa sent and joined until her marches were all out: she waits for the joined rallies to come back, no switch
+            // llsa's pass sent her rally and joined: back to Asli, even with llsa's marches all out
             Set("llsa", ownBack: At(6, 30), fullUntil: At(2, 5));
             Assert.Multiple(() =>
             {
-                Assert.That(Pick(At(1, 45), "llsa"), Is.EqualTo(new BearHuntPlanner.Pick("llsa", TimeSpan.FromSeconds(20))));
-                Assert.That(Pick(At(2, 5), "llsa"), Is.EqualTo(new BearHuntPlanner.Pick("llsa", TimeSpan.Zero)), "join again");
-                Assert.That(Pick(At(4, 31), "llsa"), Is.EqualTo(new BearHuntPlanner.Pick("Asli", TimeSpan.Zero)), "Asli's own rally goes first");
+                Assert.That(Pick(At(1, 45), "llsa"), Is.EqualTo(new BearHuntPlanner.Pick("Asli", TimeSpan.Zero)), "back to the main character");
+                Assert.That(Pick(At(2, 30), "Asli"), Is.EqualTo(new BearHuntPlanner.Pick("Asli", TimeSpan.Zero)), "Asli keeps joining");
+                Assert.That(Pick(At(5, 30), "Asli").Character, Is.EqualTo("Asli"), "Asli's own rally again");
             });
+            Set("Asli", ownBack: At(11));
+            Assert.That(Pick(At(5, 31), "Asli"), Is.EqualTo(new BearHuntPlanner.Pick("llsa", TimeSpan.Zero)), "then llsa's, within the switch time");
         }
 
         [Test]
@@ -150,8 +154,9 @@ namespace Bot.Core.Tests
             Set("llsa", ownBack: At(6, 30));
             Assert.Multiple(() =>
             {
-                Assert.That(Pick(At(4), "llsa"), Is.EqualTo(new BearHuntPlanner.Pick("llsa", TimeSpan.Zero)), "nothing due: keep joining");
-                Assert.That(Pick(At(4, 31), "llsa"), Is.EqualTo(new BearHuntPlanner.Pick("Asli", TimeSpan.Zero)), "Asli due within the switch time");
+                Assert.That(Pick(At(4), "Asli"), Is.EqualTo(new BearHuntPlanner.Pick("Asli", TimeSpan.Zero)), "nothing due: keep joining");
+                Assert.That(Pick(At(4), "llsa"), Is.EqualTo(new BearHuntPlanner.Pick("Asli", TimeSpan.Zero)), "nothing due on llsa: back to Asli");
+                Assert.That(Pick(At(4, 31), "Asli"), Is.EqualTo(new BearHuntPlanner.Pick("Asli", TimeSpan.FromSeconds(59))), "Asli due: wait for her troops");
                 Assert.That(Pick(At(5), "Asli"), Is.EqualTo(new BearHuntPlanner.Pick("Asli", TimeSpan.FromSeconds(30))), "on Asli: wait for her troops");
             });
         }
@@ -181,17 +186,18 @@ namespace Bot.Core.Tests
         }
 
         [Test]
-        public void NoRalliesToJoin_WaitsOnTheCurrentCharacter_UnlessAnOwnRallyIsDue()
+        public void NoRalliesToJoin_WaitsOnTheMainCharacter_UnlessAnOwnRallyIsDue()
         {
-            Set("Asli", ownBack: At(5, 30));
-            Set("llsa", ownBack: At(6, 30));
+            Set("Asli", ownBack: At(6, 30));
+            Set("llsa", ownBack: At(5, 30));
             _noRalliesUntil = At(3, 30);
             Assert.Multiple(() =>
             {
-                Assert.That(Pick(At(3), "llsa"), Is.EqualTo(new BearHuntPlanner.Pick("llsa", TimeSpan.FromSeconds(30))));
+                Assert.That(Pick(At(3), "Asli"), Is.EqualTo(new BearHuntPlanner.Pick("Asli", TimeSpan.FromSeconds(30))));
+                Assert.That(Pick(At(3), "llsa"), Is.EqualTo(new BearHuntPlanner.Pick("Asli", TimeSpan.Zero)), "back to the main character to wait");
                 _noRalliesUntil = At(5);
-                Assert.That(Pick(At(4), "llsa"), Is.EqualTo(new BearHuntPlanner.Pick("llsa", TimeSpan.FromSeconds(30))), "until Asli's switch time");
-                Assert.That(Pick(At(4, 30), "llsa"), Is.EqualTo(new BearHuntPlanner.Pick("Asli", TimeSpan.Zero)), "Asli's own rally is due");
+                Assert.That(Pick(At(4), "Asli"), Is.EqualTo(new BearHuntPlanner.Pick("Asli", TimeSpan.FromSeconds(30))), "until llsa's switch time");
+                Assert.That(Pick(At(4, 30), "Asli"), Is.EqualTo(new BearHuntPlanner.Pick("llsa", TimeSpan.Zero)), "llsa's own rally is due");
             });
         }
 
