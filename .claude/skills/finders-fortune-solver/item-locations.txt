@@ -1,0 +1,262 @@
+# Finder's Fortune item spots: map | item | x,y (720x1280 screen) | note
+# Spots are fixed per map; a stage only fills some of them, so an item may be absent.
+# Every line is a tap that registered in a real run, unless the note says otherwise.
+# Add a line for each new item found. Map names come from the kingshotmastery.com list.
+
+Watchtower | Bird | 405,535
+Watchtower | Brush | 503,786 | on the blue mat
+Watchtower | Canteen | 90,955
+Watchtower | Hook | 235,285 | grappling hook on tower top
+Watchtower | Hot Air Balloon | 445,185
+Watchtower | Key | 470,798 | on the blue mat
+Watchtower | Ladder | 375,705
+Watchtower | Medical Satchel | 125,885
+Watchtower | Paint Blob | 165,585
+Watchtower | Pulley | 569,567
+Watchtower | Punching Bag | 90,700
+Watchtower | Skis | 612,850
+Watchtower | Stool | 160,822
+Watchtower | Streetlight | 465,625 | wall lantern
+Watchtower | Watchtower | 630,465 | distant tower top right
+Watchtower | Window | 473,690
+
+Windmill | Arrow | 390,458
+Windmill | Bird's Nest | 470,530
+Windmill | Blackboard | 410,618
+Windmill | Cat | 355,828
+Windmill | Chicken | 565,688
+Windmill | Chimney | 87,630
+Windmill | Dog | 505,805
+Windmill | Eggs | 472,840
+Windmill | Firewood | 455,688
+Windmill | Fork | 580,640 | pitchfork
+Windmill | Goose | 420,772
+Windmill | Hot Air Balloon | 110,200
+Windmill | Key | 320,982
+Windmill | Kite | 178,590
+Windmill | Ladder | 490,610
+Windmill | Lock | 278,848
+Windmill | Owl | 510,175
+Windmill | Paw Print | 445,970
+Windmill | Rhinoceros Beetle | 607,1008
+Windmill | Scarecrow | 138,760
+Windmill | Shield | 552,648
+Windmill | Sickle | 412,878
+Windmill | Spider Web | 455,312
+Windmill | Sword | 152,990
+Windmill | Wooden Sign | 632,685
+
+Study | Clock | 558,262
+Study | Compass | 110,440
+Study | Envelope | 328,602
+Study | Key | 555,357 | on the shelf top
+Study | Magnet | 87,598
+Study | Tweezers | 215,425
+Study | Plant | 330,425
+Study | Quill | 372,535 | UNCONFIRMED: seen in the room, name guessed
+Study | Hourglass | 277,552 | UNCONFIRMED: seen in the room, name guessed
+Study | Scales | 612,720 | UNCONFIRMED: seen in the room, name guessed
+Study | Spool | 573,968 | UNCONFIRMED: seen in the room, name guessed
+Study | Thread | 573,968 | UNCONFIRMED: seen in the room, name guessed
+Study | Potion | 578,488 | UNCONFIRMED: seen in the room, name guessed
+Study | Torch | 470,395 | UNCONFIRMED: seen in the room, name guessed
+Study | Weighing Scale | 612,720
+Study | Magnifier | 388,625 | UNCONFIRMED: seen in the room, name guessed
+Study | Gold Coins | 533,655 | UNCONFIRMED: seen in the room, name guessed
+Study | Umbrella | 198,740
+Study | Books | 565,412 | UNCONFIRMED: seen in the room, name guessed
+Study | Book | 565,412 | UNCONFIRMED: seen in the room, name guessed
+Study | Stamp | 200,603
+Study | Scroll | 530,730
+Study | Pestle | 185,330
+Study | Glasses | 537,486 | UNCONFIRMED: seen in the room, name guessed
+Study | Spectacles | 537,486 | UNCONFIRMED: seen in the room, name guessed
+Study | Spider | 424,190
+Study | Scissors | 445,708 | UNCONFIRMED: seen in the room, name guessed
+Study | Test Tubes | 120,330 | UNCONFIRMED: seen in the room, name guessed
+Study | Test Tube | 120,330 | UNCONFIRMED: seen in the room, name guessed
+Study | Vials | 120,330 | UNCONFIRMED: seen in the room, name guessed
+Study | Typewriter | 565,605
+Study | Butterfly | 386,335 | UNCONFIRMED: seen in the room, name guessed
+Study | Brush | 382,700 | UNCONFIRMED: seen in the room, name guessed
+Study | Syringe | 85,552 | UNCONFIRMED: seen in the room, name guessed
+Study | Dagger | 632,495 | UNCONFIRMED: seen in the room, name guessed
+Study | Towel | 177,483 | game name; OCR reads it as Towvel
+Study | Mouse | 293,778
+Study | Towvel | 177,483
+Study | Globe | 155,915 | UNCONFIRMED: seen in the room, name guessed
+Study | Chest | 460,975
+Study | Telescope | 410,440 | UNCONFIRMED: seen in the room, name guessed
+Study | Sailboat | 120,660
+Study | Spyglass | 410,440
+
+# Workshop interior with an open door and a shelf rack. Map name not confirmed (Storeroom?).
+Workshop? | 6 | 258,545 | on the door
+Workshop? | Apple | 567,617
+Workshop? | Bell | 227,377
+Workshop? | Branch | 218,442
+Workshop? | Briefcase | 400,405
+Workshop? | Footprints | 207,1000
+Workshop? | Glove | 205,930
+Workshop? | Gold Coins | 148,895
+Workshop? | Hammer | 240,873
+Workshop? | Key | 492,642
+Workshop? | Ladder | 478,540 | 477,590 missed; tap the rungs higher up
+Workshop? | Lamp | 522,440
+Workshop? | Magnifier | 92,672
+Workshop? | Map | 595,738
+Workshop? | Mouse | 85,862
+Workshop? | Notebook | 520,775
+Workshop? | Pinecone | 315,860
+Workshop? | Pliers | 110,915
+Workshop? | Scarecrow | 130,530
+Workshop? | Spider Web | 172,120
+Workshop? | Spool | 457,405
+Workshop? | Sword | 600,795
+Workshop? | Tower | 203,478
+Workshop? | Wood Pile | 125,740
+Workshop? | Wooden Sign | 216,580
+
+# Tower yard with a horseshoe doorway. Probably Training Camp, going by the guide's descriptions.
+Training Camp? | Bell | 348,553
+Training Camp? | Bird's Nest | 322,355
+Training Camp? | Beehive | 508,478
+Training Camp? | Blackboard | 282,683
+Training Camp? | Boots | 120,990
+Training Camp? | Broom | 590,670
+Training Camp? | Bucket | 128,785
+Training Camp? | Crack | 628,740
+Training Camp? | D | 512,637
+Training Camp? | Dagger | 300,1038
+Training Camp? | Goggles | 543,900
+Training Camp? | Handcuffs | 175,760
+Training Camp? | Helmet | 585,840
+Training Camp? | Key | 103,737
+Training Camp? | Ladder | 226,615 | 222,640 missed
+Training Camp? | Mug | 473,880
+Training Camp? | Parcel | 630,790
+Training Camp? | Pigeon | 263,460
+Training Camp? | Pliers | 498,842
+Training Camp? | Pouch | 330,945
+Training Camp? | Rag | 245,515
+Training Camp? | Shield | 355,692
+Training Camp? | Shovel | 345,828
+Training Camp? | Sword | 225,775
+Training Camp? | Torch | 352,600
+Training Camp? | Training Dummy | 428,655
+Training Camp? | Vent | 365,495
+Training Camp? | Wheel | 570,985
+Training Camp? | Whip | 320,740
+Training Camp? | Wrench | 358,1025
+
+Smithy | 2 | 317,560 | on the forge
+Smithy | Anchor | 392,1018
+Smithy | Armor | 430,680
+Smithy | Banner | 118,475
+Smithy | Blueprint | 600,975
+Smithy | Boots | 107,768
+Smithy | Brush | 125,872
+Smithy | Calendar | 543,595
+Smithy | Chain | 460,780
+Smithy | Cloth | 588,735
+Smithy | Compass | 265,895
+Smithy | Diamond | 155,228
+Smithy | Drawing Compass | 232,960
+Smithy | Gold Coins | 358,912
+Smithy | Hand Saw | 190,815
+Smithy | Horseshoe | 595,562 | UNCONFIRMED: never seen to register
+Smithy | Key | 547,525
+Smithy | Ladder | 338,310
+Smithy | Lock | 77,618
+Smithy | Medkit | 102,675
+Smithy | Minecart | 612,850
+Smithy | Mouse | 160,778
+Smithy | Pouch | 420,890
+Smithy | Shield | 597,650
+Smithy | Shovel | 512,765
+Smithy | Signpost | 422,440
+Smithy | Spider Web | 443,118
+Smithy | Spring | 100,817
+Smithy | Wallet | 85,563
+Smithy | Water Jug | 122,1015
+Smithy | Wheel | 600,355
+Smithy | Wrench | 167,568
+Smithy | Scissors | 248,562
+Smithy | Hammer | 348,750
+Smithy | Helmet | 262,208
+Smithy | Pliers | 298,738
+Smithy | Glass Bottle | 637,775
+
+Cabin? | Saddle | 558,596 | auto: tapped the game's flash
+Cabin? | Parrot | 614,774 | auto: tapped the game's flash
+Cabin? | Wind Vane | 380,440
+Cabin? | Ladder | 155,663
+Cabin? | Boots | 602,710 | auto: tapped the game's flash
+Cabin? | Windmill | 428,590 | auto: tapped the game's flash
+Cabin? | Headwear | 510,968
+Cabin? | Sign Post | 632,503
+Cabin? | Bell | 303,495
+Cabin? | Duck | 541,680
+Cabin? | Barrel | 119,749 | auto: tapped the game's flash
+Cabin? | Rooster | 442,397 | auto: tapped the game's flash
+Cabin? | Spear | 601,887
+Cabin? | Broom | 324,694 | auto: tapped the game's flash
+Cabin? | Water Stain | 587,677
+Cabin? | Fish Bone | 566,838
+Cabin? | Apron | 610,618
+Cabin? | Beast Trap | 595,538
+Cabin? | Shovel | 172,565
+Cabin? | Wooden Cart | 275,840
+Cabin? | Rabbit | 127,865
+Cabin? | Ladybird | 302,962
+Cabin? | Collar | 308,695
+Cabin? | Pouch | 350,1012
+Cabin? | Key | 514,592
+Cabin? | Basket | 190,745 | UNCONFIRMED: position seen, the user tapped it
+Cabin? | Lock | 350,610 | UNCONFIRMED: position seen, the user tapped it
+Cabin? | Rope | 228,432
+Cabin? | Clay Pot | 100,938
+Cabin? | Spoon | 562,632
+Cabin? | Footprints | 372,672
+Cabin? | Ostrich Egg | 400,880
+Cabin? | Butterfly | 592,968
+Cabin? | Glove | 410,485
+Cabin? | Crown | 372,493
+Cabin? | Lantern | 470,592
+Cabin? | Brush | 514,620
+Cabin? | Yak | 568,490
+Cabin? | Bird | 332,235
+Cabin? | Cat | 232,628
+Cabin? | Horseshoe | 428,1020
+
+Archery Range | Goggles | 525,225
+Archery Range | Pliers | 578,722
+Archery Range | Boots | 390,548
+Archery Range | Sword | 600,808
+Archery Range | Slingshot | 190,630
+Archery Range | Backpack | 495,775
+Archery Range | Fork | 246,690
+Archery Range | Chest | 585,900
+Archery Range | Compass | 292,942
+Archery Range | Tent | 318,455
+
+Arena | Mushroom | 180,962
+Arena | Bird | 462,298
+Arena | Hammer | 560,955
+Arena | Guitar | 300,885
+Arena | Spyglass | 412,996
+Arena | Claw Mark | 500,568
+Arena | Hourglass | 378,918
+Arena | Crack | 378,790
+Arena | Ear of Wheat | 356,466
+Arena | Training Dummy | 626,612
+Arena | Medal | 210,560
+Arena | Bucket | 514,724
+Arena | Brazier | 364,600
+Arena | Horn | 450,398
+Arena | Spiked Flail | 585,415
+Arena | Drain | 395,732
+Arena | Crossbow | 510,850
+Arena | Helmet | 158,697
+Arena | Basket | 328,418
+Arena | Quiver | 604,855
