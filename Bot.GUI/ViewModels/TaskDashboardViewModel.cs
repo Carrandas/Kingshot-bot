@@ -418,6 +418,16 @@ namespace Bot.GUI.ViewModels
             if (BearHuntStatus.IsRunning) return BuildBearStatus();
             if (_singleRunActive) return SingleRunText;
             if (cycleRunning) return $"Cycle {_cycleService.CurrentCycle} running{runningText}";
+            return BuildWaitingStatus(min, max, nextCycle);
+        }
+
+        /// <summary>Nothing runs: whichever comes first, the scheduled Bear Hunt or the next cycle</summary>
+        private string BuildWaitingStatus(int min, int max, DateTime? nextCycle)
+        {
+            var nextBear = BearHuntMode.NextModeStartUtc(Accounts, DateTime.UtcNow);
+            if (nextBear != null && (nextCycle == null || nextBear < nextCycle))
+                return $"Bear Hunt starts at {Local(nextBear.Value)} ({Relative(nextBear.Value)})" +
+                       (nextCycle != null ? $", next cycle at {Local(nextCycle.Value)}" : "");
             if (nextCycle != null) return $"Next cycle at {Local(nextCycle.Value)} ({Relative(nextCycle.Value)})";
             return $"Stopped. Run on schedule: a cycle now, then every {min}-{max} min after it finishes";
         }

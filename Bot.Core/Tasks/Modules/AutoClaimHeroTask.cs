@@ -378,6 +378,9 @@ namespace Bot.Core.Tasks.Modules
             if (!popup.found)
             {
                 logger.LogWarning($"[{account.AccountName}] Recruitment reward: Rewards popup not found ({popup.confidence:F2})");
+                // seen 2026-11-10 and 11-11: whatever opens here has no back arrow either (the locator then has to find the way home).
+                // Keep one to see it and cut a template for it.
+                await SaveDebugScreenshotAsync(account.InstanceNumber, logger, "recruit-reward-popup.png", "autoclaimhero");
                 return;
             }
             await ClickAsync(account.InstanceNumber, logger, RecruitRewardDismissPoint);

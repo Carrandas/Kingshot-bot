@@ -41,6 +41,22 @@ namespace Bot.Core.Tests
         }
 
         [Test]
+        public void NextModeStartUtc_IsThePrepTimeBeforeTheNextBear()
+        {
+            var on = Account(true, Bear);
+            var later = Account(true, Bear.AddDays(1));
+            var off = Account(false, Bear.AddHours(-1));
+            var prep = on.BearHuntSettings.Prep;
+            Assert.Multiple(() =>
+            {
+                Assert.That(BearHuntMode.NextModeStartUtc(new[] { later, off, on }, Bear.AddHours(-3)), Is.EqualTo(Bear - prep));
+                // inside the prep window the mode is starting, not "next"
+                Assert.That(BearHuntMode.NextModeStartUtc(new[] { on }, Bear.AddMinutes(-5)), Is.Null);
+                Assert.That(BearHuntMode.NextModeStartUtc(new[] { Account(true, null) }, Bear), Is.Null);
+            });
+        }
+
+        [Test]
         public void FindDue_SkipsAccountsWithTheSwitchOffOrTheTaskHidden()
         {
             var off = Account(false, Bear);

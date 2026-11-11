@@ -198,6 +198,12 @@ namespace Bot.Core.Tasks.Modules
         /// </summary>
         public async Task<TaskExecutionDetails> SwitchToCharacterAsync(AccountSettings account, LogService logger, string name, CancellationToken cancellationToken)
         {
+            if (KnownActive(account, name) is string known)
+            {
+                logger.LogInfo($"[{account.AccountName}] {known} already active (known from the last switch), skipping the Characters screen");
+                return TaskExecutionDetails.Succeeded($"{known} already active");
+            }
+
             var openError = await OpenCharactersScreenAsync(account, logger, cancellationToken);
             if (openError != null) return TaskExecutionDetails.Failed(openError);
 
@@ -227,9 +233,27 @@ namespace Bot.Core.Tasks.Modules
                 return TaskExecutionDetails.Failed("Could not find confirm button");
             await Task.Delay(3000, cancellationToken);  // the loading screen comes up
 
-            AccountDetectionTask.ClearCacheForInstance(account.InstanceNumber);
+            CarryAccountId(account, target);
             CharacterRoster.SetActive(account.InstanceNumber, target.Name, target.Kingdom);
             return new TaskExecutionDetails(true, message: $"Switched to {target.Name}", requiresTaskRestart: true);
+        }
+
+        /// <summary>
+        /// In Castle Battle / Bear Hunt the bot owns the game: the character it switched to last is still the active one,
+        /// so the Characters screen needn't be opened and scanned on every pass. The active name, or null when it must be checked.
+        /// </summary>
+        private static string? KnownActive(AccountSettings account, string name)
+        {
+            var known = ModeStatus.AnyRunning ? CharacterRoster.GetActiveName(account.InstanceNumber) : null;
+            return known != null && CharacterRoster.SameName(known, name) ? known : null;
+        }
+
+        /// <summary>A character seen by Account Detection before keeps its ID: skip reading it from the profile screen again</summary>
+        private static void CarryAccountId(AccountSettings account, CharacterRow target)
+        {
+            var knownId = CharacterRoster.KnownAccountId(account, target.Name, target.Kingdom);
+            if (knownId != null) AccountDetectionTask.SetCachedAccountId(account.InstanceNumber, knownId);
+            else AccountDetectionTask.ClearCacheForInstance(account.InstanceNumber);
         }
 
         private static string KingdomSuffix(int? kingdom) => kingdom.HasValue ? $" (#{kingdom})" : string.Empty;

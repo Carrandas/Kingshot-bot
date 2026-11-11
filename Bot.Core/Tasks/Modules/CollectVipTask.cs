@@ -223,6 +223,9 @@ namespace Bot.Core.Tasks.Modules
 
             if (!vipRewardsFound)
             {
+                // 8 of 8 runs from 2026-11-08 to 11-11 tapped the "dot" and got a popup that is not Rewards (the screenshot stayed
+                // the same size for 5 s): keep one to see what the chest really opens before re-cutting vip-chest.png
+                await SaveDebugScreenshotAsync(account.InstanceNumber, logger, "chest-popup.png", "collectvip");
                 logger.LogInfo($"[{account.AccountName}] ❌ VIP rewards (templates\\images\\collectvip\\vip-rewards.png) not found after {attemptCount} attempts in 5 seconds, continuing...");
             }
 

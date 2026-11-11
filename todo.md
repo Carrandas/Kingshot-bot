@@ -15,17 +15,17 @@ Unattended runs: `KingshotAuto.exe --schedule` (Run on schedule) or `--once` (Ru
 | 4b | AutoHunt | `No hunt mode indicators found` – hunt never ran | **Fixed, verified 2026-10-23**: `castle-hunt.png` no longer matches (0.43); the stamina icon in the header is used instead (`hunt-stamina.png`, grayscale, 0.85-0.98). The no-view branches use it too |
 | 5 | Locator | `Could not detect any known view - bot may be lost` | Mostly gone with #3/#4/#4b; recovers when it happens |
 | 6 | March counter | OCR at (550,68) reads `''` or `77` | **Mitigated**: the map HUD has no march counter there (it is the VIP badge). Values > 6 are capped at 6; the max-march popup handles the real limit |
-| 7 | Startup | `Game did not reach a known view after loading` | Open (low) – not seen 2026-10-23 |
+| 7 | Startup | `Game did not reach a known view after loading` | Open (low) – not seen since 2026-10-23 (checked the logs of 2026-11-08 to 11-11) |
 | 8 | Config | `Error loading config … enabledTasks[0]` + `Configuration failed to load during initialization` | **Fixed**: both loaders use the TaskType name converter; a missing `configs/config.json` is info only |
 | 9 | Stop/Launch | Several Launch clicks started parallel runners | **Fixed**: one runner per instance, extra clicks are ignored; Stop cancels the running tasks |
 | 10 | ConquestCollect | Blind fixed-coordinate taps, 4 h cooldown | **Rewritten 2026-10-23**: templates + green-colour check on both Claim buttons; Rewards dismissed on empty sky (the Conquer button sits under the banner). Nothing-to-claim path verified live; claim path verified by hand, bot run pending |
-| 11 | CollectRewards | Hall of Heroes tab visited twice | Open (harmless) |
+| 11 | CollectRewards | Hall of Heroes tab visited twice | **Fixed 2026-11-11**: the tab strip pages overlap; `StoreRun.HallVisited` |
 | 12 | CollectRewards | Store pitch popup ends the tab scan | Fixed 2026-10-19, popup not seen live since |
 | 13 | AllianceTechnology | `Exit cross not found` | **Fixed 2026-10-23**: rewritten (see Alliance Technology below); new `close-x.png` |
 | 14 | AutoAllianceHelp / Farming | `Could not find 'alliance-help.png'` | Info only |
-| 16 | AutoClaimHero | `Could not find back button` after a free recruit whose result screen has no `rewards.png` banner | **Mitigated**: falls back to the locator. Need a screenshot of that result screen for a proper template |
+| 16 | AutoClaimHero | `Could not find back button` after the Recruitment reward chest (seen 2026-11-10 and 11-11): its popup is not the Rewards banner | Open: the run now saves `logs/autoclaimhero/recruit-reward-popup.png` for a template; the locator brings it home meanwhile |
 | 17 | Recovery | Blind `ad-close.png` tap at 0.609 on an unknown screen | **Fixed**: recovery taps need 0.8 now (real X buttons score ~0.9+) |
-| 18 | CollectVip | `vip-chest.png` (8×6 red-dot template) matches the open chest lid at 0.878 every run | Open (low) – costs 5 s, re-cut the template |
+| 18 | CollectVip | The chest "dot" (`vip-chest.png`, 0.984 every run) opens a popup that is not Rewards: 8 of 8 runs waited 5 s for nothing | Open: the run now saves `logs/collectvip/chest-popup.png`; look at it, then re-cut or drop the chest step |
 | 19 | All template matching | Screenshots were converted with `RGBA2BGR` but Windows bitmaps are BGRA: red and blue were swapped before grayscale, so colourful templates scored low (Journey supplies 0.72, VIP claim/plus 0.39/0.64, Crucible rows) | **Fixed 2026-10-23**: `BGRA2BGR` in all 4 matchers. Checked every template on 9 screenshots: only real matches went up |
 | 20 | CollectRewards | Bank 24 h cooldown keyed by instance number, so a second character on the same instance skipped the bank | **Fixed 2026-10-23**: keyed by account ID |
 | 21 | ClaimMissions | `Chapter tab not found` warning | Info only – the Missions screen no longer has a Chapter tab. The Chapter notification OCR still reads a false '8' there |
@@ -118,23 +118,23 @@ Unattended runs: `KingshotAuto.exe --schedule` (Run on schedule) or `--once` (Ru
 ## Quality (nothing in place yet)
 
 - [x] **Unit tests** (2026-10-26): `Bot.Core.Tests` (NUnit 4), 72 tests: `CharacterRoster` name matching and Change Account's tag fix, `DailyGate` / `Schedule`, `TaskRunHistory`, task registration and run order (found AutoRally without a run order). The old `InstanceManager*` LDPlayer tests are `[Explicit]`
-  - [ ] Next: `GetNextRunUtc` of the timer tasks (Conquest Collect, Alliance Technology, Journey 08:00/16:00), OCR text parsing (march count, Suggestion Box answer table)
+  - [x] 2026-11-11: `GetNextRunUtc`/`ClearSchedule` of every `IScheduledTask` and the Suggestion Box answer table are tested (`ScheduledTaskTests`). [ ] Still open: OCR text parsing (march count)
 - [x] **Integration tests on screenshots** (2026-10-26): `Bot.Core.IntegrationTests`, saved screenshots in `Screenshots/`. Alliance Mobilization cards (hammer and yellow gem refreshed, gifts and blue gems kept) and the Events button (with/without red dot, absent)
   - [ ] Next: more tasks' detection steps (Suggestion Box answers, Nomadic Merchant never gem-priced, Journey, VIP), each with present / absent / popup screenshots. Catches threshold regressions like the BGRA swap (#19)
 - [ ] **Code quality monitoring.** `SonarAnalyzer.CSharp` runs in every build (2026-10-26, `Directory.Build.props`): 477 warnings at the start; fixed the real ones (tasks ignoring Stop in their view recovery, an unlimited task-list restart, a silently ignored answers file, undisposed token sources, dispose patterns). About 440 left, mostly dead code and noise
-  - [ ] Next: switch off the noisy rules in `.editorconfig` (S2325, S6444, S2245, S101), remove the dead code (unused variables/fields/parameters)
-  - [ ] Build + test workflow (GitHub Actions on the fork), coverage (coverlet), optionally SonarQube Cloud (free for public repos)
+  - [x] 2026-11-11: the build has 0 Sonar and compiler warnings (the noisy rules and the dead code are gone)
+  - [x] 2026-11-11: GitHub Actions workflow `.github/workflows/build.yml` (build with warnings as errors, both test projects, coverlet coverage artifact); not run yet, check the first run on the fork. [ ] Optionally SonarQube Cloud (free for public repos)
 
 ## Not done yet
 
 - [ ] Red dots not handled: Events, Deals, Flamedragon, pets (paw), scales, bottom bar (Heroes, Backpack, Shop, Alliance)
 - [ ] Human-like random delays
-- [ ] **Dashboard: show the Bear Hunt as the next run** (2026-11-10): the Bot tab showed "next cycle 22:09 (in 1.9h)" while the scheduled Bear Hunt starts at 21:00 local (`BearHuntSettings.NextBearUtc` minus the prep time). Show whichever comes first
+- [x] **Dashboard: show the Bear Hunt as the next run** (done 2026-11-11, `BearHuntMode.NextModeStartUtc`) (2026-11-10): the Bot tab showed "next cycle 22:09 (in 1.9h)" while the scheduled Bear Hunt starts at 21:00 local (`BearHuntSettings.NextBearUtc` minus the prep time). Show whichever comes first
 - [ ] **Fishing event (idea)**: a real-time minigame, unlike Finder's Fortune. Move the hook down while dodging fish that swim right to left. Needs a video feed instead of 270 ms screenshots (`screenrecord` h264 / scrcpy stream, 20-30 fps) and timed holds (`input swipe` with a duration, or `sendevent`). Start from a recording of one round to measure fish speed, the controls and the gaps. Asli finished all fishing challenges by hand on 2026-11-10, so no rush
-- [ ] **Faster character switch** (asked 2026-11-10, during the Bear Hunt): after a switch, skip the check that we landed on the right character (or do it later, e.g. on the first screen the next task opens anyway). Applies to the Bear Hunt switches and to the cycle's Change Account
-- [ ] **Start LDPlayer button** (asked 2026-11-10): a GUI button that starts LDPlayer set up for the bot and opens Kingshot: `ldconsole modify --index 0 --resolution 720,1280,320 --cpu 4 --memory 4096` (2 CPUs / 2 GB maxed out during the Bear Hunt of 2026-11-10) (and ADB debugging on, `basicSettings.adbDebug` in `vms/config/leidian0.config`) while it is off, then `launch --index 0`, wait for adb, `runapp --packagename com.run.tower.defense`. LDPlayer came back reset to 2560x1440 without ADB debugging on 2026-11-10. `InstanceManager` / `AdbRecoveryService` already do parts of this
+- [x] **Faster character switch** (done 2026-11-11: in a mode the Characters screen is skipped when the character is already active; a switch reuses the linked account ID instead of re-detecting it. Verify live on the next bear) (asked 2026-11-10, during the Bear Hunt): after a switch, skip the check that we landed on the right character (or do it later, e.g. on the first screen the next task opens anyway). Applies to the Bear Hunt switches and to the cycle's Change Account
+- [x] **Start LDPlayer button** (done 2026-11-11: "Start Kingshot" in the Bot tab; CPU 4 / 4096 MB are the new defaults) (asked 2026-11-10): a GUI button that starts LDPlayer set up for the bot and opens Kingshot: `ldconsole modify --index 0 --resolution 720,1280,320 --cpu 4 --memory 4096` (2 CPUs / 2 GB maxed out during the Bear Hunt of 2026-11-10) (and ADB debugging on, `basicSettings.adbDebug` in `vms/config/leidian0.config`) while it is off, then `launch --index 0`, wait for adb, `runapp --packagename com.run.tower.defense`. LDPlayer came back reset to 2560x1440 without ADB debugging on 2026-11-10. `InstanceManager` / `AdbRecoveryService` already do parts of this
 - [x] **Bear Hunt: skip nearly full rallies** (2026-11-10): a War row with less than 100,000 free (`BearHuntTask.MinFreeTroops`, OCR of the "current/max" line) is skipped; not yet seen live
-- [ ] **Bear Hunt: no joins that arrive too late** (2026-11-10): in the last ~5:30 the bot still joins rallies whose "Rallying: mm:ss" timer + the march lands after the bear ends. Read the row timer (top right of the row) and skip those; stop joining once no rally can arrive in time
+- [x] **Bear Hunt: no joins that arrive too late** (done 2026-11-11: reads the row countdown, `BearHuntPlanner.JoinArrivesInTime`; verify live) (2026-11-10): in the last ~5:30 the bot still joins rallies whose "Rallying: mm:ss" timer + the march lands after the bear ends. Read the row timer (top right of the row) and skip those; stop joining once no rally can arrive in time
 - [ ] Safety rule for every new claim: tap only template-matched free/claim elements, never price or gem-cost buttons
 
 ## Truegold Crucible (new task, 2026-10-23)

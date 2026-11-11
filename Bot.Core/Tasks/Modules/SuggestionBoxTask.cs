@@ -65,7 +65,7 @@ namespace Bot.Core.Tasks.Modules
         }
 
         // Answered by hand; learned answers are added to data/suggestion_box_answers.json
-        private static readonly AnswerEntry[] KnownAnswers =
+        internal static readonly AnswerEntry[] KnownAnswers =
         {
             new() { Letter = "Caught some workers sneaking grain to the black market, messing with our kitchen supplies. You can't let them get away with it.",
                     Answer = "These opportunists must face severe punishment!" },

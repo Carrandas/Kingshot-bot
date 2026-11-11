@@ -1,31 +1,36 @@
-name: Build
+name: Build and test
 
 on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
 
 jobs:
   build:
     runs-on: windows-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
-          lfs: true
+          lfs: true   # the Tesseract/Leptonica DLLs are LFS objects
 
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '10.0.x'
+          global-json-file: global.json
 
-      - name: Restore dependencies
+      - name: Restore
         run: dotnet restore BotApp.sln
 
-      - name: Build
-        run: dotnet build BotApp.sln -c Debug --no-restore
+      - name: Build (Sonar rules and compiler warnings are errors in CI)
+        run: dotnet build BotApp.sln -c Release --no-restore -warnaserror -p:NuGetAudit=false
 
-      - name: Test
-        continue-on-error: true
-        run: dotnet test BotApp.sln -c Debug --no-build --verbosity normal
+      - name: Unit tests (with coverage)
+        run: dotnet test Bot.Core.Tests -c Release --no-build --collect:"XPlat Code Coverage" --results-directory TestResults
+
+      - name: Screenshot tests
+        run: dotnet test Bot.Core.IntegrationTests -c Release --no-build
+
+      - name: Upload coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: TestResults/**/coverage.cobertura.xml

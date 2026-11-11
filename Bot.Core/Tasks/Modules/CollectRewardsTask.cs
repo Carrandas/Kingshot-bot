@@ -249,6 +249,7 @@ namespace Bot.Core.Tasks.Modules
         {
             public int Claims;
             public int CardClaims;
+            public bool HallVisited;   // the tab strip pages overlap: the Hall of Heroes tab can show on two pages (visited twice, seen 2026-11-09)
         }
 
         private async Task<(bool found, Rectangle rect, double confidence)> FindStoreIconAsync(int instance, LogService logger, CancellationToken cancellationToken)
@@ -582,10 +583,11 @@ namespace Bot.Core.Tasks.Modules
         /// <summary>
         /// On the Hall of Heroes tab: opens "A Hero's Witness" via the + button and taps every green "Free" button once.
         /// </summary>
-        private async Task<int> HandleHallOfHeroesAsync(AccountSettings account, LogService logger, int instance, CancellationToken cancellationToken)
+        private async Task<int> HandleHallOfHeroesAsync(AccountSettings account, LogService logger, int instance, StoreRun run, CancellationToken cancellationToken)
         {
             var hall = await MatchAsync(HallHeaderTemplate, HallHeaderArea, HallThreshold, instance, logger);
             if (!hall.found) return 0;
+            run.HallVisited = true;
 
             var plus = await MatchAsync(HallPlusTemplate, HallPlusArea, HallThreshold, instance, logger);
             if (!plus.found) return 0;
@@ -788,8 +790,8 @@ namespace Bot.Core.Tasks.Modules
                 await FinishClaimAsync(instance, logger, 100 + run.Claims, cancellationToken, inHub: true);
             }
 
-            if (run.Claims < MaxHubClaims)
-                run.Claims += await HandleHallOfHeroesAsync(account, logger, instance, cancellationToken);
+            if (run.Claims < MaxHubClaims && !run.HallVisited)
+                run.Claims += await HandleHallOfHeroesAsync(account, logger, instance, run, cancellationToken);
         }
 
         /// <summary>Hollow rectangles of ring size in the mask (screen coordinates), with their pixel area.</summary>

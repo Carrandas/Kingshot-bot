@@ -238,6 +238,30 @@ namespace Bot.Core.Tests
             Assert.That(_settings.NextBearUtc, Is.EqualTo(Start.AddDays(2)));
         }
     
+        [TestCase("00:03:02", 182)]
+        [TestCase("03:02", 182)]
+        [TestCase("Rallying 01:00:05", 3605)]
+        public void ParseRallyTimer_ReadsClocks(string text, int seconds) =>
+            Assert.That(Bot.Core.Tasks.Modules.BearHuntTask.ParseRallyTimer(text), Is.EqualTo(TimeSpan.FromSeconds(seconds)));
+
+        [TestCase("")]
+        [TestCase("garbage")]
+        public void ParseRallyTimer_UnreadableIsNull(string text) =>
+            Assert.That(Bot.Core.Tasks.Modules.BearHuntTask.ParseRallyTimer(text), Is.Null);
+
+        // the bear ends at 12:30; a 30 s march is allowed for
+        [TestCase(12, 20, 0, 0, true)]
+        [TestCase(12, 29, 0, 0, true)]     // 12:29:00 + 30 s lands before 12:30
+        [TestCase(12, 29, 45, 0, false)]
+        [TestCase(12, 25, 0, 300, false)]  // a 5 min rally from 12:25 arrives at 12:30:30
+        [TestCase(12, 25, 0, 240, true)]
+        public void JoinArrivesInTime_CountsRallyAndMarch(int hour, int minute, int second, int remainingSeconds, bool expected)
+        {
+            var end = new DateTime(2026, 11, 11, 12, 30, 0, DateTimeKind.Utc);
+            var now = new DateTime(2026, 11, 11, hour, minute, second, DateTimeKind.Utc);
+            Assert.That(BearHuntPlanner.JoinArrivesInTime(now, TimeSpan.FromSeconds(remainingSeconds), end), Is.EqualTo(expected));
+        }
+
         // OCR of War rows' leaders garbles the tag's brackets: "KFCIMAS SCHUIL24", "[KFC|Darth Vader" (2026-11-08)
         [TestCase("[KFC]llsa", "[KFC]llsa", true)]
         [TestCase("KFCIllsa", "[KFC]llsa", true)]

@@ -388,7 +388,8 @@ namespace Bot.Core.Tasks.Modules
             if (!await OpenWarAsync(character, instance, logger, cancellationToken)) return 0;
 
             BearHuntStatus.Set(character, BearHuntPhase.Joining);
-            int joined = await JoinTopRalliesAsync(character, settings.JoinTeam, allowed, instance, logger, cancellationToken);
+            DateTime? eventEnd = BearHuntStatus.BearStartUtc + settings.EventLength;
+            int joined = await JoinTopRalliesAsync(character, settings.JoinTeam, allowed, eventEnd, instance, logger, cancellationToken);
             await LeaveWarAsync(instance, logger, cancellationToken);
 
             // fewer joins than queues: the list ran out (the same for every character), so wait instead of switching
@@ -401,7 +402,7 @@ namespace Bot.Core.Tasks.Modules
             return joined;
         }
 
-        private async Task<int> JoinTopRalliesAsync(string character, int team, int allowed, int instance, LogService logger, CancellationToken cancellationToken)
+        private async Task<int> JoinTopRalliesAsync(string character, int team, int allowed, DateTime? eventEnd, int instance, LogService logger, CancellationToken cancellationToken)
         {
             int joined = 0;
             // a "+" that opened no deploy screen (the rally just joined stays green for a moment, or it just left) is skipped
@@ -410,7 +411,7 @@ namespace Bot.Core.Tasks.Modules
             {
                 var buttons = await FindJoinButtonsWithScrollAsync(instance, logger, cancellationToken, tried);
                 if (buttons.Count == 0) break;
-                var bear = await FirstBearRowAsync(buttons, character, tried, instance, logger);
+                var bear = await FirstBearRowAsync(buttons, character, tried, eventEnd, instance, logger);
                 if (bear == null) continue;     // only other rallies on screen (now in tried): the next call scrolls on
                 tried.Add(bear.Value.Y);
                 if (!await JoinAsync(character, bear.Value, team, instance, logger, cancellationToken)) continue;
@@ -427,7 +428,7 @@ namespace Bot.Core.Tasks.Modules
         /// (its "+" opens nothing); Titan Roc and other rallies are skipped
         /// </summary>
         /// <param name="skipped">Gets the rows passed over (not the bear, our own rally)</param>
-        private async Task<System.Drawing.Point?> FirstBearRowAsync(List<JoinButton> buttons, string character, List<int> skipped, int instance, LogService logger)
+        private async Task<System.Drawing.Point?> FirstBearRowAsync(List<JoinButton> buttons, string character, List<int> skipped, DateTime? eventEnd, int instance, LogService logger)
         {
             // one screenshot for the whole list view: nothing is tapped between the rows
             var screenshot = await TakeScreenshotAsync(instance, logger);
@@ -439,14 +440,14 @@ namespace Bot.Core.Tasks.Modules
             using var image = Cv2.ImDecode(screenshot, ImreadModes.Color);
             foreach (var center in buttons.Select(b => b.Center))
             {
-                if (!ShouldSkipRow(screenshot, image, center.Y, character, instance, logger)) return center;
+                if (!ShouldSkipRow(screenshot, image, center.Y, character, eventEnd, instance, logger)) return center;
                 skipped.Add(center.Y);
             }
             return null;
         }
 
-        /// <summary>Not the bear, our own rally, or too full for our troops to matter</summary>
-        private bool ShouldSkipRow(byte[] screenshot, Mat image, int plusY, string character, int instance, LogService logger)
+        /// <summary>Not the bear, our own rally, too full for our troops to matter, or launching too late to reach the bear</summary>
+        private bool ShouldSkipRow(byte[] screenshot, Mat image, int plusY, string character, DateTime? eventEnd, int instance, LogService logger)
         {
             if (!MatchScreenshot(screenshot, BearTitleTemplate, BearRowArea(plusY), BearRowThreshold, instance, logger).found) return true;
             string leader = ReadRallyLeader(image, plusY);
@@ -461,7 +462,26 @@ namespace Bot.Core.Tasks.Modules
                 logger.LogInfo($"[{character}] Bear Hunt: skipping {leader}'s rally, only {free:N0} troops free");
                 return true;
             }
+            var remaining = ParseRallyTimer(ReadRallyTimer(image, plusY));
+            if (remaining is TimeSpan left && eventEnd is DateTime end && !BearHuntPlanner.JoinArrivesInTime(DateTime.UtcNow, left, end))
+            {
+                logger.LogInfo($"[{character}] Bear Hunt: skipping {leader}'s rally, it launches in {left:mm\\:ss} and would arrive after the bear");
+                return true;
+            }
             return false;
+        }
+
+        /// <summary>The row's "Rallying: 00:03:02" countdown: white text on the red header bar, ~173 px above its "+"</summary>
+        internal static string ReadRallyTimer(Mat image, int plusY) =>
+            plusY - 195 < 0 ? "" : MaskedTextOcr.Read(image, new Rectangle(480, plusY - 195, 210, 44), HeaderWhiteLow, HeaderWhiteHigh, "0123456789:");
+
+        /// <summary>"00:03:02" (h:mm:ss) or "03:02" (mm:ss); null when it can't be read (then the row is joined)</summary>
+        internal static TimeSpan? ParseRallyTimer(string text)
+        {
+            var m = System.Text.RegularExpressions.Regex.Match(text, @"(?:(\d{1,2}):)?(\d{1,2}):(\d{2})", System.Text.RegularExpressions.RegexOptions.None, RegexTimeouts.Default);
+            if (!m.Success) return null;
+            int hours = m.Groups[1].Success ? int.Parse(m.Groups[1].Value) : 0;
+            return new TimeSpan(hours, int.Parse(m.Groups[2].Value), int.Parse(m.Groups[3].Value));
         }
 
         /// <summary>Where a War row's target line ("Lv. 1 Raging Bear") is, from its "+"</summary>

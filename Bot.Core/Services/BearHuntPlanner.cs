@@ -46,6 +46,13 @@ namespace Bot.Core.Services
             return Math.Clamp(free, 0, Math.Max(0, maxJoins));
         }
 
+        /// <summary>Marching time added to a joined rally's countdown (the "14km away" rows arrive in well under this)</summary>
+        public static readonly TimeSpan JoinMarch = TimeSpan.FromSeconds(30);
+
+        /// <summary>A rally that launches in <paramref name="rallyRemaining"/> still reaches the bear before the event ends (2026-11-10: late joins arrived after the bear)</summary>
+        public static bool JoinArrivesInTime(DateTime nowUtc, TimeSpan rallyRemaining, DateTime eventEndUtc) =>
+            nowUtc + rallyRemaining + JoinMarch <= eventEndUtc;
+
         private static readonly TimeSpan SwitchTime = TimeSpan.FromSeconds(60);
 
         /// <summary>

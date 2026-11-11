@@ -29,6 +29,13 @@ namespace Bot.Core.Services
             return new BearDue(null, null, changed);
         }
 
+        /// <summary>When the bot starts the next scheduled bear (its prep time before the bear); null when none is known or it is already on</summary>
+        public static DateTime? NextModeStartUtc(IEnumerable<AccountSettings> accounts, DateTime nowUtc) =>
+            accounts.Where(a => a.EnabledTasks.Contains(TaskType.BearHunt) && !a.HiddenTasks.Contains(TaskType.BearHunt))
+                .Select(a => a.BearHuntSettings.NextBearUtc - a.BearHuntSettings.Prep)
+                .Where(t => t > nowUtc)
+                .Min();
+
         /// <summary>The bear to run: the one asked for, else the saved one while it is on, else now (started by hand)</summary>
         public static DateTime ResolveStart(BearHuntSettings settings, DateTime? requestedUtc, DateTime nowUtc) =>
             requestedUtc ?? BearHuntRunner.ActiveBear(settings, nowUtc) ?? nowUtc;

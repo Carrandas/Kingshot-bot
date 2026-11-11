@@ -169,6 +169,10 @@ namespace Bot.Core.Services
 
         public static string? GetActiveName(int instanceNumber) => _active.TryGetValue(instanceNumber, out var a) ? a.Name : null;
 
+        /// <summary>The game account ID linked to this character by an earlier Account Detection, or null</summary>
+        public static string? KnownAccountId(AccountSettings account, string name, int? kingdom) =>
+            Find(account, name, kingdom)?.AccountId is { Length: > 0 } id ? id : null;
+
         /// <summary>
         /// Account Detection found the game account ID: store it on the active character, so the dashboard can find
         /// that character's gates and run history.

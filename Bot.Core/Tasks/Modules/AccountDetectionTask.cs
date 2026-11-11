@@ -90,6 +90,15 @@ namespace Bot.Core.Tasks.Modules
             }
         }
 
+        /// <summary>Sets the account ID of the instance's active character without reading it from the game (it was linked to the character before)</summary>
+        public static void SetCachedAccountId(int instanceNumber, string accountId)
+        {
+            lock (_cacheLock)
+            {
+                _cachedAccountIds[instanceNumber] = accountId;
+            }
+        }
+
         /// <summary>
         /// Clear cached account IDs (useful when switching accounts)
         /// </summary>

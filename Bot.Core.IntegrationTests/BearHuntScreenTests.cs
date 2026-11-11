@@ -92,6 +92,16 @@ namespace Bot.Core.IntegrationTests
             });
         }
 
+        // The "Rallying: 00:03:02" countdowns of the same War list (read off the screenshot by eye)
+        [TestCase(375, 3, 2)]
+        [TestCase(782, 3, 45)]
+        public void ReadsTheRallyTimer(int plusY, int minutes, int seconds)
+        {
+            using var image = OpenCvSharp.Cv2.ImDecode(Fixtures.Load("bearhunt-war-troops.png"), OpenCvSharp.ImreadModes.Color);
+            string text = BearHuntTask.ReadRallyTimer(image, plusY);
+            Assert.That(BearHuntTask.ParseRallyTimer(text), Is.EqualTo(new TimeSpan(0, minutes, seconds)), text);
+        }
+
         [TestCase("176,610/1,481,610", 1_305_000L)]
         [TestCase("176.610 / 1.481.610", 1_305_000L)]
         [TestCase("", null)]

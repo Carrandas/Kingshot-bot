@@ -29,8 +29,8 @@ namespace Bot.Core.LDPlayer
         private readonly int _instanceWidth = 720;
         private readonly int _instanceHeight = 1280;
         private readonly int _instanceDpi = 320;
-        private readonly int _instanceCpu = 2;
-        private readonly int _instanceMemory = 2048;
+        private readonly int _instanceCpu = 4; // 2 CPUs / 2 GB maxed out during the Bear Hunt of 2026-11-10
+        private readonly int _instanceMemory = 4096;
 
         public InstanceManager(string ldConsolePath, string dnConsolePath, LogService logger)
         {
