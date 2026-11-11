@@ -36,6 +36,37 @@ namespace Bot.Core.Services
             return sb.ToString();
         }
 
+        private static readonly Regex BracketTag = new Regex(@"^\s*\[(\w{1,6})\]", RegexOptions.None, Bot.Core.Utils.RegexTimeouts.Default);
+
+        /// <summary>The alliance tag in a character's name: "[KFC]llsa" gives "KFC"; null without a tag</summary>
+        public static string? AllianceTagOf(string? characterName)
+        {
+            var m = BracketTag.Match(characterName ?? "");
+            return m.Success ? m.Groups[1].Value : null;
+        }
+
+        /// <summary>
+        /// An OCR'd name starts with <paramref name="tag"/>. OCR garbles the brackets ("KFCIMAS", "[KFC|Darth"),
+        /// so only the letters after any leading symbols count.
+        /// </summary>
+        public static bool HasAllianceTag(string? name, string tag)
+        {
+            string text = name ?? "";
+            string trimmed = text.Substring(text.TakeWhile(c => !char.IsLetterOrDigit(c)).Count());
+            return tag.Length > 0 && trimmed.StartsWith(tag, StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// An OCR'd line ends with this character's name, behind at most a tag (+ bracket) of <paramref name="maxPrefix"/>
+        /// characters: "KFCIMAS SCHUIL24" and "[KFC|Darth Vader" read as tag + name where the brackets are garbled.
+        /// </summary>
+        public static bool EndsWithName(string? read, string character, int maxPrefix = 5)
+        {
+            string name = NormalizeKey(character);
+            string key = NormalizeKey((read ?? "").Replace("[", "").Replace("]", ""));
+            return name.Length > 0 && key.EndsWith(name, StringComparison.Ordinal) && key.Length - name.Length <= maxPrefix;
+        }
+
         /// <summary>True when two OCR'd names are the same character: equal keys, or one character off for names of 5+ characters.</summary>
         public static bool SameName(string a, string b)
         {

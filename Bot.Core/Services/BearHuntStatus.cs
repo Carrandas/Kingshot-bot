@@ -2,6 +2,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
+using Bot.Core.Models;
 
 namespace Bot.Core.Services
 {
@@ -135,5 +136,28 @@ namespace Bot.Core.Services
         };
 
         public static string Describe(BearHuntPhase phase) => Descriptions.TryGetValue(phase, out var text) ? text : phase.ToString();
+
+        /// <summary>
+        /// The Bear Hunt tab's status line. The lead time is the scheduler's (<see cref="BearHuntSettings.PrepMinutes"/>) and the
+        /// run length its <see cref="BearHuntSettings.EventLength"/>.
+        /// </summary>
+        /// <param name="settings">Null: the defaults</param>
+        /// <param name="autoRun">The Bear Hunt switch (the bot starts the bear by itself)</param>
+        /// <param name="local">Formats a UTC time as the user's clock time</param>
+        /// <param name="relative">Formats a UTC time relative to now ("in 5 min")</param>
+        public static string Summary(DateTime nowUtc, BearHuntSettings? settings, bool autoRun, Func<DateTime, string> local, Func<DateTime, string> relative)
+        {
+            if (BearStartUtc is DateTime start)
+            {
+                var length = settings?.EventLength ?? TimeSpan.FromMinutes(BearHuntSettings.DefaultEventMinutes);
+                return start > nowUtc
+                    ? $"Bear Hunt: getting ready, bear at {local(start)} ({relative(start)})"
+                    : $"Bear Hunt running until {local(start + length)}";
+            }
+            int lead = settings?.PrepMinutes ?? BearHuntSettings.DefaultPrepMinutes;
+            return autoRun
+                ? $"On: the bot stops the cycle {lead} min before the bear, calls the troops home, then rallies and joins."
+                : "Off. Switch it on to run the bear by itself, or press Bear Hunt to start now.";
+        }
     }
 }

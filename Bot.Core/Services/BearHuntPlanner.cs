@@ -38,13 +38,12 @@ namespace Bot.Core.Services
             CanSendOwnAt(nowUtc, startUtc, settings) && (state?.OwnBackUtc == null || state.OwnBackUtc <= nowUtc);
 
         /// <summary>
-        /// Rallies to join now: the free march queues (minus one kept for the own rally when it still has to leave),
-        /// at most <paramref name="maxJoins"/>. Tracker not read (total 0): try up to the maximum, a full queue makes the join fail.
+        /// Rallies to join now: the free march queues, at most <paramref name="maxJoins"/>. Tracker not read (total 0): try up to the maximum, a full queue makes the join fail.
         /// </summary>
-        public static int JoinsAllowed(int busy, int total, int maxJoins, bool keepOneForOwn)
+        public static int JoinsAllowed(int busy, int total, int maxJoins)
         {
             int free = total > 0 ? total - busy : maxJoins;
-            return Math.Clamp(free - (keepOneForOwn ? 1 : 0), 0, Math.Max(0, maxJoins));
+            return Math.Clamp(free, 0, Math.Max(0, maxJoins));
         }
 
         private static readonly TimeSpan SwitchTime = TimeSpan.FromSeconds(60);

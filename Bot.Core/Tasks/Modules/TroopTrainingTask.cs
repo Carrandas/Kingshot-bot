@@ -335,19 +335,6 @@ namespace Bot.Core.Tasks.Modules
             return found;
         }
 
-        private async Task<(bool found, Rectangle rect, double confidence)> MatchAsync(
-            string templateName, Rectangle area, double threshold, int instance, LogService logger)
-        {
-            var screenshot = await TakeScreenshotAsync(instance, logger);
-            if (screenshot == null) return (false, Rectangle.Empty, 0);
-
-            _templateMatcher ??= new UnifiedTemplateMatchingService(logger);
-            var result = _templateMatcher.MatchTemplate(
-                screenshot, Path.Combine(ImageTemplateFolder, templateName), instance,
-                threshold: threshold, scales: new[] { 1.0 }, verboseLogging: false, searchArea: area);
-            return (result.found, result.matchRect, result.confidence);
-        }
-
         /// <summary>Reads "Idle" or the remaining time of each troop row; headerY is where the "Troops Training" header was found.</summary>
         internal List<TroopStatusInfo> ReadAllTroopStatuses(LogService logger, byte[] screenshot, int headerY)
         {

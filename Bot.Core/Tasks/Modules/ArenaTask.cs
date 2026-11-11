@@ -64,6 +64,7 @@ namespace Bot.Core.Tasks.Modules
         {
             (3, Tesseract.PageSegMode.SingleLine), (4, Tesseract.PageSegMode.SingleLine), (2, Tesseract.PageSegMode.SingleLine)
         };
+        private const string PowerWhitelist = "0123456789.,KMB";
         private const int GlyphGap = 8, MinGlyphPixels = 3;   // gaps of 6 and 10 read all test screenshots, 3 not; a dot is 16 px
         private const int PanelRowTitleDx = 180;
         private const int MaxChallenges = 10;            // 5 a day; a cap in case the count can't be read down
@@ -218,15 +219,15 @@ namespace Bot.Core.Tasks.Modules
         /// </summary>
         private async Task<int?> PickOpponentAsync(AccountSettings account, LogService logger, int instance, CancellationToken cancellationToken)
         {
-            string? skipTag = account.ArenaSettings?.SkipAllianceMembers == true ? AllianceTagOf(CharacterRoster.GetActiveName(instance)) : null;
-            var opponents = Targets(await ReadOpponentsAsync(instance, logger), skipTag);
+            string? skipTag = account.ArenaSettings?.SkipAllianceMembers == true ? CharacterRoster.AllianceTagOf(CharacterRoster.GetActiveName(instance)) : null;
+            var opponents = await ReadTargetsAsync(instance, logger, skipTag);
             if (!opponents.Any(o => o.Weaker)
                 && (await MatchAsync(FreeRefreshTemplate, FreeRefreshArea, Threshold, instance, logger)).found)
             {
                 logger.LogInfo($"[{account.AccountName}] Arena: nobody weaker, Free Refresh");
                 await ClickAsync(instance, logger, FreeRefreshPoint);
                 await Task.Delay(2000, cancellationToken);
-                opponents = Targets(await ReadOpponentsAsync(instance, logger), skipTag);
+                opponents = await ReadTargetsAsync(instance, logger, skipTag);
             }
 
             var weakest = opponents.Where(o => o.Power != null).OrderBy(o => o.Power).FirstOrDefault();
@@ -308,59 +309,26 @@ namespace Bot.Core.Tasks.Modules
 
         // The opponent's name ("[KFC]llsa", "Common Guardsman"), dark grey above the power: y 312-345 for the first row
         private const int NameDy = -52, NameHeight = 44, NameX = 150, NameWidth = 430;
-        private static readonly Regex TagPattern = new Regex(@"^\s*\[(\w{1,6})\]", RegexOptions.None, RegexTimeouts.Default);
 
-        /// <summary>The alliance tag in a character's name: "[KFC]llsa" gives "KFC"; null without a tag</summary>
-        internal static string? AllianceTagOf(string? characterName)
-        {
-            var m = TagPattern.Match(characterName ?? "");
-            return m.Success ? m.Groups[1].Value : null;
-        }
-
-        /// <summary>
-        /// The name read on the Challenge List starts with our tag. OCR garbles the brackets ("KFCIMAS", "[KFC|Darth"),
-        /// so only the letters after any leading symbols count.
-        /// </summary>
-        internal static bool IsAllianceMember(string name, string tag)
-        {
-            string text = name ?? "";
-            string trimmed = text.Substring(text.TakeWhile(c => !char.IsLetterOrDigit(c)).Count());
-            return tag.Length > 0 && trimmed.StartsWith(tag, StringComparison.OrdinalIgnoreCase);
-        }
-
-        /// <summary>The opponents we may fight: everyone, or everyone without our alliance tag</summary>
-        private static List<Opponent> Targets(List<Opponent> opponents, string? skipTag) =>
-            skipTag == null ? opponents : opponents.Where(o => !IsAllianceMember(o.Name, skipTag)).ToList();
-
-        private async Task<List<Opponent>> ReadOpponentsAsync(int instance, LogService logger)
+        /// <summary>The opponents we may fight: everyone, or everyone without our alliance tag (<paramref name="skipTag"/>)</summary>
+        private async Task<List<Opponent>> ReadTargetsAsync(int instance, LogService logger, string? skipTag)
         {
             var screenshot = await TakeScreenshotAsync(instance, logger);
-            return screenshot == null ? new List<Opponent>() : ReadOpponents(screenshot, logger);
+            if (screenshot == null) return new List<Opponent>();
+            var opponents = ReadOpponents(screenshot);
+            return skipTag == null ? opponents : opponents.Where(o => !CharacterRoster.HasAllianceTag(o.Name, skipTag)).ToList();
         }
 
         /// <summary>
         /// Power of the 5 Challenge List opponents: green when weaker than us, red when stronger.
         /// </summary>
-        internal static List<Opponent> ReadOpponents(byte[] screenshot, LogService logger)
+        internal static List<Opponent> ReadOpponents(byte[] screenshot)
         {
             var opponents = new List<Opponent>();
             using var image = Cv2.ImDecode(screenshot, ImreadModes.Color);
-            var ocrs = PowerOcrModes.Select(mode => new OcrService(logger, new OcrConfiguration
-            {
-                ScaleFactor = mode.Scale,
-                CharacterWhitelist = "0123456789.,KMB",
-                PageSegMode = mode.Psm
-            })).ToList();
-            using var nameOcr = new OcrService(logger, new OcrConfiguration { ScaleFactor = 2, PageSegMode = Tesseract.PageSegMode.SingleLine });
-            try
-            {
-                for (int row = 0; row < Rows; row++)
-                    opponents.Add(ReadOpponent(image, row, ocrs) with { Name = ReadName(image, FirstRowY + row * RowStep, nameOcr) });
-            }
-            finally
-            {
-                ocrs.ForEach(ocr => ocr.Dispose());
-            }
+            var ocrs = PowerOcrModes.Select(mode => MaskedTextOcr.Engine(mode.Scale, mode.Psm, PowerWhitelist)).ToList();
+            for (int row = 0; row < Rows; row++)
+                opponents.Add(ReadOpponent(image, row, ocrs) with { Name = ReadName(image, FirstRowY + row * RowStep) });
             return opponents;
         }
 
@@ -384,13 +352,11 @@ namespace Bot.Core.Tasks.Modules
             bool weaker = Cv2.CountNonZero(green) * 2 > Cv2.CountNonZero(text);
 
             using var spread = SpreadGlyphs(text, out bool[] separators);
-            using var bgr = spread.CvtColor(ColorConversionCodes.GRAY2BGR);
-            byte[] png = bgr.ToBytes(".png");
             string read = "";
             foreach (var ocr in ocrs)
             {
                 // another scale when a read doesn't parse
-                read = PlaceSeparators((ocr.ExtractTextFromScreenArea(png, new Rectangle(0, 0, spread.Width, spread.Height)) ?? "").Trim(), separators);
+                read = PlaceSeparators(MaskedTextOcr.Recognize(ocr, spread).Trim(), separators);
                 var power = ParsePower(read);
                 if (power != null) return new Opponent(row, read, power, weaker);
             }
@@ -398,15 +364,8 @@ namespace Bot.Core.Tasks.Modules
         }
 
         /// <summary>The name line, dark text on the beige row, in white on black</summary>
-        private static string ReadName(Mat image, int y, OcrService ocr)
-        {
-            var roi = new Rect(NameX, y + NameDy, NameWidth, NameHeight).Intersect(new Rect(0, 0, image.Width, image.Height));
-            using var region = new Mat(image, roi);
-            using var hsv = region.CvtColor(ColorConversionCodes.BGR2HSV);
-            using var mask = hsv.InRange(new Scalar(0, 0, 0), new Scalar(180, 255, 130));
-            using var bgr = mask.CvtColor(ColorConversionCodes.GRAY2BGR);
-            return (ocr.ExtractTextFromScreenArea(bgr.ToBytes(".png"), new Rectangle(0, 0, roi.Width, roi.Height)) ?? "").Trim();
-        }
+        private static string ReadName(Mat image, int y) =>
+            MaskedTextOcr.Read(image, new Rectangle(NameX, y + NameDy, NameWidth, NameHeight), new Scalar(0, 0, 0), new Scalar(180, 255, 130), null);
 
         /// <summary>
         /// The glyphs of the mask redrawn with a gap between each: the font sets "1", "." and "M" so tight that
@@ -489,24 +448,13 @@ namespace Bot.Core.Tasks.Modules
         private async Task<int?> ReadChallengesLeftAsync(int instance, LogService logger)
         {
             var screenshot = await TakeScreenshotAsync(instance, logger);
-            return screenshot == null ? null : ReadChallengesLeft(screenshot, logger);
+            return screenshot == null ? null : ReadChallengesLeft(screenshot);
         }
 
         /// <summary>The N of "Daily challenges: N" (dark text) under the Challenge List.</summary>
-        internal static int? ReadChallengesLeft(byte[] screenshot, LogService logger)
+        internal static int? ReadChallengesLeft(byte[] screenshot)
         {
-            using var image = Cv2.ImDecode(screenshot, ImreadModes.Color);
-            using var region = new Mat(image, new Rect(ChallengesLeftArea.X, ChallengesLeftArea.Y, ChallengesLeftArea.Width, ChallengesLeftArea.Height));
-            using var hsv = region.CvtColor(ColorConversionCodes.BGR2HSV);
-            using var mask = hsv.InRange(new Scalar(0, 0, 0), new Scalar(180, 255, 120));
-            using var bgr = mask.CvtColor(ColorConversionCodes.GRAY2BGR);
-            using var ocr = new OcrService(logger, new OcrConfiguration
-            {
-                ScaleFactor = 2,
-                CharacterWhitelist = "Dailychenges:0123456789",
-                PageSegMode = Tesseract.PageSegMode.SingleLine
-            });
-            string read = ocr.ExtractTextFromScreenArea(bgr.ToBytes(".png"), new Rectangle(0, 0, ChallengesLeftArea.Width, ChallengesLeftArea.Height)) ?? "";
+            string read = MaskedTextOcr.Read(screenshot, ChallengesLeftArea, new Scalar(0, 0, 0), new Scalar(180, 255, 120), "Dailychenges:0123456789");
             // a letter after the number is the + button's edge ("Dailychallenges:1 l")
             var match = Regex.Match(read, @":\s*(\d{1,2})(?!\d)[^\d]*$", RegexOptions.None, RegexTimeouts.Default);
             return match.Success ? int.Parse(match.Groups[1].Value, CultureInfo.InvariantCulture) : null;
@@ -520,23 +468,6 @@ namespace Bot.Core.Tasks.Modules
                 if ((await MatchAsync(template, area, Threshold, instance, logger)).found) return true;
             }
             return false;
-        }
-
-        private async Task<(bool found, Rectangle rect, double confidence)> MatchAsync(
-            string templateName, Rectangle area, double threshold, int instance, LogService logger)
-        {
-            var screenshot = await TakeScreenshotAsync(instance, logger);
-            if (screenshot == null) return (false, Rectangle.Empty, 0);
-
-            if (_templateMatcher == null) _templateMatcher = new UnifiedTemplateMatchingService(logger);
-            var path = Path.Combine(ImageTemplateFolder, templateName);
-            var result = _templateMatcher.MatchTemplate(
-                screenshot, path, instance,
-                threshold: threshold,
-                scales: new[] { 1.0 },
-                verboseLogging: false,
-                searchArea: area);
-            return (result.found, result.matchRect, result.confidence);
         }
     }
 }

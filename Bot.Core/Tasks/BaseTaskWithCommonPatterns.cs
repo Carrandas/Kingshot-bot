@@ -77,6 +77,9 @@ namespace Bot.Core.Tasks
         private static readonly ConcurrentDictionary<int, DateTime> _lastAutoHealTime = new();
         private static readonly TimeSpan AutoTaskCooldown = TimeSpan.FromMinutes(1); // 1 minute cooldown
         
+        /// <summary>True when a task wants no Alliance Help / Auto Heal auto tasks around its run.</summary>
+        protected virtual bool SkipAutoTasks => false;
+
         /// <summary>
         /// Checks current view and automatically runs Alliance Help and/or Auto Heal if enabled
         /// </summary>
@@ -85,10 +88,8 @@ namespace Bot.Core.Tasks
             try
             {
                 // Skip auto tasks for Alliance Help, Auto Heal, and Startup to prevent recursion and startup interference
-                // Bear Hunt mode: Alliance Help would go to the base and back every pass; with the bear crowd on the map those
-                // transitions time out and recovery restarted the game (2026-11-08)
                 if (TaskType == TaskType.AutoAllianceHelp || TaskType == TaskType.AutoHeal || TaskType == TaskType.Startup
-                    || (TaskType == TaskType.BearHunt && BearHuntStatus.IsRunning))
+                    || SkipAutoTasks)
                 {
                     logger.LogInfo($"[{account.AccountName}] Skipping auto tasks for {Name} (excluded task type)");
                     return true;
@@ -979,8 +980,68 @@ namespace Bot.Core.Tasks
             }
         }
         
+        /// <summary>
+        /// One template match on a fresh screenshot at scale 1.0 inside a tight search area (the pattern of most tasks).
+        /// A name with a folder ("autoheal/heal.png") comes from another task's template folder.
+        /// </summary>
+        protected async Task<(bool found, Rectangle rect, double confidence)> MatchAsync(
+            string templateName, Rectangle area, double threshold, int instance, LogService logger)
+        {
+            var screenshot = await TakeScreenshotAsync(instance, logger);
+            return screenshot == null ? (false, Rectangle.Empty, 0) : MatchScreenshot(screenshot, templateName, area, threshold, instance, logger);
+        }
+
+        /// <summary><see cref="MatchAsync"/> on a screenshot already taken (several matches on one screen)</summary>
+        protected (bool found, Rectangle rect, double confidence) MatchScreenshot(
+            byte[] screenshot, string templateName, Rectangle area, double threshold, int instance, LogService logger)
+        {
+            if (_templateMatcher == null) _templateMatcher = new UnifiedTemplateMatchingService(logger);
+            var path = templateName.Contains(Path.DirectorySeparatorChar)
+                ? Path.Combine(AppContext.BaseDirectory, "templates", "images", templateName)
+                : Path.Combine(ImageTemplateFolder, templateName);
+            var result = _templateMatcher.MatchTemplate(
+                screenshot, path, instance,
+                threshold: threshold,
+                scales: new[] { 1.0 },
+                verboseLogging: false,
+                searchArea: area);
+            return (result.found, result.matchRect, result.confidence);
+        }
+
+        /// <summary>Checks <paramref name="condition"/> every <paramref name="interval"/> (waiting first) until it holds or <paramref name="timeout"/> has passed</summary>
+        protected static async Task<bool> WaitForAsync(Func<Task<bool>> condition, TimeSpan timeout, TimeSpan interval, CancellationToken cancellationToken)
+        {
+            for (var waited = TimeSpan.Zero; waited < timeout; waited += interval)
+            {
+                await Task.Delay(interval, cancellationToken);
+                if (await condition()) return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Calibration material: saves the current screen to logs/&lt;subfolder&gt;/&lt;fileName&gt; next to the exe.
+        /// A debug aid: a failure to save is logged, never thrown.
+        /// </summary>
+        protected async Task SaveDebugScreenshotAsync(int instance, LogService logger, string fileName, string? subfolder = null)
+        {
+            try
+            {
+                var screenshot = await TakeScreenshotAsync(instance, logger);
+                if (screenshot == null) return;
+                var folder = Path.Combine(AppContext.BaseDirectory, "logs", subfolder ?? "");
+                Directory.CreateDirectory(folder);
+                await File.WriteAllBytesAsync(Path.Combine(folder, fileName), screenshot);
+            }
+            catch (Exception ex)
+            {
+                // debug aid only: whatever went wrong must not fail the task
+                logger.LogWarning($"{Name}: could not save the debug screenshot {fileName}: {ex.Message}");
+            }
+        }
+
         // LEGACY COMPATIBILITY METHODS
-        
+
         protected virtual async Task<bool> IsInstanceRunningAsync(int instanceNumber, LogService logger, CancellationToken cancellationToken = default)
         {
             try

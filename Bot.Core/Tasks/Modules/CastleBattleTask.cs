@@ -169,7 +169,7 @@ namespace Bot.Core.Tasks.Modules
         private async Task<(int Type, int Value)?> StartHealAsync(int amount, (int Type, int Value)? typed, int instance, LogService logger, CancellationToken cancellationToken)
         {
             var screenshot = await TakeScreenshotAsync(instance, logger);
-            var injured = screenshot != null ? ReadInjured(screenshot, logger) : new int?[3];
+            var injured = screenshot != null ? ReadInjured(screenshot) : new int?[3];
             var want = PickHealTarget(injured, amount, typed);
             if (typed != want) await TypeHealAmountAsync(want.Type, want.Value, injured, instance, logger, cancellationToken);
             await ClickAsync(instance, logger, HealHelpPoint);
@@ -190,12 +190,13 @@ namespace Bot.Core.Tasks.Modules
         }
 
         /// <summary>Injured infantry, cavalry and archers from the popup rows ("Truegold Infantry 38,790"); null where unreadable</summary>
-        internal static int?[] ReadInjured(byte[] screenshot, LogService logger)
+        internal static int?[] ReadInjured(byte[] screenshot)
         {
             var counts = new int?[HealRowTitleAreas.Length];
+            using var image = Cv2.ImDecode(screenshot, ImreadModes.Color);
             for (int i = 0; i < counts.Length; i++)
             {
-                string text = ReadMaskedText(screenshot, HealRowTitleAreas[i], new Scalar(0, 0, 0), new Scalar(180, 255, 110), null, logger);
+                string text = MaskedTextOcr.Read(image, HealRowTitleAreas[i], new Scalar(0, 0, 0), new Scalar(180, 255, 110), null);
                 var m = Regex.Match(text, @"(\d[\d,.]*)\s*$", RegexOptions.None, RegexTimeouts.Default);
                 if (m.Success && int.TryParse(m.Groups[1].Value.Replace(",", "").Replace(".", ""), out int n)) counts[i] = n;
             }
@@ -349,16 +350,16 @@ namespace Bot.Core.Tasks.Modules
         private async Task<int?> ReadHealPercentAsync(int instance, LogService logger)
         {
             var screenshot = await TakeScreenshotAsync(instance, logger);
-            return screenshot == null ? null : ReadHealPercent(screenshot, logger);
+            return screenshot == null ? null : ReadHealPercent(screenshot);
         }
 
         /// <summary>
         /// The percentage under the heal icon (green "36%", orange "89%"); null when there is no icon (nothing injured)
         /// or it doesn't read.
         /// </summary>
-        internal static int? ReadHealPercent(byte[] screenshot, LogService logger)
+        internal static int? ReadHealPercent(byte[] screenshot)
         {
-            string text = ReadMaskedText(screenshot, HealPercentArea, new Scalar(10, 120, 170), new Scalar(85, 255, 255), "0123456789%", logger);
+            string text = MaskedTextOcr.Read(screenshot, HealPercentArea, new Scalar(10, 120, 170), new Scalar(85, 255, 255), "0123456789%");
             var m = Regex.Match(text, @"(\d{1,3})", RegexOptions.None, RegexTimeouts.Default);
             return m.Success && int.Parse(m.Groups[1].Value) <= 100 ? int.Parse(m.Groups[1].Value) : null;
         }

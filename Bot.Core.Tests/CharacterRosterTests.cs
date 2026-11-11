@@ -106,6 +106,22 @@ namespace Bot.Core.Tests
             Assert.That(account.Characters, Has.Count.EqualTo(2), "a row that failed to read is no reason to drop a character");
         }
 
+        // The leader read on a War row, tag brackets garbled by OCR (the tag + bracket is at most 5 characters)
+        [TestCase("[KFC]llsa", "[KFC]llsa", true)]
+        [TestCase("KFCIMAS SCHUIL24", "[KFC]Schuil24", false)]   // too much in front of the name
+        [TestCase("KFC|llsa", "[KFC]Ilsa", true)]
+        [TestCase("[KFC|Darth Vader", "[KFC]Asli", false)]
+        [TestCase("[KFC]Asli", "[KFC]llsa", false)]
+        [TestCase("", "[KFC]llsa", false)]
+        [TestCase(null, "[KFC]llsa", false)]
+        [TestCase("[KFC]llsa", "", false)]
+        public void EndsWithName_ToleratesGarbledTags(string? read, string character, bool own) =>
+            Assert.That(CharacterRoster.EndsWithName(read, character), Is.EqualTo(own));
+
+        [Test]
+        public void EndsWithName_AllowsALongerPrefixWhenAsked() =>
+            Assert.That(CharacterRoster.EndsWithName("[LONGTAG]llsa", "llsa", 10), Is.True);
+
         [Test]
         public void Find_IgnoresTheKingdomWhenUnknown_ButNotWhenItDiffers()
         {

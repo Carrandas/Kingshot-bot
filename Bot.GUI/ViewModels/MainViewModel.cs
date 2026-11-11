@@ -68,6 +68,7 @@ namespace Bot.GUI.ViewModels
         private readonly GuiLogService _logger;
         private readonly TaskManager _taskManager;
         private readonly CycleManagementService _cycleService;
+        private readonly ExclusiveModeRunner _modes;
         private readonly IUserNotificationService _userNotifications;
         private BotConfig? _currentConfig;
         private CancellationTokenSource _botCancellationTokenSource;
@@ -100,6 +101,7 @@ namespace Bot.GUI.ViewModels
         {
             _botCancellationTokenSource = new CancellationTokenSource();
             _logger = new GuiLogService(AppendLog);
+            _modes = new ExclusiveModeRunner(new ModeHost(this), _logger);
             _userNotifications = new UserNotificationService(_logger, _logger);
             CurrentLogMessage = "";
             
@@ -327,50 +329,19 @@ namespace Bot.GUI.ViewModels
         /// </summary>
         public async Task RunCastleBattleAsync(AccountSettings account, string? onlyCharacter = null)
         {
-            if (CastleBattleStatus.IsRunning || BearHuntStatus.IsRunning) return;
-            bool wasOnSchedule = _cycleService.IsRunning && _currentConfig?.CycleManagement.MaxCycles == 0;
-            if (IsBotRunning)
-            {
-                _logger.LogInfo("Castle Battle: stopping the cycle first", category: LogCategories.UserAction);
-                await StopEverythingAsync();
-            }
-            if (IsBotRunning) return;
-            if (_botCancellationTokenSource.IsCancellationRequested)
-            {
-                _botCancellationTokenSource.Dispose();
-                _botCancellationTokenSource = new CancellationTokenSource();
-            }
-
-            var token = _botCancellationTokenSource.Token;
             var endsUtc = DateTime.UtcNow.AddHours(Math.Max(1, account.CastleBattleSettings.MaxHours));
-            _logger.LogInfo($"⚔ Castle Battle started until {endsUtc.ToLocalTime():HH:mm}", category: LogCategories.UserAction);
-            CastleBattleStatus.Start(endsUtc);
-            SetIndividualInstanceRunning(true);
-            bool timeUp = false;
-            try
-            {
-                await Task.Run(() => CastleBattleLoopAsync(account, onlyCharacter, endsUtc, token), token);
-                timeUp = !token.IsCancellationRequested;
-            }
-            catch (OperationCanceledException)
-            {
-                _logger.LogInfo("⚔ Castle Battle stopped");
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError($"Castle Battle failed: {ex}", category: LogCategories.TaskExecution);
-            }
-            finally
-            {
-                SetIndividualInstanceRunning(false);
-                CastleBattleStatus.Stop();
-            }
-
-            if (timeUp && wasOnSchedule)
-            {
-                _logger.LogInfo("⚔ Castle Battle time is up: back to Run on schedule");
-                LaunchBotCommand.Execute(null);
-            }
+            await _modes.RunAsync("Castle Battle", "⚔",
+                begin: () =>
+                {
+                    _logger.LogInfo($"⚔ Castle Battle started until {endsUtc.ToLocalTime():HH:mm}", category: LogCategories.UserAction);
+                    CastleBattleStatus.Start(endsUtc);
+                },
+                body: token => CastleBattleLoopAsync(account, onlyCharacter, endsUtc, token),
+                end: () =>
+                {
+                    CastleBattleStatus.Stop();
+                    return Task.CompletedTask;
+                });
         }
 
         private async Task CastleBattleLoopAsync(AccountSettings account, string? onlyCharacter, DateTime endsUtc, CancellationToken token)
@@ -415,102 +386,62 @@ namespace Bot.GUI.ViewModels
         /// <param name="skipPrep">Treat every character as prepared (a restart during the bear: auto-join, recalls and pet buffs are done)</param>
         public async Task RunBearHuntAsync(AccountSettings account, DateTime? bearStartUtc = null, string? onlyCharacter = null, bool skipPrep = false)
         {
-            // stopping the cycle can take longer than the 30 s schedule tick: don't start a second bear meanwhile
-            if (_bearStarting || BearHuntStatus.IsRunning || CastleBattleStatus.IsRunning) return;
-            _bearStarting = true;
-            try
-            {
-                await RunBearHuntCoreAsync(account, bearStartUtc, onlyCharacter, skipPrep);
-            }
-            finally
-            {
-                _bearStarting = false;
-            }
-        }
-
-        private bool _bearStarting;
-
-        private async Task RunBearHuntCoreAsync(AccountSettings account, DateTime? bearStartUtc, string? onlyCharacter, bool skipPrep)
-        {
+            if (_modes.IsBusy) return;
             var settings = account.BearHuntSettings;
-            var start = bearStartUtc ?? BearHuntRunner.ActiveBear(settings, DateTime.UtcNow) ?? DateTime.UtcNow;
-            bool wasOnSchedule = _cycleService.IsRunning && _currentConfig?.CycleManagement.MaxCycles == 0;
-            if (!await StopCycleForModeAsync("Bear Hunt")) return;
-
-            var token = _botCancellationTokenSource.Token;
-            _logger.LogInfo($"🐻 Bear Hunt started: bear at {start.ToLocalTime():HH:mm} ({start:HH:mm} UTC), trap {settings.Trap}", category: LogCategories.UserAction);
-            BearHuntStatus.Start(start, start + settings.EventLength);
-            if (skipPrep) BearHuntRunner.Characters(account, onlyCharacter).ForEach(BearHuntStatus.MarkPrepared);
-            SetIndividualInstanceRunning(true);
-            bool finished = await RunBearLoopAsync(account, start, onlyCharacter, token);
-            SetIndividualInstanceRunning(false);
-            BearHuntStatus.Stop();
-            BearHuntRunner.RollForward(settings, DateTime.UtcNow);
-            await ConfigVM.SaveConfigIfNotApplyingAsync();
-
-            if (finished && wasOnSchedule)
-            {
-                _logger.LogInfo("🐻 Bear Hunt over: back to Run on schedule");
-                LaunchBotCommand.Execute(null);
-            }
-        }
-
-        /// <summary>Stops a running cycle and gets a fresh Stop token. False when the bot still runs.</summary>
-        private async Task<bool> StopCycleForModeAsync(string mode)
-        {
-            if (IsBotRunning)
-            {
-                _logger.LogInfo($"{mode}: stopping the cycle first", category: LogCategories.UserAction);
-                await StopEverythingAsync();
-            }
-            if (IsBotRunning) return false;
-            if (_botCancellationTokenSource.IsCancellationRequested)
-            {
-                _botCancellationTokenSource.Dispose();
-                _botCancellationTokenSource = new CancellationTokenSource();
-            }
-            return true;
-        }
-
-        /// <summary>True when the bear ran to its end (not Stop)</summary>
-        private async Task<bool> RunBearLoopAsync(AccountSettings account, DateTime start, string? onlyCharacter, CancellationToken token)
-        {
-            try
-            {
-                await Task.Run(() => BearHuntRunner.RunAsync(account, start, onlyCharacter,
-                    (name, t) => _cycleService.RunSingleTaskAsync(account, TaskType.BearHunt, name, t), _logger, token), token);
-                return !token.IsCancellationRequested;
-            }
-            catch (OperationCanceledException)
-            {
-                _logger.LogInfo("🐻 Bear Hunt stopped");
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError($"Bear Hunt failed: {ex}", category: LogCategories.TaskExecution);
-            }
-            return false;
+            var start = BearHuntMode.ResolveStart(settings, bearStartUtc, DateTime.UtcNow);
+            await _modes.RunAsync("Bear Hunt", "🐻",
+                begin: () =>
+                {
+                    _logger.LogInfo($"🐻 Bear Hunt started: bear at {start.ToLocalTime():HH:mm} ({start:HH:mm} UTC), trap {settings.Trap}", category: LogCategories.UserAction);
+                    BearHuntMode.Begin(account, start, onlyCharacter, skipPrep);
+                },
+                body: token => BearHuntRunner.RunAsync(account, start, onlyCharacter,
+                    (name, t) => _cycleService.RunSingleTaskAsync(account, TaskType.BearHunt, name, t), _logger, token),
+                end: async () =>
+                {
+                    BearHuntMode.End(settings, DateTime.UtcNow);
+                    await ConfigVM.SaveConfigIfNotApplyingAsync();
+                });
         }
 
         /// <summary>The Bear Hunt switch: start the mode on the first instance with it on once its bear's prep time has come</summary>
         private async Task CheckBearScheduleAsync()
         {
-            if (_bearStarting || BearHuntStatus.IsRunning) return;
+            if (_modes.IsBusy && !CastleBattleStatus.IsRunning) return;
             // the task's switch on the Bot tab is the Bear Hunt switch; the GUI's own account objects (a reload replaces them)
-            foreach (var account in ConfigVM.Accounts.Where(a => a.EnabledTasks.Contains(TaskType.BearHunt) && !a.HiddenTasks.Contains(TaskType.BearHunt)))
+            var due = BearHuntMode.FindDue(ConfigVM.Accounts, DateTime.UtcNow);
+            if (due.SettingsChanged) await ConfigVM.SaveConfigIfNotApplyingAsync();
+            if (due.Account == null) return;
+            if (CastleBattleStatus.IsRunning)
             {
-                var before = account.BearHuntSettings.NextBearUtc;
-                var start = BearHuntRunner.ActiveBear(account.BearHuntSettings, DateTime.UtcNow);
-                if (before != account.BearHuntSettings.NextBearUtc) await ConfigVM.SaveConfigIfNotApplyingAsync();
-                if (start == null) continue;
-                if (CastleBattleStatus.IsRunning)
-                {
-                    _logger.LogWarning("🐻 Bear time, but the Castle Battle is running: not starting the Bear Hunt");
-                    return;
-                }
-                await RunBearHuntAsync(account, start);
+                _logger.LogWarning("🐻 Bear time, but the Castle Battle is running: not starting the Bear Hunt");
                 return;
             }
+            await RunBearHuntAsync(due.Account, due.StartUtc);
+        }
+
+        /// <summary>Lets <see cref="ExclusiveModeRunner"/> stop, restart and flag the cycle</summary>
+        private sealed class ModeHost(MainViewModel owner) : IModeHost
+        {
+            public bool IsBotRunning => owner.IsBotRunning;
+
+            public bool IsOnSchedule => owner._cycleService.IsRunning && owner._currentConfig?.CycleManagement.MaxCycles == 0;
+
+            public Task StopCycleAsync() => owner.StopEverythingAsync();
+
+            public CancellationToken FreshToken()
+            {
+                if (owner._botCancellationTokenSource.IsCancellationRequested)
+                {
+                    owner._botCancellationTokenSource.Dispose();
+                    owner._botCancellationTokenSource = new CancellationTokenSource();
+                }
+                return owner._botCancellationTokenSource.Token;
+            }
+
+            public void SetBusy(bool busy) => owner.SetIndividualInstanceRunning(busy);
+
+            public void RestartSchedule() => owner.LaunchBotCommand.Execute(null);
         }
 
         private DateTime _lastInitializeGuiCall = DateTime.MinValue;

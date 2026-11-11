@@ -1,4 +1,4 @@
-using Bot.Core.Tasks.Modules;
+using Bot.Core.Services;
 using NUnit.Framework;
 
 namespace Bot.Core.Tests
@@ -11,7 +11,7 @@ namespace Bot.Core.Tests
         [TestCase("llsa", null)]
         [TestCase(null, null)]
         public void AllianceTag_FromTheCharacterName(string? name, string? tag) =>
-            Assert.That(ArenaTask.AllianceTagOf(name), Is.EqualTo(tag));
+            Assert.That(CharacterRoster.AllianceTagOf(name), Is.EqualTo(tag));
 
         // OCR garbles the brackets: "KFCIMAS SCHUIL24", "[KFC|Darth Vader" (War list reads, 2026-11-08)
         [TestCase("[KFC]Someone", true)]
@@ -23,6 +23,6 @@ namespace Bot.Core.Tests
         [TestCase("Common Guardsman", false)]
         [TestCase("", false)]
         public void IsAllianceMember(string name, bool member) =>
-            Assert.That(ArenaTask.IsAllianceMember(name, "KFC"), Is.EqualTo(member));
+            Assert.That(CharacterRoster.HasAllianceTag(name, "KFC"), Is.EqualTo(member));
     }
 }

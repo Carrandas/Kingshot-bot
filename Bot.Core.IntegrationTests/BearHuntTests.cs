@@ -16,7 +16,7 @@ namespace Bot.Core.IntegrationTests
         private static readonly TimeSpan Event = TimeSpan.FromMinutes(30);
 
         private static List<BearHuntSchedule.TaskListItem> Read(string name) =>
-            BearHuntTask.ReadTaskList(Fixtures.Load(name), new LogService(0));
+            BearHuntTask.ReadTaskList(Fixtures.Load(name));
 
         [Test]
         public void SplitsTheListIntoHeadersAndRows()

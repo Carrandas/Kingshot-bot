@@ -12,6 +12,9 @@ namespace Bot.Core.Models
     /// </summary>
     public class BearHuntSettings : INotifyPropertyChanged
     {
+        public const int DefaultPrepMinutes = 10;
+        public const int DefaultEventMinutes = 30;
+
         private int _trap = 1;
         private int _ownTeam = 3;
         private int _joinTeam = 4;
@@ -19,9 +22,9 @@ namespace Bot.Core.Models
         private string _firstCharacter = string.Empty;
         private DateTime? _nextBearUtc;
         private int _repeatDays = 2;
-        private int _prepMinutes = 10;
+        private int _prepMinutes = DefaultPrepMinutes;
         private int _lastSendSeconds = 24 * 60 + 30;
-        private int _eventMinutes = 30;
+        private int _eventMinutes = DefaultEventMinutes;
         private int _rallyRoundSeconds = 5 * 60 + 30;
         private int _switchLeadSeconds = 60;
 

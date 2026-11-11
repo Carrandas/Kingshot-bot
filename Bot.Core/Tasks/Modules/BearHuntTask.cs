@@ -37,7 +37,6 @@ namespace Bot.Core.Tasks.Modules
         internal const string BearRallyTemplate = "bear-rally.png";   // the card's orange Rally: 1.00, <= 0.67 elsewhere
         internal const string HoldRallyTemplate = "hold-rally.png";   // "Hold a rally" popup button: 1.00, <= 0.40 elsewhere (Titan Roc's popup 0.84)
         internal const double BearThreshold = 0.92;
-        internal const double TemplateThreshold = Threshold;   // the pet templates
         private const int BearTapAttempts = 4;
         internal const double BearRowThreshold = 0.75;   // "Raging Bear" under a War row's members: 0.83-0.84 (the card's text, other background)
         private static readonly TimeSpan NotUpRetry = TimeSpan.FromSeconds(20);    // no bear icon yet: look again after this
@@ -88,6 +87,10 @@ namespace Bot.Core.Tasks.Modules
 
         private static readonly TimeSpan FullRetry = TimeSpan.FromSeconds(20);      // all marches out: look again after this (joined rallies come back quickly)
         private static readonly TimeSpan NoRalliesRetry = TimeSpan.FromSeconds(30); // War list empty: look again after this
+
+        // Bear Hunt mode: Alliance Help would go to the base and back every pass; with the bear crowd on the map those
+        // transitions time out and recovery restarted the game (2026-11-08)
+        protected override bool SkipAutoTasks => BearHuntStatus.IsRunning;
 
         protected override async Task<TaskExecutionDetails> ExecuteTaskLogicAsync(AccountSettings account, LogService logger, CancellationToken cancellationToken, bool isReRun = false, IUserNotificationService? userNotifications = null)
         {
@@ -144,7 +147,7 @@ namespace Bot.Core.Tasks.Modules
             }
 
             // the own rally does not take one of the march queues (own rally + 6 joins, the user on 2026-11-10): no queue is kept free for it
-            int joined = await JoinRalliesAsync(character, settings, false, instance, logger, cancellationToken);
+            int joined = await JoinRalliesAsync(character, settings, instance, logger, cancellationToken);
             await locator.EnsureViewAsync(ViewType.MapView, instance, cancellationToken);
             return $"{(sent ? "own rally sent, " : "")}joined {joined}";
         }
@@ -289,7 +292,7 @@ namespace Bot.Core.Tasks.Modules
             await Task.Delay(2500, cancellationToken);
             if ((await MatchAsync(DeployButtonTemplate, DeployButtonArea, Threshold, instance, logger)).found)
             {
-                await SaveDebugScreenshotAsync("deploy-stayed", instance, logger);
+                await SaveStepScreenshotAsync("deploy-stayed", instance, logger);
                 logger.LogWarning($"[{character}] Bear Hunt: Deploy did not send the own rally (troops not home?)");
                 await ClickAsync(instance, logger, BackPoint);
                 await Task.Delay(1500, cancellationToken);
@@ -354,7 +357,7 @@ namespace Bot.Core.Tasks.Modules
 
         private async Task<bool> RallyStepFailedAsync(string character, string what, string step, int instance, LogService logger, CancellationToken cancellationToken)
         {
-            await SaveDebugScreenshotAsync(step, instance, logger);
+            await SaveStepScreenshotAsync(step, instance, logger);
             logger.LogWarning($"[{character}] Bear Hunt: {what} (screenshot saved)");
             await Task.Delay(500, cancellationToken);   // the caller's EnsureViewAsync closes the card or popup (BackPoint is the avatar on the map)
             return false;
@@ -372,10 +375,10 @@ namespace Bot.Core.Tasks.Modules
         #region Join rallies
 
         /// <summary>Alliance > War, then join the top rallies with a green "+" while march queues are free. Returns the joins.</summary>
-        private async Task<int> JoinRalliesAsync(string character, BearHuntSettings settings, bool keepOne, int instance, LogService logger, CancellationToken cancellationToken)
+        private async Task<int> JoinRalliesAsync(string character, BearHuntSettings settings, int instance, LogService logger, CancellationToken cancellationToken)
         {
             var march = await ReadMarchTrackerAsync(instance, logger);
-            int allowed = BearHuntPlanner.JoinsAllowed(march.Busy, march.Total, settings.MaxJoins, keepOne);
+            int allowed = BearHuntPlanner.JoinsAllowed(march.Busy, march.Total, settings.MaxJoins);
             logger.LogInfo($"[{character}] Bear Hunt: marching {march.Busy}/{march.Total}, joining up to {allowed}");
             if (allowed == 0)
             {
@@ -426,31 +429,39 @@ namespace Bot.Core.Tasks.Modules
         /// <param name="skipped">Gets the rows passed over (not the bear, our own rally)</param>
         private async Task<System.Drawing.Point?> FirstBearRowAsync(List<JoinButton> buttons, string character, List<int> skipped, int instance, LogService logger)
         {
+            // one screenshot for the whole list view: nothing is tapped between the rows
+            var screenshot = await TakeScreenshotAsync(instance, logger);
+            if (screenshot == null)
+            {
+                skipped.AddRange(buttons.Select(b => b.Center.Y));
+                return null;
+            }
+            using var image = Cv2.ImDecode(screenshot, ImreadModes.Color);
             foreach (var center in buttons.Select(b => b.Center))
             {
-                if (!(await MatchAsync(BearTitleTemplate, BearRowArea(center.Y), BearRowThreshold, instance, logger)).found)
-                {
-                    skipped.Add(center.Y);
-                    continue;
-                }
-                var screenshot = await TakeScreenshotAsync(instance, logger);
-                string leader = screenshot == null ? "" : ReadRallyLeader(screenshot, center.Y, logger);
-                if (IsOwnRally(leader, character))
-                {
-                    logger.LogInfo($"[{character}] Bear Hunt: skipping our own rally ({leader})");
-                    skipped.Add(center.Y);
-                    continue;
-                }
-                long? free = screenshot == null ? null : FreeTroops(ReadRallyTroops(screenshot, center.Y, logger));
-                if (free < MinFreeTroops)
-                {
-                    logger.LogInfo($"[{character}] Bear Hunt: skipping {leader}'s rally, only {free:N0} troops free");
-                    skipped.Add(center.Y);
-                    continue;
-                }
-                return center;
+                if (!ShouldSkipRow(screenshot, image, center.Y, character, instance, logger)) return center;
+                skipped.Add(center.Y);
             }
             return null;
+        }
+
+        /// <summary>Not the bear, our own rally, or too full for our troops to matter</summary>
+        private bool ShouldSkipRow(byte[] screenshot, Mat image, int plusY, string character, int instance, LogService logger)
+        {
+            if (!MatchScreenshot(screenshot, BearTitleTemplate, BearRowArea(plusY), BearRowThreshold, instance, logger).found) return true;
+            string leader = ReadRallyLeader(image, plusY);
+            if (IsOwnRally(leader, character))
+            {
+                logger.LogInfo($"[{character}] Bear Hunt: skipping our own rally ({leader})");
+                return true;
+            }
+            long? free = FreeTroops(ReadRallyTroops(image, plusY));
+            if (free < MinFreeTroops)
+            {
+                logger.LogInfo($"[{character}] Bear Hunt: skipping {leader}'s rally, only {free:N0} troops free");
+                return true;
+            }
+            return false;
         }
 
         /// <summary>Where a War row's target line ("Lv. 1 Raging Bear") is, from its "+"</summary>
@@ -460,20 +471,21 @@ namespace Bot.Core.Tasks.Modules
         /// The leader read on a War row is this character. OCR garbles the tag's brackets ("KFCIMAS SCHUIL24", "[KFC|Darth Vader"),
         /// so the name must end the read text with at most a tag (+ bracket) of 5 characters before it.
         /// </summary>
-        internal static bool IsOwnRally(string leader, string character)
-        {
-            string name = CharacterRoster.NormalizeKey(character);
-            string read = CharacterRoster.NormalizeKey(leader.Replace("[", "").Replace("]", ""));
-            return name.Length > 0 && read.EndsWith(name, StringComparison.Ordinal) && read.Length - name.Length <= 5;
-        }
+        internal static bool IsOwnRally(string leader, string character) => CharacterRoster.EndsWithName(leader, character);
+
+        // Dark text on a beige card (V cap 110 on a War row, 140 in the Task List: its beige is a little darker), white text on the Task List's date bars
+        private static readonly Scalar DarkLow = new Scalar(0, 0, 0);
+        private static readonly Scalar RallyDarkHigh = new Scalar(180, 255, 110);
+        private static readonly Scalar ListDarkHigh = new Scalar(180, 255, 140);
+        private static readonly Scalar HeaderWhiteLow = new Scalar(0, 0, 235);
+        private static readonly Scalar HeaderWhiteHigh = new Scalar(180, 50, 255);
 
         /// <summary>The rally leader's name ("[KFC]llsa", dark text) on the row's first line, ~115 px above its "+"</summary>
-        internal static string ReadRallyLeader(byte[] screenshot, int plusY, LogService logger)
-        {
-            int top = plusY - 132;
-            if (top < 0) return "";
-            return ReadMaskedText(screenshot, new Rectangle(285, top, 330, 44), new Scalar(0, 0, 0), new Scalar(180, 255, 110), null, logger);
-        }
+        internal static string ReadRallyLeader(Mat image, int plusY) => ReadRallyLine(image, plusY - 132, 330, null);
+
+        /// <summary>One line of a War row's card: dark text at <paramref name="top"/> (screen y), "" when that is above the screen</summary>
+        private static string ReadRallyLine(Mat image, int top, int width, string? whitelist) =>
+            top < 0 ? "" : MaskedTextOcr.Read(image, new Rectangle(285, top, width, 44), DarkLow, RallyDarkHigh, whitelist);
 
         /// <summary>
         /// A rally with less room than this is skipped: the join would send a few troops instead of our ~125,500
@@ -482,11 +494,12 @@ namespace Bot.Core.Tasks.Modules
         internal const long MinFreeTroops = 100_000;
 
         /// <summary>The row's troop line ("176,610/1,481,610", dark text) under the leader name, ~70 px above its "+"</summary>
-        internal static string ReadRallyTroops(byte[] screenshot, int plusY, LogService logger)
+        internal static string ReadRallyTroops(Mat image, int plusY) => ReadRallyLine(image, plusY - 92, 300, "0123456789,./");
+
+        internal static string ReadRallyTroops(byte[] screenshot, int plusY)
         {
-            int top = plusY - 92;
-            if (top < 0) return "";
-            return ReadMaskedText(screenshot, new Rectangle(285, top, 300, 44), new Scalar(0, 0, 0), new Scalar(180, 255, 110), "0123456789,./", logger);
+            using var image = Cv2.ImDecode(screenshot, ImreadModes.Color);
+            return ReadRallyTroops(image, plusY);
         }
 
         /// <summary>Max minus current of "176,610/1,481,610"; null when it can't be read (then the row is joined)</summary>
@@ -563,7 +576,7 @@ namespace Bot.Core.Tasks.Modules
                     await Task.Delay(1200, cancellationToken);
                 }
                 var screenshot = await TakeScreenshotAsync(instance, logger);
-                if (screenshot != null) items.AddRange(ReadTaskList(screenshot, logger));
+                if (screenshot != null) items.AddRange(ReadTaskList(screenshot));
             }
             await ClickAsync(instance, logger, TaskListClosePoint);
             await Task.Delay(1200, cancellationToken);
@@ -571,23 +584,22 @@ namespace Bot.Core.Tasks.Modules
         }
 
         /// <summary>The headers and rows fully on screen, top to bottom</summary>
-        internal static List<BearHuntSchedule.TaskListItem> ReadTaskList(byte[] screenshot, LogService logger)
+        internal static List<BearHuntSchedule.TaskListItem> ReadTaskList(byte[] screenshot)
         {
             var items = new List<BearHuntSchedule.TaskListItem>();
-            var darkLow = new Scalar(0, 0, 0);
-            var darkHigh = new Scalar(180, 255, 140);
-            foreach (var (header, top, bottom) in FindListBands(screenshot))
+            using var image = Cv2.ImDecode(screenshot, ImreadModes.Color);
+            foreach (var (header, top, bottom) in FindListBands(image))
             {
                 int h = bottom - top;
                 if (header)
                 {
                     // white text on the tan (date) or orange ("Today") bar
-                    items.Add(new(true, ReadMaskedText(screenshot, new Rectangle(150, top, 420, h), new Scalar(0, 0, 235), new Scalar(180, 50, 255), null, logger)));
+                    items.Add(new(true, MaskedTextOcr.Read(image, new Rectangle(150, top, 420, h), HeaderWhiteLow, HeaderWhiteHigh, null)));
                     continue;
                 }
                 // dark brown text on beige: the title, and "UTC / 13:00" at the right
-                string title = ReadMaskedText(screenshot, new Rectangle(160, top, 400, h), darkLow, darkHigh, null, logger, Tesseract.PageSegMode.SingleBlock);
-                string time = ReadMaskedText(screenshot, new Rectangle(560, top + 8, 125, h - 16), darkLow, darkHigh, "UTC0123456789:", logger, Tesseract.PageSegMode.SingleBlock);
+                string title = MaskedTextOcr.Read(image, new Rectangle(160, top, 400, h), DarkLow, ListDarkHigh, null, Tesseract.PageSegMode.SingleBlock);
+                string time = MaskedTextOcr.Read(image, new Rectangle(560, top + 8, 125, h - 16), DarkLow, ListDarkHigh, "UTC0123456789:", Tesseract.PageSegMode.SingleBlock);
                 items.Add(new(false, title, time));
             }
             return items;
@@ -599,8 +611,13 @@ namespace Bot.Core.Tasks.Modules
         /// </summary>
         internal static List<(bool Header, int Top, int Bottom)> FindListBands(byte[] screenshot)
         {
-            var bands = new List<(bool, int, int)>();
             using var image = Cv2.ImDecode(screenshot, ImreadModes.Color);
+            return FindListBands(image);
+        }
+
+        private static List<(bool Header, int Top, int Bottom)> FindListBands(Mat image)
+        {
+            var bands = new List<(bool, int, int)>();
             using var hsv = image.CvtColor(ColorConversionCodes.BGR2HSV);
             int runStart = TaskListTop, runKind = -1;
             for (int y = TaskListTop; y <= TaskListBottom; y++)
@@ -625,20 +642,7 @@ namespace Bot.Core.Tasks.Modules
         #endregion
 
         /// <summary>Calibration material for the steps not built yet: logs/screenshots/bearhunt/&lt;step&gt;-HHmmss.png next to the exe</summary>
-        private async Task SaveDebugScreenshotAsync(string step, int instance, LogService logger)
-        {
-            try
-            {
-                var screenshot = await TakeScreenshotAsync(instance, logger);
-                if (screenshot == null) return;
-                var folder = Path.Combine(AppContext.BaseDirectory, "logs", "screenshots", "bearhunt");
-                Directory.CreateDirectory(folder);
-                await File.WriteAllBytesAsync(Path.Combine(folder, $"{step}-{DateTime.Now:HHmmss}.png"), screenshot);
-            }
-            catch (IOException ex)
-            {
-                logger.LogWarning($"Bear Hunt: could not save the {step} screenshot: {ex.Message}");
-            }
-        }
+        private Task SaveStepScreenshotAsync(string step, int instance, LogService logger) =>
+            SaveDebugScreenshotAsync(instance, logger, $"{step}-{DateTime.Now:HHmmss}.png", Path.Combine("screenshots", "bearhunt"));
     }
 }

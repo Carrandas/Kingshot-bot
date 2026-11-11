@@ -47,7 +47,7 @@ namespace Bot.Core.IntegrationTests
         [TestCase("castle-march-returning.png", CastleBattlePhase.MarchingBack)]
         public void ReadsTheMarchTracker(string screenshot, CastleBattlePhase expected)
         {
-            var info = CastleBattleTask.ReadMarchTracker(Fixtures.Load(screenshot), new LogService(0));
+            var info = CastleBattleTask.ReadMarchTracker(Fixtures.Load(screenshot));
 
             Assert.That((info.Busy, info.Total), Is.EqualTo((1, 6)), $"row '{info.FirstRow}'");
             Assert.That(CastleBattleTask.Classify(info), Is.EqualTo(expected), $"row '{info.FirstRow}'");
@@ -58,7 +58,7 @@ namespace Bot.Core.IntegrationTests
         [TestCase("castle-heal-36.png", 36)]
         public void ReadsTheHealPercentage(string screenshot, int expected)
         {
-            Assert.That(CastleBattleTask.ReadHealPercent(Fixtures.Load(screenshot), new LogService(0)), Is.EqualTo(expected));
+            Assert.That(CastleBattleTask.ReadHealPercent(Fixtures.Load(screenshot)), Is.EqualTo(expected));
         }
 
         // Heal Injured rows (popup only, the map around it blacked out): the injured count per troop type
@@ -66,7 +66,7 @@ namespace Bot.Core.IntegrationTests
         [TestCase("castle-heal-popup-b.png", 38_790, 15_516, 50_250)]
         public void ReadsTheInjuredPerTroopType(string screenshot, int infantry, int cavalry, int archers)
         {
-            var injured = CastleBattleTask.ReadInjured(Fixtures.Load(screenshot), new LogService(0));
+            var injured = CastleBattleTask.ReadInjured(Fixtures.Load(screenshot));
 
             Assert.That(injured, Is.EqualTo(new int?[] { infantry, cavalry, archers }));
         }
@@ -76,7 +76,7 @@ namespace Bot.Core.IntegrationTests
         [Test]
         public void MissingTroopTypeHasNoRow()
         {
-            var injured = CastleBattleTask.ReadInjured(Fixtures.Load("castle-heal-popup-two-rows.png"), new LogService(0));
+            var injured = CastleBattleTask.ReadInjured(Fixtures.Load("castle-heal-popup-two-rows.png"));
 
             Assert.That(injured, Is.EqualTo(new int?[] { 88_855, 56_777, null }));
         }

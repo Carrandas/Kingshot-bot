@@ -144,7 +144,11 @@ namespace Bot.Core.FindersFortune
 
         public IReadOnlyList<FindersFortuneLabel> ReadLabels(Mat shot) =>
             Enumerable.Range(0, SlotCount)
-                .Select(s => new FindersFortuneLabel(s, IsStruck(shot, s) ? string.Empty : ReadSlot(shot, s), IsStruck(shot, s)))
+                .Select(s =>
+                {
+                    bool struck = IsStruck(shot, s);
+                    return new FindersFortuneLabel(s, struck ? string.Empty : ReadSlot(shot, s), struck);
+                })
                 .ToList();
 
         /// <summary>Practice Mode (offered after giving up a stage) has no timer and replaces it with white text.</summary>

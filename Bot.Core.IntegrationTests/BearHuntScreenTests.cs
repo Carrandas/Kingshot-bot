@@ -64,17 +64,17 @@ namespace Bot.Core.IntegrationTests
         [TestCase("bearhunt-pet-quick-use.png", true)]   // a battle skill selected, the skills ready
         [TestCase("bearhunt-pet-active.png", false)]     // just used: "Active: 02:00:00" instead of the buttons
         public void PetQuickUse(string screenshot, bool present) =>
-            Assert.That(Found(screenshot, BearHuntTask.PetQuickUseTemplate, BearHuntTask.PetQuickUseArea, BearHuntTask.TemplateThreshold), Is.EqualTo(present));
+            Assert.That(Found(screenshot, BearHuntTask.PetQuickUseTemplate, BearHuntTask.PetQuickUseArea, RallyTaskBase.Threshold), Is.EqualTo(present));
 
         [TestCase("bearhunt-pet-quick-use.png", true)]
         [TestCase("bearhunt-hold-rally.png", false)]
         public void PetBattleBadge(string screenshot, bool present) =>
-            Assert.That(Found(screenshot, BearHuntTask.PetBattleBadgeTemplate, BearHuntTask.PetGridArea, BearHuntTask.TemplateThreshold), Is.EqualTo(present));
+            Assert.That(Found(screenshot, BearHuntTask.PetBattleBadgeTemplate, BearHuntTask.PetGridArea, RallyTaskBase.Threshold), Is.EqualTo(present));
 
         [TestCase("bearhunt-pet-confirm.png", true)]
         [TestCase("bearhunt-pet-quick-use.png", false)]
         public void PetConfirmation(string screenshot, bool present) =>
-            Assert.That(Found(screenshot, BearHuntTask.PetConfirmTitleTemplate, BearHuntTask.PetConfirmTitleArea, BearHuntTask.TemplateThreshold), Is.EqualTo(present));
+            Assert.That(Found(screenshot, BearHuntTask.PetConfirmTitleTemplate, BearHuntTask.PetConfirmTitleArea, RallyTaskBase.Threshold), Is.EqualTo(present));
 
         // War list of 2026-11-10 21:07 (other leaders blacked out): the "+" centres are at y 375 and 782.
         // Asli's own rally was nearly full (27,480 free, skip); the second had room (join).
@@ -82,7 +82,7 @@ namespace Bot.Core.IntegrationTests
         [TestCase(782, 337_710, 1_679_210, false)]
         public void ReadsTheRallyTroops(int plusY, long current, long max, bool skip)
         {
-            string text = BearHuntTask.ReadRallyTroops(Fixtures.Load("bearhunt-war-troops.png"), plusY, new LogService(0));
+            string text = BearHuntTask.ReadRallyTroops(Fixtures.Load("bearhunt-war-troops.png"), plusY);
             long? free = BearHuntTask.FreeTroops(text);
 
             Assert.Multiple(() =>

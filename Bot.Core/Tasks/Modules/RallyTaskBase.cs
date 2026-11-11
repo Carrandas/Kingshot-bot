@@ -39,7 +39,7 @@ namespace Bot.Core.Tasks.Modules
         protected static readonly System.Drawing.Point BackPoint = new System.Drawing.Point(45, 40);
         protected static readonly System.Drawing.Point DeployPoint = new System.Drawing.Point(548, 1215);
 
-        protected const double Threshold = 0.85;      // screen elements 1.00 present, <= 0.66 elsewhere
+        internal const double Threshold = 0.85;      // screen elements 1.00 present, <= 0.66 elsewhere
         private const int MaxScrolls = 3;
         // slow, short drags: a fast swipe flings the list past rows unjudged
         private static readonly System.Drawing.Point ListScrollFrom = new System.Drawing.Point(360, 950);
@@ -56,46 +56,23 @@ namespace Bot.Core.Tasks.Modules
         private protected async Task<MarchInfo> ReadMarchTrackerAsync(int instance, LogService logger)
         {
             var screenshot = await TakeScreenshotAsync(instance, logger);
-            return screenshot == null ? new MarchInfo(0, 0, "") : ReadMarchTracker(screenshot, logger);
+            return screenshot == null ? new MarchInfo(0, 0, "") : ReadMarchTracker(screenshot);
         }
 
         /// <summary>OCR of the Marching tracker; 0/0 and "" when it isn't shown (no marches)</summary>
-        internal static MarchInfo ReadMarchTracker(byte[] screenshot, LogService logger)
+        internal static MarchInfo ReadMarchTracker(byte[] screenshot)
         {
-            string count = ReadWhiteText(screenshot, MarchCountArea, "0123456789/", logger);
-            string row = ReadWhiteText(screenshot, MarchRowArea, null, logger);
+            using var image = Cv2.ImDecode(screenshot, ImreadModes.Color);
+            string count = ReadWhiteText(image, MarchCountArea, "0123456789/");
+            string row = ReadWhiteText(image, MarchRowArea, null);
             var m = Regex.Match(count, @"(\d)\s*/\s*(\d)", RegexOptions.None, RegexTimeouts.Default);
             return m.Success
                 ? new MarchInfo(int.Parse(m.Groups[1].Value), int.Parse(m.Groups[2].Value), row)
                 : new MarchInfo(0, 0, row);
         }
 
-        protected static string ReadWhiteText(byte[] screenshot, Rectangle area, string? whitelist, LogService logger) =>
-            ReadMaskedText(screenshot, area, new Scalar(0, 0, 200), new Scalar(180, 60, 255), whitelist, logger);
-
-        /// <summary>The text colour masked into white-on-black, then one line of OCR</summary>
-        protected static string ReadMaskedText(byte[] screenshot, Rectangle area, Scalar low, Scalar high, string? whitelist, LogService logger,
-            Tesseract.PageSegMode mode = Tesseract.PageSegMode.SingleLine)
-        {
-            byte[] masked;
-            using (var image = Cv2.ImDecode(screenshot, ImreadModes.Color))
-            {
-                var roi = new Rect(area.X, area.Y, area.Width, area.Height).Intersect(new Rect(0, 0, image.Width, image.Height));
-                using var region = new Mat(image, roi);
-                using var hsv = region.CvtColor(ColorConversionCodes.BGR2HSV);
-                using var mask = hsv.InRange(low, high);
-                using var bgr = mask.CvtColor(ColorConversionCodes.GRAY2BGR);
-                masked = bgr.ToBytes(".png");
-            }
-            var config = new OcrConfiguration { ScaleFactor = 2, PageSegMode = mode };
-            if (whitelist != null) config.CharacterWhitelist = whitelist;
-            using var ocr = new OcrService(logger, config);
-            string text = ocr.ExtractTextFromScreenArea(masked, new Rectangle(0, 0, area.Width, area.Height)) ?? "";
-            // single line: one space between words; a block keeps its line breaks
-            return mode == Tesseract.PageSegMode.SingleLine
-                ? Regex.Replace(text, @"\s+", " ", RegexOptions.None, RegexTimeouts.Default).Trim()
-                : text.Trim();
-        }
+        private static string ReadWhiteText(Mat image, Rectangle area, string? whitelist) =>
+            MaskedTextOcr.Read(image, area, new Scalar(0, 0, 200), new Scalar(180, 60, 255), whitelist);
 
         #endregion
 
@@ -121,11 +98,7 @@ namespace Bot.Core.Tasks.Modules
                 return false;
             }
             await ClickCenterInRectAsync(instance, logger, tile.rect);
-            for (int i = 0; i < 5; i++)
-            {
-                await Task.Delay(1000, cancellationToken);
-                if (await IsOnWarAsync(instance, logger)) return true;
-            }
+            if (await WaitForAsync(() => IsOnWarAsync(instance, logger), TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(1), cancellationToken)) return true;
             logger.LogWarning($"[{character}] {Name}: War screen did not open");
             return false;
         }
@@ -168,7 +141,8 @@ namespace Bot.Core.Tasks.Modules
         private protected async Task<List<JoinButton>> FindJoinButtonsWithScrollAsync(int instance, LogService logger, CancellationToken cancellationToken, List<int>? skipped = null)
         {
             var buttons = NotSkipped(await FindJoinButtonsAsync(instance, logger), skipped);
-            for (int i = 0; i < MaxScrolls && buttons.Count == 0; i++)
+            int scrolls = 0;
+            while (buttons.Count == 0 && scrolls++ < MaxScrolls)
             {
                 await SwipeAsync(instance, logger, ListScrollFrom, ListScrollTo, 1500);
                 await Task.Delay(1000, cancellationToken);
@@ -250,9 +224,10 @@ namespace Bot.Core.Tasks.Modules
             if (!(await MatchAsync(DeployButtonTemplate, DeployButtonArea, Threshold, instance, logger)).found)
             {
                 logger.LogInfo($"[{character}] {Name}: joined a rally with team {team}");
-                if (!await IsOnWarAsync(instance, logger))
+                // the War list gets 2 s to show up before the back taps start
+                if (!await IsOnWarAsync(instance, logger)
+                    && !await WaitForAsync(() => IsOnWarAsync(instance, logger), TimeSpan.FromSeconds(2), TimeSpan.FromMilliseconds(500), cancellationToken))
                 {
-                    await Task.Delay(2000, cancellationToken);
                     await BackToWarAsync(instance, logger, cancellationToken);
                 }
                 return true;
@@ -266,31 +241,5 @@ namespace Bot.Core.Tasks.Modules
         internal static System.Drawing.Point FlagPoint(int team) => new System.Drawing.Point(63 + 74 * (Math.Clamp(team, 1, 8) - 1), 122);
 
         #endregion
-
-        protected async Task<(bool found, Rectangle rect, double confidence)> MatchAsync(
-            string templateName, Rectangle area, double threshold, int instance, LogService logger)
-        {
-            var screenshot = await TakeScreenshotAsync(instance, logger);
-            if (screenshot == null) return (false, Rectangle.Empty, 0);
-
-            if (_templateMatcher == null) _templateMatcher = new UnifiedTemplateMatchingService(logger);
-            // names with a folder ("autoheal/heal.png") come from another task's folder
-            var path = templateName.Contains(Path.DirectorySeparatorChar)
-                ? Path.Combine(AppContext.BaseDirectory, "templates", "images", templateName)
-                : Path.Combine(ImageTemplateFolder, templateName);
-            var result = _templateMatcher.MatchTemplate(
-                screenshot, path, instance,
-                threshold: threshold,
-                scales: new[] { 1.0 },
-                verboseLogging: false,
-                searchArea: area);
-            return (result.found, result.matchRect, result.confidence);
-        }
-
-        /// <summary>True when the task folder holds this template (Bear Hunt's are captured on the first live event)</summary>
-        protected bool HasTemplate(string templateName) =>
-            File.Exists(templateName.Contains(Path.DirectorySeparatorChar)
-                ? Path.Combine(AppContext.BaseDirectory, "templates", "images", templateName)
-                : Path.Combine(ImageTemplateFolder, templateName));
     }
 }

@@ -221,22 +221,5 @@ namespace Bot.Core.Tasks.Modules
             var mean = OpenCvSharp.Cv2.Mean(diff);
             return (mean.Val0 + mean.Val1 + mean.Val2) / 3 < UnchangedMeanDiff;
         }
-
-        private async Task<(bool found, Rectangle rect, double confidence)> MatchAsync(
-            string templateName, Rectangle area, double threshold, int instance, LogService logger)
-        {
-            var screenshot = await TakeScreenshotAsync(instance, logger);
-            if (screenshot == null) return (false, Rectangle.Empty, 0);
-
-            if (_templateMatcher == null) _templateMatcher = new UnifiedTemplateMatchingService(logger);
-            var path = Path.Combine(ImageTemplateFolder, templateName);
-            var result = _templateMatcher.MatchTemplate(
-                screenshot, path, instance,
-                threshold: threshold,
-                scales: new[] { 1.0 },
-                verboseLogging: false,
-                searchArea: area);
-            return (result.found, result.matchRect, result.confidence);
-        }
     }
 }

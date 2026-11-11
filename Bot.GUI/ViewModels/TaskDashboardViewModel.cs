@@ -91,7 +91,7 @@ namespace Bot.GUI.ViewModels
 
         /// <summary>Castle Battle and Bear Hunt exclude each other and a single run; a running cycle is stopped by them</summary>
         private bool CanStartMode(bool? settingsValid) =>
-            settingsValid == true && !CastleBattleStatus.IsRunning && !BearHuntStatus.IsRunning && !_singleRunActive;
+            settingsValid == true && !ModeStatus.AnyRunning && !_singleRunActive;
 
         private AccountSettings? _selectedAccount;
         public AccountSettings? SelectedAccount
@@ -128,7 +128,7 @@ namespace Bot.GUI.ViewModels
             }
         }
 
-        public bool IsBusy => _cycleService.IsRunning || _singleRunActive || CastleBattleStatus.IsRunning || BearHuntStatus.IsRunning;
+        public bool IsBusy => _cycleService.IsRunning || _singleRunActive || ModeStatus.AnyRunning;
 
         /// <summary>Castle Battle settings of the selected instance (both characters share them)</summary>
         public CastleBattleSettings? BattleSettings => _selectedAccount?.CastleBattleSettings;
@@ -213,21 +213,14 @@ namespace Bot.GUI.ViewModels
                 if (i == BearRows.Count) BearRows.Add(new BearRow());
                 BearRows[i].Update(names[i], entries.FirstOrDefault(e => CharacterRoster.SameName(e.Character, names[i])));
             }
-            if (BearHuntStatus.IsRunning) CycleStatus = BearStatusText;
-            if (BearHuntStatus.IsRunning && !_bearWasRunning) SelectedTabIndex = 2;
-            _bearWasRunning = BearHuntStatus.IsRunning;
+            bool running = BearHuntStatus.IsRunning;
+            if (running) CycleStatus = BearStatusText;
+            if (running && !_bearWasRunning) SelectedTabIndex = 2;
+            _bearWasRunning = running;
         }
 
-        private string BuildBearStatus()
-        {
-            if (BearHuntStatus.BearStartUtc is DateTime start)
-                return start > DateTime.UtcNow
-                    ? $"Bear Hunt: getting ready, bear at {Local(start)} ({Relative(start)})"
-                    : $"Bear Hunt running until {Local(start + (BearSettings?.EventLength ?? TimeSpan.FromMinutes(30)))}";
-            return BearHuntEnabled
-                ? "On: the bot stops the cycle 10 min before the bear, calls the troops home, then rallies and joins."
-                : "Off. Switch it on to run the bear by itself, or press Bear Hunt to start now.";
-        }
+        private string BuildBearStatus() =>
+            BearHuntStatus.Summary(DateTime.UtcNow, BearSettings, BearHuntEnabled, Local, Relative);
 
         /// <summary>Roster names for the first-character choice</summary>
         private void RefreshCharacterNames()
@@ -609,7 +602,7 @@ namespace Bot.GUI.ViewModels
         public void Update(string character, BearHuntStatus.Entry? entry)
         {
             Character = character;
-            entry ??= BearHuntStatus.Entry.New(character) with { Phase = BearHuntPhase.Waiting };
+            entry ??= BearHuntStatus.Entry.New(character);
             State = BearHuntStatus.Describe(entry.Phase);
             Detail = entry.Detail;
             Own = entry.OwnRallies.ToString();

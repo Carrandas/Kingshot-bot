@@ -174,22 +174,5 @@ namespace Bot.Core.Tasks.Modules
             using var mask = hsv.InRange(new Scalar(40, 120, 120), new Scalar(80, 255, 255));
             return Cv2.CountNonZero(mask);
         }
-
-        private async Task<(bool found, Rectangle rect, double confidence)> MatchAsync(
-            string templateName, Rectangle area, double threshold, int instance, LogService logger)
-        {
-            var screenshot = await TakeScreenshotAsync(instance, logger);
-            if (screenshot == null) return (false, Rectangle.Empty, 0);
-
-            if (_templateMatcher == null) _templateMatcher = new UnifiedTemplateMatchingService(logger);
-            var path = Path.Combine(ImageTemplateFolder, templateName);
-            var result = _templateMatcher.MatchTemplate(
-                screenshot, path, instance,
-                threshold: threshold,
-                scales: new[] { 1.0 },
-                verboseLogging: false,
-                searchArea: area);
-            return (result.found, result.matchRect, result.confidence);
-        }
     }
 }

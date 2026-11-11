@@ -206,11 +206,10 @@ namespace Bot.Core.Tests
         {
             Assert.Multiple(() =>
             {
-                Assert.That(BearHuntPlanner.JoinsAllowed(1, 6, 6, keepOneForOwn: false), Is.EqualTo(5));
-                Assert.That(BearHuntPlanner.JoinsAllowed(0, 8, 6, keepOneForOwn: false), Is.EqualTo(6));
-                Assert.That(BearHuntPlanner.JoinsAllowed(0, 6, 6, keepOneForOwn: true), Is.EqualTo(5));
-                Assert.That(BearHuntPlanner.JoinsAllowed(6, 6, 6, keepOneForOwn: false), Is.EqualTo(0));
-                Assert.That(BearHuntPlanner.JoinsAllowed(0, 0, 6, keepOneForOwn: false), Is.EqualTo(6), "tracker not read: try");
+                Assert.That(BearHuntPlanner.JoinsAllowed(1, 6, 6), Is.EqualTo(5));
+                Assert.That(BearHuntPlanner.JoinsAllowed(0, 8, 6), Is.EqualTo(6));
+                Assert.That(BearHuntPlanner.JoinsAllowed(6, 6, 6), Is.EqualTo(0));
+                Assert.That(BearHuntPlanner.JoinsAllowed(0, 0, 6), Is.EqualTo(6), "tracker not read: try");
             });
         }
 
