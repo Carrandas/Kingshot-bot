@@ -42,6 +42,7 @@ namespace Bot.GUI.ViewModels
         public ICommand ScanCharactersCommand { get; }
         public ICommand StartCastleBattleCommand { get; }
         public ICommand StartBearHuntCommand { get; }
+        public ICommand StartKingshotCommand { get; }
 
         /// <summary>Bear Hunt tab: one row per character with its phase</summary>
         public ObservableCollection<BearRow> BearRows { get; } = new();
@@ -64,6 +65,7 @@ namespace Bot.GUI.ViewModels
             RunOnceCommand = new RelayCommand(_ => { _main.RunOnceCommand.Execute(null); RefreshSoon(); }, _ => !IsBusy);
             RunTaskCommand = new AsyncRelayCommand(p => RunSingleAsync(p as TaskRow), p => !IsBusy && p is TaskRow);
             ScanCharactersCommand = new AsyncRelayCommand(_ => ScanCharactersAsync(), _ => !IsBusy && SelectedAccount != null);
+            StartKingshotCommand = new AsyncRelayCommand(_ => StartKingshotAsync(), _ => !IsBusy && SelectedAccount != null);
             // allowed while the cycle runs: the battle stops it first
             StartCastleBattleCommand = new AsyncRelayCommand(_ => StartCastleBattleAsync(), _ => CanStartMode(SelectedAccount?.CastleBattleSettings.IsValid));
             CastleBattleStatus.Changed += () => OnUi(RefreshBattle);
@@ -489,6 +491,29 @@ namespace Bot.GUI.ViewModels
                 _singleRunActive = false;
                 Refresh();
                 CycleStatus = SingleRunText;  // keep the result visible until the next refresh
+            }
+        }
+
+        private async System.Threading.Tasks.Task StartKingshotAsync()
+        {
+            if (_selectedAccount == null || IsBusy) return;
+            _singleRunActive = true;
+            SingleRunText = "Starting LDPlayer and Kingshot...";
+            Refresh();
+            try
+            {
+                var result = await System.Threading.Tasks.Task.Run(() => _cycleService.StartKingshotAsync(_selectedAccount, System.Threading.CancellationToken.None));
+                SingleRunText = result.Success ? "Kingshot started" : $"Start Kingshot failed - {result.Message}";
+            }
+            catch (Exception ex)
+            {
+                SingleRunText = $"Start Kingshot failed - {ex.Message}";
+            }
+            finally
+            {
+                _singleRunActive = false;
+                Refresh();
+                CycleStatus = SingleRunText;
             }
         }
 

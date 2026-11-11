@@ -68,6 +68,37 @@ namespace Bot.Core.Services
         }
 
 
+        /// <summary>
+        /// Starts the instance with the bot's settings (resolution, ADB debugging) and launches Kingshot in it.
+        /// Leaves both running; no tasks run.
+        /// </summary>
+        public async Task<TaskExecutionDetails> StartKingshotAsync(AccountSettings account, CancellationToken cancellationToken)
+        {
+            if (_isRunning) return TaskExecutionDetails.Failed("The cycle is running");
+
+            _logger.LogInfo($"🚀 Starting LDPlayer instance {account.InstanceNumber} and Kingshot...");
+            if (!await _instanceManager.StartInstanceAsync(account.InstanceNumber, cancellationToken))
+                return TaskExecutionDetails.Failed($"Could not start instance {account.InstanceNumber}");
+
+            var ldConsolePath = LDPlayerHelper.GetLDPlayerConsolePath();
+            if (!System.IO.File.Exists(ldConsolePath))
+                return TaskExecutionDetails.Failed("LDPlayer console not found");
+
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = ldConsolePath,
+                Arguments = $"runapp --index {account.InstanceNumber} --packagename com.run.tower.defense",
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+            using var process = Process.Start(startInfo);
+            if (process == null) return TaskExecutionDetails.Failed("Could not run the LDPlayer console");
+            await process.WaitForExitAsync(cancellationToken);
+            return process.ExitCode == 0
+                ? TaskExecutionDetails.Succeeded("Kingshot started")
+                : TaskExecutionDetails.Failed($"Launching Kingshot failed (exit code {process.ExitCode})");
+        }
+
         public CycleManagementService(LogService logger, TaskManager taskManager)
         {
             _logger = logger;

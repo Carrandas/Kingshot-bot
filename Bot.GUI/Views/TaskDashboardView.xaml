@@ -96,12 +96,9 @@
                     <Button Content="①  Run once" Background="#FF0D7377" Style="{StaticResource ActionButton}"
                             Command="{Binding RunOnceCommand}"
                             ToolTip="Run the task list once on every enabled character, then stop"/>
-                    <Button Content="⚔  Castle Battle" Background="#FF8E44AD" Style="{StaticResource ActionButton}"
-                            Command="{Binding StartCastleBattleCommand}"
-                            ToolTip="Stop the cycle and join castle battle rallies on every ticked character until Stop (settings on the Castle Battle tab)"/>
-                    <Button Content="🐻  Bear Hunt" Background="#FF8D6E63" Style="{StaticResource ActionButton}"
-                            Command="{Binding StartBearHuntCommand}"
-                            ToolTip="Stop the cycle and do the bear now: the saved bear when it is on, else a bear starting now (settings on the Bear Hunt tab)"/>
+                    <Button Content="🎮  Start Kingshot" Background="#FF1976D2" Style="{StaticResource ActionButton}"
+                            Command="{Binding StartKingshotCommand}"
+                            ToolTip="Start LDPlayer with the bot's settings and launch Kingshot (no tasks run)"/>
                     <Button Content="{Binding DataContext.ViewModel.PauseResumeButtonText, RelativeSource={RelativeSource AncestorType=Window}}"
                             Background="#FFFF9800" Style="{StaticResource ActionButton}"
                             ToolTip="Pause holds the bot at its next tap; Resume carries on from there"
@@ -254,6 +251,10 @@
                 <Border Style="{StaticResource CardStyle}">
                     <DockPanel>
                         <StackPanel DockPanel.Dock="Top">
+                            <Button Content="⚔  Castle Battle" Background="#FF8E44AD" Style="{StaticResource ActionButton}"
+                                    HorizontalAlignment="Left" Margin="0,0,0,12"
+                                    Command="{Binding StartCastleBattleCommand}"
+                                    ToolTip="Stop the cycle and join castle battle rallies on every ticked character until Stop"/>
                             <TextBlock Text="{Binding BattleStatusText}" Foreground="White" FontSize="14" FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,0,0,14"/>
 
                             <Grid DataContext="{Binding BattleSettings}">
@@ -364,6 +365,10 @@
                 <Border Style="{StaticResource CardStyle}">
                     <DockPanel>
                         <StackPanel DockPanel.Dock="Top">
+                            <Button Content="🐻  Bear Hunt" Background="#FF8D6E63" Style="{StaticResource ActionButton}"
+                                    HorizontalAlignment="Left" Margin="0,0,0,12"
+                                    Command="{Binding StartBearHuntCommand}"
+                                    ToolTip="Stop the cycle and do the bear now: the saved bear when it is on, else a bear starting now"/>
                             <CheckBox IsChecked="{Binding BearHuntEnabled}" Margin="0,0,0,8"
                                       ToolTip="The Bear Hunt task's cycle switch: the cycle reads the next bear once a day, and the bot runs the bear by itself">
                                 <TextBlock Text="Bear Hunt on" Foreground="White" FontSize="14" FontWeight="SemiBold"/>
