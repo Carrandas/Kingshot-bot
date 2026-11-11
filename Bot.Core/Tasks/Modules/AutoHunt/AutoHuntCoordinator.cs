@@ -1288,6 +1288,20 @@ namespace Bot.Core.Tasks.Modules.AutoHunt
 
         #region March Management
 
+        private const int MaxMarchQueues = 6;
+
+        /// <summary>
+        /// Available marches from the OCR text ("3/5", "3"): digits and '/' are kept, the first number counts. The map HUD has no
+        /// march counter at that spot (the box sits on the VIP badge), so noise like '77' is capped at the game's queue limit;
+        /// the max-march popup catches the rest. Null when no number can be read.
+        /// </summary>
+        internal static int? ParseMarchCount(string? text)
+        {
+            var cleanText = new string((text ?? "").Where(c => char.IsDigit(c) || c == '/').ToArray());
+            if (cleanText.Length == 0 || !int.TryParse(cleanText.Split('/')[0], out var marches)) return null;
+            return Math.Min(marches, MaxMarchQueues);
+        }
+
         private async Task<int> GetAvailableMarchesDirectly(AccountSettings account, LogService logger)
         {
             var screenshot = await TakeScreenshotAsync(account.InstanceNumber, logger);
@@ -1301,29 +1315,17 @@ namespace Bot.Core.Tasks.Modules.AutoHunt
                 
                 logger.LogInfo($"[{account.AccountName}] OCR extracted text: '{text}' from area {AutoHuntConstants.MarchCountArea}");
                 
-                // Clean the text - remove any non-numeric characters except forward slash
                 var cleanText = new string(text.Where(c => char.IsDigit(c) || c == '/').ToArray());
-                
-                if (!string.IsNullOrEmpty(cleanText))
+                var marches = ParseMarchCount(text);
+                if (marches.HasValue)
                 {
-                    // If it contains a slash, take the first number (available marches)
-                    var parts = cleanText.Split('/');
-                    if (parts.Length > 0 && int.TryParse(parts[0], out var marches))
-                    {
-                        // The current map HUD has no march counter here (the box sits on the VIP badge), so OCR can
-                        // return noise like '77'. Cap it at the game's queue limit; the max-march popup catches the rest.
-                        const int maxMarchQueues = 6;
-                        if (marches > maxMarchQueues)
-                        {
-                            logger.LogInfo($"[{account.AccountName}] OCR march count {marches} is not plausible, using {maxMarchQueues}");
-                            return maxMarchQueues;
-                        }
-
-                        logger.LogInfo($"[{account.AccountName}] Successfully parsed {marches} marches from OCR text: '{cleanText}'");
-                        return marches;
-                    }
+                    if (marches.Value == MaxMarchQueues && int.TryParse(cleanText.Split('/')[0], out var raw) && raw > MaxMarchQueues)
+                        logger.LogInfo($"[{account.AccountName}] OCR march count {raw} is not plausible, using {MaxMarchQueues}");
+                    else
+                        logger.LogInfo($"[{account.AccountName}] Successfully parsed {marches.Value} marches from OCR text: '{cleanText}'");
+                    return marches.Value;
                 }
-                
+
                 logger.LogWarning($"[{account.AccountName}] Could not parse march count from OCR: '{text}' (cleaned: '{cleanText}')");
                 
                 // Fallback: assume at least 1 march is available if we can't read it

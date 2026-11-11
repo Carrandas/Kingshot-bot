@@ -15,7 +15,6 @@ Unattended runs: `KingshotAuto.exe --schedule` (Run on schedule) or `--once` (Ru
 | 4b | AutoHunt | `No hunt mode indicators found` – hunt never ran | **Fixed, verified 2026-10-23**: `castle-hunt.png` no longer matches (0.43); the stamina icon in the header is used instead (`hunt-stamina.png`, grayscale, 0.85-0.98). The no-view branches use it too |
 | 5 | Locator | `Could not detect any known view - bot may be lost` | Mostly gone with #3/#4/#4b; recovers when it happens |
 | 6 | March counter | OCR at (550,68) reads `''` or `77` | **Mitigated**: the map HUD has no march counter there (it is the VIP badge). Values > 6 are capped at 6; the max-march popup handles the real limit |
-| 7 | Startup | `Game did not reach a known view after loading` | Open (low) – not seen since 2026-10-23 (checked the logs of 2026-11-08 to 11-11) |
 | 8 | Config | `Error loading config … enabledTasks[0]` + `Configuration failed to load during initialization` | **Fixed**: both loaders use the TaskType name converter; a missing `configs/config.json` is info only |
 | 9 | Stop/Launch | Several Launch clicks started parallel runners | **Fixed**: one runner per instance, extra clicks are ignored; Stop cancels the running tasks |
 | 10 | ConquestCollect | Blind fixed-coordinate taps, 4 h cooldown | **Rewritten 2026-10-23**: templates + green-colour check on both Claim buttons; Rewards dismissed on empty sky (the Conquer button sits under the banner). Nothing-to-claim path verified live; claim path verified by hand, bot run pending |
@@ -23,9 +22,9 @@ Unattended runs: `KingshotAuto.exe --schedule` (Run on schedule) or `--once` (Ru
 | 12 | CollectRewards | Store pitch popup ends the tab scan | Fixed 2026-10-19, popup not seen live since |
 | 13 | AllianceTechnology | `Exit cross not found` | **Fixed 2026-10-23**: rewritten (see Alliance Technology below); new `close-x.png` |
 | 14 | AutoAllianceHelp / Farming | `Could not find 'alliance-help.png'` | Info only |
-| 16 | AutoClaimHero | `Could not find back button` after the Recruitment reward chest (seen 2026-11-10 and 11-11): its popup is not the Rewards banner | Open: the run now saves `logs/autoclaimhero/recruit-reward-popup.png` for a template; the locator brings it home meanwhile |
+| 16 | AutoClaimHero | `Could not find back button` after the Recruitment reward chest (seen 2026-11-10 and 11-11): its popup is not the Rewards banner | Open (2026-11-11: not reproducible until the 00:00 UTC reset brings the badge back): the run now saves `logs/autoclaimhero/recruit-reward-popup.png` for a template; the locator brings it home meanwhile |
 | 17 | Recovery | Blind `ad-close.png` tap at 0.609 on an unknown screen | **Fixed**: recovery taps need 0.8 now (real X buttons score ~0.9+) |
-| 18 | CollectVip | The chest "dot" (`vip-chest.png`, 0.984 every run) opens a popup that is not Rewards: 8 of 8 runs waited 5 s for nothing | Open: the run now saves `logs/collectvip/chest-popup.png`; look at it, then re-cut or drop the chest step |
+| 18 | CollectVip | The chest "dot" (`vip-chest.png`, 0.984 every run) opens a popup that is not Rewards: 8 of 8 runs waited 5 s for nothing | Open (2026-11-11: not reproducible until the 00:00 UTC reset brings the red dot back): the run now saves `logs/collectvip/chest-popup.png`; look at it, then re-cut or drop the chest step |
 | 19 | All template matching | Screenshots were converted with `RGBA2BGR` but Windows bitmaps are BGRA: red and blue were swapped before grayscale, so colourful templates scored low (Journey supplies 0.72, VIP claim/plus 0.39/0.64, Crucible rows) | **Fixed 2026-10-23**: `BGRA2BGR` in all 4 matchers. Checked every template on 9 screenshots: only real matches went up |
 | 20 | CollectRewards | Bank 24 h cooldown keyed by instance number, so a second character on the same instance skipped the bank | **Fixed 2026-10-23**: keyed by account ID |
 | 21 | ClaimMissions | `Chapter tab not found` warning | Info only – the Missions screen no longer has a Chapter tab. The Chapter notification OCR still reads a false '8' there |
@@ -118,8 +117,9 @@ Unattended runs: `KingshotAuto.exe --schedule` (Run on schedule) or `--once` (Ru
 ## Quality (nothing in place yet)
 
 - [x] **Unit tests** (2026-10-26): `Bot.Core.Tests` (NUnit 4), 72 tests: `CharacterRoster` name matching and Change Account's tag fix, `DailyGate` / `Schedule`, `TaskRunHistory`, task registration and run order (found AutoRally without a run order). The old `InstanceManager*` LDPlayer tests are `[Explicit]`
-  - [x] 2026-11-11: `GetNextRunUtc`/`ClearSchedule` of every `IScheduledTask` and the Suggestion Box answer table are tested (`ScheduledTaskTests`). [ ] Still open: OCR text parsing (march count)
+  - [x] 2026-11-11: `GetNextRunUtc`/`ClearSchedule` of every `IScheduledTask` and the Suggestion Box answer table are tested (`ScheduledTaskTests`). `AutoHuntCoordinator.ParseMarchCount` (OCR text to marches) tested in `MarchCountParseTests`
 - [x] **Integration tests on screenshots** (2026-10-26): `Bot.Core.IntegrationTests`, saved screenshots in `Screenshots/`. Alliance Mobilization cards (hammer and yellow gem refreshed, gifts and blue gems kept) and the Events button (with/without red dot, absent)
+  - [x] 2026-11-11: `CollectVipTests` (VIP screen never matches town/popup screens; needs a VIP screenshot for the positive case)
   - [ ] Next: more tasks' detection steps (Suggestion Box answers, Nomadic Merchant never gem-priced, Journey, VIP), each with present / absent / popup screenshots. Catches threshold regressions like the BGRA swap (#19)
 - [ ] **Code quality monitoring.** `SonarAnalyzer.CSharp` runs in every build (2026-10-26, `Directory.Build.props`): 477 warnings at the start; fixed the real ones (tasks ignoring Stop in their view recovery, an unlimited task-list restart, a silently ignored answers file, undisposed token sources, dispose patterns). About 440 left, mostly dead code and noise
   - [x] 2026-11-11: the build has 0 Sonar and compiler warnings (the noisy rules and the dead code are gone)

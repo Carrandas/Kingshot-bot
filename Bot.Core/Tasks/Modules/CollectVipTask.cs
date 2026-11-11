@@ -331,14 +331,19 @@ namespace Bot.Core.Tasks.Modules
             var screenshot = await TakeScreenshotAsync(instanceNumber, logger);
             if (screenshot == null) return false;
 
+            return IsVipScreen(screenshot, instanceNumber, logger);
+        }
+
+        /// <summary>The VIP screen check on one screenshot: the + button next to the VIP level.</summary>
+        internal bool IsVipScreen(byte[] screenshot, int instanceNumber, LogService logger)
+        {
             if (_templateMatcher == null) _templateMatcher = new UnifiedTemplateMatchingService(logger);
-            var result = _templateMatcher.MatchTemplate(
+            return _templateMatcher.MatchTemplate(
                 screenshot, Path.Combine(ImageTemplateFolder, "vip-plus.png"), instanceNumber,
                 threshold: 0.85,
                 scales: new[] { 1.0 },
                 verboseLogging: false,
-                searchArea: VipPlusSearchArea);
-            return result.found;
+                searchArea: VipPlusSearchArea).found;
         }
 
         /// <summary>Finds the green "Use" button of an owned VIP XP item row.</summary>
