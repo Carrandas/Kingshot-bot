@@ -30,7 +30,44 @@ namespace Bot.Core.Models
 
         /// <summary>Our alliance's trap: 1 or 2 (the event calendar lists "Bear Hunt - Trap 1/2")</summary>
         [JsonPropertyName("trap")]
-        public int Trap { get => _trap; set => Set(ref _trap, value); }
+        public int Trap
+        {
+            get => _trap;
+            set
+            {
+                if (_trap == value) return;
+                Set(ref _trap, value);
+                UseScannedBear();
+            }
+        }
+
+        private DateTime? _scannedTrap1Utc;
+        private DateTime? _scannedTrap2Utc;
+
+        /// <summary>Next Trap 1 bear as the last Task List scan read it (UTC); the scan reads both traps so the choice can change without a rescan</summary>
+        [JsonPropertyName("scannedTrap1Utc")]
+        public DateTime? ScannedTrap1Utc { get => _scannedTrap1Utc; set => _scannedTrap1Utc = AsUtc(value); }
+
+        /// <summary>Next Trap 2 bear as the last Task List scan read it (UTC)</summary>
+        [JsonPropertyName("scannedTrap2Utc")]
+        public DateTime? ScannedTrap2Utc { get => _scannedTrap2Utc; set => _scannedTrap2Utc = AsUtc(value); }
+
+        private static DateTime? AsUtc(DateTime? value) => value.HasValue ? DateTime.SpecifyKind(value.Value, DateTimeKind.Utc) : null;
+
+        /// <summary>Stores what a scan read for both traps and makes the chosen trap's bear the next one</summary>
+        public void SetScanned(DateTime? trap1, DateTime? trap2)
+        {
+            ScannedTrap1Utc = trap1;
+            ScannedTrap2Utc = trap2;
+            NextBearUtc = Trap == 2 ? trap2 : trap1;
+        }
+
+        /// <summary>After the trap choice changed: take that trap's scanned bear when it is not over yet (otherwise the typed time stays)</summary>
+        private void UseScannedBear()
+        {
+            var scanned = Trap == 2 ? ScannedTrap2Utc : ScannedTrap1Utc;
+            if (scanned.HasValue && scanned.Value + EventLength > DateTime.UtcNow) NextBearUtc = scanned;
+        }
 
         /// <summary>Team flag for our own rally on the bear (set to 5% infantry, 10% cavalry, 85% archers in the game)</summary>
         [JsonPropertyName("ownTeam")]

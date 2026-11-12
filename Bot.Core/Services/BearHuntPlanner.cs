@@ -38,6 +38,18 @@ namespace Bot.Core.Services
             CanSendOwnAt(nowUtc, startUtc, settings) && (state?.OwnBackUtc == null || state.OwnBackUtc <= nowUtc);
 
         /// <summary>
+        /// How long to wait before sending the own rally: the estimated return is only a few seconds away (a pass starts within the
+        /// switch lead before it, 2026-11-12: llsa came 4 s early, joined 6 first and its rally went out a round late). Zero when
+        /// there is nothing to wait for, or the wait would be longer than the switch lead.
+        /// </summary>
+        public static TimeSpan OwnWait(DateTime nowUtc, DateTime startUtc, BearHuntSettings settings, BearHuntStatus.Entry? state)
+        {
+            if (state?.OwnBackUtc is not DateTime back || back <= nowUtc || !CanSendOwnAt(back, startUtc, settings)) return TimeSpan.Zero;
+            var wait = back - nowUtc;
+            return wait <= settings.SwitchLead ? wait : TimeSpan.Zero;
+        }
+
+        /// <summary>
         /// Rallies to join now: the free march queues, at most <paramref name="maxJoins"/>. Tracker not read (total 0): try up to the maximum, a full queue makes the join fail.
         /// </summary>
         public static int JoinsAllowed(int busy, int total, int maxJoins)

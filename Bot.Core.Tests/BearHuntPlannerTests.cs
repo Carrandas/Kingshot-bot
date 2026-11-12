@@ -58,6 +58,19 @@ namespace Bot.Core.Tests
         }
 
         [Test]
+        public void OwnWait_ShortWaitForTheReturn()
+        {
+            Set("llsa", ownBack: At(5, 30));
+            Assert.Multiple(() =>
+            {
+                Assert.That(BearHuntPlanner.OwnWait(At(5, 26), Start, _settings, State("llsa")), Is.EqualTo(TimeSpan.FromSeconds(4)));
+                Assert.That(BearHuntPlanner.OwnWait(At(5, 30), Start, _settings, State("llsa")), Is.EqualTo(TimeSpan.Zero));     // already home
+                Assert.That(BearHuntPlanner.OwnWait(At(3), Start, _settings, State("llsa")), Is.EqualTo(TimeSpan.Zero));         // too far away: switch elsewhere
+                Assert.That(BearHuntPlanner.OwnWait(At(5, 26), Start, _settings, null), Is.EqualTo(TimeSpan.Zero));
+            });
+        }
+
+        [Test]
         public void ShouldSendOwn_OnlyWhenTheTroopsAreHome()
         {
             Set("Asli", ownBack: At(5, 30));
@@ -240,12 +253,15 @@ namespace Bot.Core.Tests
     
         [TestCase("00:03:02", 182)]
         [TestCase("03:02", 182)]
-        [TestCase("Rallying 01:00:05", 3605)]
+        [TestCase("Rallying 00:10:05", 605)]
+        [TestCase("00:30:00", 1800)]
         public void ParseRallyTimer_ReadsClocks(string text, int seconds) =>
             Assert.That(Bot.Core.Tasks.Modules.BearHuntTask.ParseRallyTimer(text), Is.EqualTo(TimeSpan.FromSeconds(seconds)));
 
         [TestCase("")]
         [TestCase("garbage")]
+        [TestCase("10:04:00")]   // noise: no rally holds for hours
+        [TestCase("01:00:05")]
         public void ParseRallyTimer_UnreadableIsNull(string text) =>
             Assert.That(Bot.Core.Tasks.Modules.BearHuntTask.ParseRallyTimer(text), Is.Null);
 

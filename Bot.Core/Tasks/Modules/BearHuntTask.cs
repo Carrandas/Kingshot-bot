@@ -140,6 +140,12 @@ namespace Bot.Core.Tasks.Modules
             int instance, LogService logger, CancellationToken cancellationToken)
         {
             bool sent = false;
+            var wait = BearHuntPlanner.OwnWait(DateTime.UtcNow, start, settings, BearHuntStatus.Get(character));
+            if (wait > TimeSpan.Zero)
+            {
+                logger.LogInfo($"[{character}] Bear Hunt: own rally troops are home in {wait.TotalSeconds:F0} s, waiting for them");
+                await Task.Delay(wait + TimeSpan.FromSeconds(1), cancellationToken);
+            }
             if (BearHuntPlanner.ShouldSendOwn(DateTime.UtcNow, start, settings, BearHuntStatus.Get(character)))
             {
                 sent = await SendOwnRallyAsync(character, settings, instance, logger, cancellationToken);
@@ -462,7 +468,8 @@ namespace Bot.Core.Tasks.Modules
                 logger.LogInfo($"[{character}] Bear Hunt: skipping {leader}'s rally, only {free:N0} troops free");
                 return true;
             }
-            var remaining = ParseRallyTimer(ReadRallyTimer(image, plusY));
+            string timerText = ReadRallyTimer(image, plusY);
+            var remaining = ParseRallyTimer(timerText);
             if (remaining is TimeSpan left && eventEnd is DateTime end && !BearHuntPlanner.JoinArrivesInTime(DateTime.UtcNow, left, end))
             {
                 logger.LogInfo($"[{character}] Bear Hunt: skipping {leader}'s rally, it launches in {left:mm\\:ss} and would arrive after the bear");
@@ -475,13 +482,17 @@ namespace Bot.Core.Tasks.Modules
         internal static string ReadRallyTimer(Mat image, int plusY) =>
             plusY - 195 < 0 ? "" : MaskedTextOcr.Read(image, new Rectangle(480, plusY - 195, 210, 44), HeaderWhiteLow, HeaderWhiteHigh, "0123456789:");
 
-        /// <summary>"00:03:02" (h:mm:ss) or "03:02" (mm:ss); null when it can't be read (then the row is joined)</summary>
+        /// <summary>The longest hold a rally can have (5/10/20/30 min in the game); a longer read is OCR noise on the red bar (2026-11-12: a 4:00 rally read as hours)</summary>
+        private static readonly TimeSpan MaxRallyTimer = TimeSpan.FromMinutes(30);
+
+        /// <summary>"00:03:02" (h:mm:ss) or "03:02" (mm:ss); null when it can't be read or is not plausible (then the row is joined)</summary>
         internal static TimeSpan? ParseRallyTimer(string text)
         {
             var m = System.Text.RegularExpressions.Regex.Match(text, @"(?:(\d{1,2}):)?(\d{1,2}):(\d{2})", System.Text.RegularExpressions.RegexOptions.None, RegexTimeouts.Default);
             if (!m.Success) return null;
             int hours = m.Groups[1].Success ? int.Parse(m.Groups[1].Value) : 0;
-            return new TimeSpan(hours, int.Parse(m.Groups[2].Value), int.Parse(m.Groups[3].Value));
+            var timer = new TimeSpan(hours, int.Parse(m.Groups[2].Value), int.Parse(m.Groups[3].Value));
+            return timer <= MaxRallyTimer ? timer : null;
         }
 
         /// <summary>Where a War row's target line ("Lv. 1 Raging Bear") is, from its "+"</summary>
@@ -569,16 +580,22 @@ namespace Bot.Core.Tasks.Modules
             if (items == null) return TaskExecutionDetails.Failed("The Task List did not open");
 
             DailyGate.MarkDone(TaskType, key);
-            var next = BearHuntSchedule.NextBear(items, settings.Trap, DateTime.UtcNow, settings.EventLength);
+            var now = DateTime.UtcNow;
+            var trap1 = BearHuntSchedule.NextBear(items, 1, now, settings.EventLength);
+            var trap2 = BearHuntSchedule.NextBear(items, 2, now, settings.EventLength);
+            settings.SetScanned(trap1, trap2); // both traps are kept: changing the trap in the GUI picks the other one
+            logger.LogInfo($"Bear Hunt: Task List read ({items.Count} rows): Trap 1 {FormatBear(trap1)}, Trap 2 {FormatBear(trap2)}");
+            var next = settings.NextBearUtc;
             if (next == null)
             {
-                logger.LogInfo($"Bear Hunt: no Trap {settings.Trap} bear in the Task List ({items.Count} rows read)");
+                logger.LogInfo($"Bear Hunt: no Trap {settings.Trap} bear in the Task List");
                 return TaskExecutionDetails.Succeeded($"No Trap {settings.Trap} bear listed");
             }
-            settings.NextBearUtc = next;
             logger.LogInfo($"Bear Hunt: next Trap {settings.Trap} bear at {next:yyyy-MM-dd HH:mm} UTC ({next.Value.ToLocalTime():HH:mm} local)");
             return TaskExecutionDetails.Succeeded($"Next bear {next:MM-dd HH:mm} UTC");
         }
+
+        private static string FormatBear(DateTime? bear) => bear is DateTime b ? $"{b:MM-dd HH:mm} UTC" : "none";
 
         /// <summary>UTC banner > Task List, read while scrolling down slowly; null when it didn't open</summary>
         private async Task<List<BearHuntSchedule.TaskListItem>?> ReadTaskListAsync(int instance, LogService logger, CancellationToken cancellationToken)
