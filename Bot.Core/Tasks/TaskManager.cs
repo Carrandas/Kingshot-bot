@@ -77,6 +77,7 @@ namespace Bot.Core.Tasks
             tasks[TaskType.AllianceTechnology] = new AllianceTechnologyTask();
             tasks[TaskType.AutoTechnology] = new AutoTechnologyTask();
             tasks[TaskType.CollectRewards] = new CollectRewardsTask();
+            tasks[TaskType.CollectBank] = new CollectBankTask();
             tasks[TaskType.PetAdventure] = new PetAdventureTask();
             tasks[TaskType.CollectOnlineRewards] = new CollectOnlineRewardsTask();
             tasks[TaskType.Journey] = new JourneyTask();
@@ -773,6 +774,7 @@ namespace Bot.Core.Tasks
             { TaskType.SuggestionBox, 14 },    // before ResidentWelcome: its zoom-out shrinks the envelope bubble
             { TaskType.ResidentWelcome, 15 },
             { TaskType.CollectRewards, 16 },
+            { TaskType.CollectBank, 16 },      // after the store pass
             { TaskType.PetAdventure, 17 },
             { TaskType.TruegoldCrucible, 19 },
             { TaskType.AllianceTriumph, 20 },

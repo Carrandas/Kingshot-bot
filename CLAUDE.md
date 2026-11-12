@@ -11,7 +11,7 @@ This file is committed: instructions for Claude Code working on this repo.
 | `dotnet restore BotApp.sln` | Restore dependencies |
 | `dotnet build Bot.GUI/Bot.GUI.csproj -c Debug` | Debug build (output: `Bot.GUI/bin/x64/Debug/net10.0-windows/win-x64/KingshotAuto.exe`) |
 | `dotnet run --project Bot.GUI/Bot.GUI.csproj` | Run app |
-| `KingshotAuto.exe --schedule` / `--once` | Start and press Run on schedule / Run once (`--cycle` = `--schedule`; `--launch` = Launch on every instance) |
+| `KingshotAuto.exe --schedule` / `--new-cycle` / `--once` | Start and press Run on schedule (continues the saved countdown to the next cycle, `data/cycle_next.txt`; a cycle at once when none is left) / New cycle (a cycle at once) / Run once (`--cycle` = `--schedule`; `--launch` = Launch on every instance) |
 | `KingshotAuto.exe --task MysticTrial --character llsa` | Start and press ▶ for one task on one character (name matched like the roster; runs even when the task's switch is off) |
 | `KingshotAuto.exe --castle-battle` | Start and press Castle Battle (stops the cycle; joins rallies and heals on every ticked character until Stop) |
 | `dotnet test Bot.Core.Tests` | Unit tests (code only, no emulator) |
@@ -82,6 +82,7 @@ data/                 # next to the exe, created at runtime: daily_gates.json, t
 7. Once-a-day tasks: the game resets at 00:00 UTC. Use `DailyGate` (saved in `data/daily_gates.json`, keyed per game account via `Schedule.AccountKey(AccountDetectionTask.GetCachedAccountId(...), account)`): `if (DailyGate.DoneToday(TaskType, key)) return TaskExecutionDetails.SkippedBecause("Already done today");` first, `DailyGate.MarkDone(TaskType, key)` after the run (CollectVip, ClaimMail, NomadicMerchant, TruegoldCrucible, SuggestionBox, MysticTrial, Arena; Arena can also wait for a UTC time of day, `ArenaSettings.RunAfterUtc`, and skips opponents with our alliance tag, `SkipAllianceMembers`, on by default). Older gates: AllianceTriumph (memory), CollectRewards (disk). A gate or timer skip must return `SkippedBecause` / `Skipped = true`, or the dashboard shows it as a real run.
    Any task with a gate or timer implements `IScheduledTask`: `GetNextRunUtc` (next run for the dashboard; deterministic, no file reads) and `ClearSchedule` (the ▶ button runs regardless).
 8. Suggestion Box: the letters come from a fixed list. The built-in answer table is `KnownAnswers` in `SuggestionBoxTask`; learned answers go to `data/suggestion_box_answers.json`. Result: +3% right, 0% neutral (some letters have no +3% answer), -2% wrong.
+9. Collect Bank (`CollectBankTask`, a bank-only mode of `CollectRewardsTask`): the Deals hub's bank vault on its own 24 h timer (`data/collect_rewards_bank_times.json`, due 24 h + 1 min after the last deposit; a visit that finds nothing to do looks again after 2 h). The store task (`CollectRewards`) is once a day and no longer touches the bank. The switch for Collect Bank is on the Bot tab and off until ticked.
 
 ## Castle Battle (beta)
 - Its own mode, not a cycle task: the Bot tab's **⚔ Castle Battle** button (or `--castle-battle [--character <name>]`) stops the cycle and runs `CastleBattleTask` passes on every ticked character until Stop or the max hours (`MainViewModel.RunCastleBattleAsync`). `TaskType.CastleBattle` is a system task in the GUI, so it never shows in the cycle list.

@@ -167,7 +167,8 @@ namespace Bot.Core.Services
             }
         }
 
-        public async Task StartCycleAsync(BotConfig config, CancellationToken externalCancellationToken)
+        /// <param name="resume">Carry on with the saved countdown to the next cycle (see <see cref="CycleScheduleStore"/>) instead of running a cycle at once</param>
+        public async Task StartCycleAsync(BotConfig config, CancellationToken externalCancellationToken, bool resume = false)
         {
             if (_isRunning)
             {
@@ -195,6 +196,8 @@ namespace Bot.Core.Services
 
                 // Start persistent accounts (they run continuously)
                 await StartPersistentAccountsAsync(persistentAccounts, config, cycleToken);
+
+                if (resume) await WaitForSavedCycleAsync(cycleToken);
 
                 while (!cycleToken.IsCancellationRequested)
                 {
@@ -321,6 +324,27 @@ namespace Bot.Core.Services
             ResetCircuitBreaker();
         }
 
+        /// <summary>The countdown a stopped or restarted app left: wait out what remains of it (nothing when it has passed)</summary>
+        private async Task WaitForSavedCycleAsync(CancellationToken cycleToken)
+        {
+            var due = CycleScheduleStore.Load();
+            if (CycleScheduleStore.Remaining(due, DateTime.UtcNow) is not TimeSpan remaining)
+            {
+                _logger.LogInfo("⏩ No countdown to continue: starting a cycle now");
+                return;
+            }
+
+            _logger.LogInfo($"⏩ Continuing the countdown: next cycle in {remaining.TotalMinutes:F0} minutes");
+            NextCycleUtc = due;
+            OnScheduleChanged?.Invoke();
+            OnWaitingBetweenCycles?.Invoke(remaining);
+            while (DateTime.UtcNow < due && !cycleToken.IsCancellationRequested)
+            {
+                var left = due.Value - DateTime.UtcNow;
+                await Task.Delay(left < TimeSpan.FromMinutes(1) ? left : TimeSpan.FromMinutes(1), cycleToken);
+            }
+        }
+
         private async Task WaitBetweenCyclesAsync(int waitMinutes, CancellationToken cycleToken)
         {
             if (waitMinutes <= 0 || cycleToken.IsCancellationRequested)
@@ -330,6 +354,7 @@ namespace Bot.Core.Services
 
             _logger.LogInfo($"⏳ Waiting {waitMinutes} minutes before next cycle");
             NextCycleUtc = DateTime.UtcNow.AddMinutes(waitMinutes);
+            CycleScheduleStore.Save(NextCycleUtc);
             OnScheduleChanged?.Invoke();
             OnWaitingBetweenCycles?.Invoke(TimeSpan.FromMinutes(waitMinutes));
 

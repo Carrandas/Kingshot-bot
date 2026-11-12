@@ -41,6 +41,7 @@ namespace Bot.GUI.Converters
             { TaskType.ResidentWelcome, "Resident Welcome" },
             { TaskType.AllianceTechnology, "Alliance Technology" },
             { TaskType.CollectRewards, "Collect Store Rewards" },
+            { TaskType.CollectBank, "Collect Bank" },
             { TaskType.PetAdventure, "Pet Adventure" },
             { TaskType.PetSkill, "Pet Skill" },
             { TaskType.MysticTrial, "Mystic Trial" },

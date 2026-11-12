@@ -54,6 +54,7 @@ namespace Bot.Core.Tasks.Modules
             [TaskType.CollectVip] = "Collect VIP",
             [TaskType.ClaimMissions] = "Claim Missions",
             [TaskType.CollectRewards] = "Collect Store Rewards",
+            [TaskType.CollectBank] = "Collect Bank",
             [TaskType.CollectOnlineRewards] = "Collect Online Rewards",
             [TaskType.PetAdventure] = "Pet Adventure",
             [TaskType.Journey] = "Journey",

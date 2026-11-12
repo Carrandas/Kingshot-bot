@@ -113,13 +113,16 @@ namespace Bot.Core.Tasks.Modules
         // A pass that was cut short (left the store, claim cap, hub did not open) is not recorded and runs again next cycle.
         private static readonly ConcurrentDictionary<string, DateTime> _lastCompleteRun = new();
 
-        public void ClearSchedule(string accountKey)
+        /// <summary>The Collect Bank task (a subclass) walks the Deals hub for the bank vault only; the store task leaves the bank alone</summary>
+        protected virtual bool BankOnly => false;
+
+        public virtual void ClearSchedule(string accountKey)
         {
             LoadDailyRuns();
             if (_lastCompleteRun.TryRemove(accountKey, out _)) SaveDailyRuns();
         }
 
-        public DateTime? GetNextRunUtc(string accountKey, AccountSettings account) =>
+        public virtual DateTime? GetNextRunUtc(string accountKey, AccountSettings account) =>
             AlreadyRanToday(accountKey) ? Schedule.NextUtcMidnight : null;
         private static readonly string DailyRunFile = Path.Combine(AppContext.BaseDirectory, "data", "collect_rewards_daily_runs.json");
         private static bool _dailyRunsLoaded;
@@ -156,7 +159,10 @@ namespace Bot.Core.Tasks.Modules
         private const double FreeChestThreshold = 0.70;  // >=0.95 where present, <=0.33 elsewhere
         private const double ClaimableThreshold = 0.70; // label text: >=0.80 where present, <=0.20 elsewhere
 
-        protected override async Task<TaskExecutionDetails> ExecuteTaskLogicAsync(AccountSettings account, LogService logger, CancellationToken cancellationToken, bool isReRun = false, IUserNotificationService? userNotifications = null)
+        protected override Task<TaskExecutionDetails> ExecuteTaskLogicAsync(AccountSettings account, LogService logger, CancellationToken cancellationToken, bool isReRun = false, IUserNotificationService? userNotifications = null) =>
+            BankOnly ? ExecuteBankAsync(account, logger, cancellationToken) : ExecuteStoreAsync(account, logger, cancellationToken);
+
+        private async Task<TaskExecutionDetails> ExecuteStoreAsync(AccountSettings account, LogService logger, CancellationToken cancellationToken)
         {
             try
             {
@@ -250,6 +256,7 @@ namespace Bot.Core.Tasks.Modules
             public int Claims;
             public int CardClaims;
             public bool HallVisited;   // the tab strip pages overlap: the Hall of Heroes tab can show on two pages (visited twice, seen 2026-11-09)
+            public bool BankHandled;   // bank-only run: the vault was withdrawn or deposited, the rest of the hub is not needed
         }
 
         private async Task<(bool found, Rectangle rect, double confidence)> FindStoreIconAsync(int instance, LogService logger, CancellationToken cancellationToken)
@@ -494,6 +501,59 @@ namespace Bot.Core.Tasks.Modules
             return actions;
         }
 
+        // ---- Collect Bank (BankOnly): the vault has its own 24h timer, apart from the store's once-a-day pass ----
+
+        private static readonly TimeSpan BankMargin = TimeSpan.FromMinutes(1);       // the vault is done a moment after its 24h
+        private static readonly TimeSpan BankRecheck = TimeSpan.FromHours(2);        // a visit that found nothing to do (vault still running) waits this long
+        private static readonly ConcurrentDictionary<string, DateTime> _bankCheckedUtc = new();
+
+        /// <summary>When the bank is due again: 24h after the last deposit, else a while after a visit that found nothing; null = due now</summary>
+        internal static DateTime? BankNextUtc(DateTime? lastDeposit, DateTime? lastCheck, DateTime nowUtc)
+        {
+            var next = lastDeposit + BankInterval + BankMargin;
+            if (lastCheck.HasValue && lastCheck.Value + BankRecheck is var recheck && (next == null || recheck > next)) next = recheck;
+            return next > nowUtc ? next : null;
+        }
+
+        protected static DateTime? NextBankUtc(string accountKey)
+        {
+            LoadBankTimes();
+            DateTime? deposit = _lastBankDeposit.TryGetValue(accountKey, out var d) ? d : null;
+            DateTime? check = _bankCheckedUtc.TryGetValue(accountKey, out var c) ? c : null;
+            return BankNextUtc(deposit, check, DateTime.UtcNow);
+        }
+
+        protected static void ForgetBank(string accountKey)
+        {
+            LoadBankTimes();
+            _bankCheckedUtc.TryRemove(accountKey, out _);
+            if (_lastBankDeposit.TryRemove(accountKey, out _)) SaveBankTimes();
+        }
+
+        private async Task<TaskExecutionDetails> ExecuteBankAsync(AccountSettings account, LogService logger, CancellationToken cancellationToken)
+        {
+            _locatorService = new LocatorService(logger, account, TaskType);
+            int instance = account.InstanceNumber;
+            string accountKey = GetAccountKey(account, instance);
+            if (NextBankUtc(accountKey) is DateTime due)
+                return TaskExecutionDetails.SkippedBecause($"Bank not due until {due:yyyy-MM-dd HH:mm} UTC");
+
+            if (!await _locatorService.EnsureViewAsync(ViewType.BaseView, instance, cancellationToken))
+                return TaskExecutionDetails.Failed("Failed to navigate to base view");
+
+            _lastBankDeposit.TryGetValue(accountKey, out var before);
+            int actions = await CollectDealsHubAsync(account, logger, instance, cancellationToken);
+            _lastBankDeposit.TryGetValue(accountKey, out var after);
+
+            if (after != before)
+                return TaskExecutionDetails.Succeeded($"Bank deposited, next in {BankInterval.TotalHours:F0}h");
+
+            // withdrawn but no idle vault to deposit into, or nothing to do at all: look again later instead of every cycle
+            _bankCheckedUtc[accountKey] = DateTime.UtcNow;
+            logger.LogInfo($"[{account.AccountName}] Bank: no deposit made ({actions} action(s)), checking again in {BankRecheck.TotalHours:F0}h");
+            return TaskExecutionDetails.Succeeded(actions > 0 ? "Bank withdrawn, no vault to deposit into" : "Bank vault still running");
+        }
+
         // Keyed by game account, so a character switch on the same instance gets its own cooldowns
         private static string GetAccountKey(AccountSettings account, int instance)
         {
@@ -504,18 +564,7 @@ namespace Bot.Core.Tasks.Modules
         private static bool AlreadyRanToday(string accountKey)
         {
             LoadDailyRuns();
-            LoadBankTimes();
-            if (!_lastCompleteRun.TryGetValue(accountKey, out var lastRun) || lastRun.Date != DateTime.UtcNow.Date)
-                return false;
-
-            // The 24h bank vault can come due later in the same UTC day: allow one more pass for it,
-            // otherwise the deposit slips to the next day's pass
-            if (_lastBankDeposit.TryGetValue(accountKey, out var lastDeposit))
-            {
-                var bankDue = lastDeposit + BankInterval;
-                if (DateTime.UtcNow >= bankDue && lastRun < bankDue) return false;
-            }
-            return true;
+            return _lastCompleteRun.TryGetValue(accountKey, out var lastRun) && lastRun.Date == DateTime.UtcNow.Date;
         }
 
         private static void LoadDailyRuns()
@@ -720,14 +769,14 @@ namespace Bot.Core.Tasks.Modules
         /// <summary>Walks the Deals hub's tab pages; stops at the claim cap, at the end of the strip, or when the hub was left.</summary>
         private async Task ScanHubTabsAsync(AccountSettings account, LogService logger, int instance, StoreRun run, CancellationToken cancellationToken)
         {
-            for (int page = 0; page < MaxHubPages && run.Claims < MaxHubClaims; page++)
+            for (int page = 0; page < MaxHubPages && run.Claims < MaxHubClaims && !run.BankHandled; page++)
             {
                 if (await ScanHubPageAsync(account, logger, instance, run, cancellationToken))
                 {
                     break; // left the hub
                 }
 
-                if (page < MaxHubPages - 1 && run.Claims < MaxHubClaims)
+                if (page < MaxHubPages - 1 && run.Claims < MaxHubClaims && !run.BankHandled)
                 {
                     var before = await TabStripFingerprintAsync(instance, logger);
                     await SwipeAsync(instance, logger, new Point(620, 150), new Point(260, 150), TabSwipeDurationMs);
@@ -748,7 +797,7 @@ namespace Bot.Core.Tasks.Modules
             {
                 await WaitIfPausedAsync(cancellationToken);
                 cancellationToken.ThrowIfCancellationRequested();
-                if (run.Claims >= MaxHubClaims) break;
+                if (run.Claims >= MaxHubClaims || run.BankHandled) break;
 
                 await ClickRandomInRectAsync(instance, logger, new Rectangle(slotX - 40, HubTabY - 12, 80, 24));
                 await Task.Delay(1200, cancellationToken);
@@ -767,6 +816,14 @@ namespace Bot.Core.Tasks.Modules
 
         private async Task ClaimHubTabAsync(AccountSettings account, LogService logger, int instance, StoreRun run, CancellationToken cancellationToken)
         {
+            if (BankOnly)
+            {
+                int bankActions = await HandleBankAsync(account, logger, instance, cancellationToken);
+                run.Claims += bankActions;
+                run.BankHandled = bankActions > 0;
+                return;
+            }
+
             var claimAll = await MatchAsync(ClaimAllTemplate, ClaimAllArea, ClaimAllThreshold, instance, logger);
             if (claimAll.found)
             {
@@ -775,8 +832,6 @@ namespace Bot.Core.Tasks.Modules
                 run.Claims++;
                 await FinishClaimAsync(instance, logger, 100 + run.Claims, cancellationToken, inHub: true);
             }
-
-            run.Claims += await HandleBankAsync(account, logger, instance, cancellationToken);
 
             for (int tap = 0; tap < MaxGlowTapsPerTab && run.Claims < MaxHubClaims; tap++)
             {

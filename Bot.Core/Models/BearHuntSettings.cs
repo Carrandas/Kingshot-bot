@@ -69,8 +69,21 @@ namespace Bot.Core.Models
         /// <summary>After the trap choice changed: take that trap's scanned bear when it is not over yet (otherwise the typed time stays)</summary>
         private void UseScannedBear()
         {
-            var scanned = Trap == 2 ? ScannedTrap2Utc : ScannedTrap1Utc;
-            if (scanned.HasValue && scanned.Value + EventLength > DateTime.UtcNow) NextBearUtc = scanned;
+            var scanned = RolledForward(Trap == 2 ? ScannedTrap2Utc : ScannedTrap1Utc, DateTime.UtcNow);
+            if (scanned.HasValue) NextBearUtc = scanned;
+        }
+
+        /// <summary>
+        /// A scanned bear whose event is over, moved on by the repeat days to the next one (the scan is from an earlier day);
+        /// null when it is over and the bear does not repeat
+        /// </summary>
+        private DateTime? RolledForward(DateTime? scanned, DateTime nowUtc)
+        {
+            if (!scanned.HasValue) return null;
+            var start = scanned.Value;
+            if (RepeatDays <= 0) return start + EventLength > nowUtc ? start : null;
+            while (start + EventLength <= nowUtc) start = start.AddDays(RepeatDays);
+            return start;
         }
 
         private ObservableCollection<HeroGearSwap> _gearSwaps = new();

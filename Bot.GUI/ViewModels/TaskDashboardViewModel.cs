@@ -43,6 +43,7 @@ namespace Bot.GUI.ViewModels
         public ICommand StartCastleBattleCommand { get; }
         public ICommand StartBearHuntCommand { get; }
         public ICommand StartKingshotCommand { get; }
+        public ICommand RunNewCycleCommand { get; }
         public ICommand AddGearSwapCommand { get; }
         public ICommand RemoveGearSwapCommand { get; }
         /// <summary>Choices for the gear swap's heroes</summary>
@@ -67,6 +68,7 @@ namespace Bot.GUI.ViewModels
 
             RunOnScheduleCommand = new RelayCommand(_ => { _main.LaunchBotCommand.Execute(null); RefreshSoon(); }, _ => !IsBusy);
             RunOnceCommand = new RelayCommand(_ => { _main.RunOnceCommand.Execute(null); RefreshSoon(); }, _ => !IsBusy);
+            RunNewCycleCommand = new RelayCommand(_ => { _main.LaunchNewCycleCommand.Execute(null); RefreshSoon(); }, _ => !IsBusy);
             RunTaskCommand = new AsyncRelayCommand(p => RunSingleAsync(p as TaskRow), p => !IsBusy && p is TaskRow);
             ScanCharactersCommand = new AsyncRelayCommand(_ => ScanCharactersAsync(), _ => !IsBusy && SelectedAccount != null);
             StartKingshotCommand = new AsyncRelayCommand(_ => StartKingshotAsync(), _ => !IsBusy && SelectedAccount != null);

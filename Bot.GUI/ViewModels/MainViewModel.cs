@@ -168,8 +168,9 @@ namespace Bot.GUI.ViewModels
 
             StopCommand = new AsyncRelayCommand(_ => ExecuteStopCommandAsync());
 
-            LaunchBotCommand = new AsyncRelayCommand(_ => LaunchCycle(runOnce: false));
-            RunOnceCommand = new AsyncRelayCommand(_ => LaunchCycle(runOnce: true));
+            LaunchBotCommand = new AsyncRelayCommand(_ => LaunchCycle(runOnce: false, resume: true));
+            LaunchNewCycleCommand = new AsyncRelayCommand(_ => LaunchCycle(runOnce: false, resume: false));
+            RunOnceCommand = new AsyncRelayCommand(_ => LaunchCycle(runOnce: true, resume: false));
 
             PauseResumeCommand = new AsyncRelayCommand(_ => ExecutePauseResumeCommandAsync());
 
@@ -255,9 +256,11 @@ namespace Bot.GUI.ViewModels
 
         public TaskDashboardViewModel Dashboard { get; }
         public ICommand RunOnceCommand { get; }
+        /// <summary>Starts the cycles with a cycle at once, whatever countdown the last run left</summary>
+        public ICommand LaunchNewCycleCommand { get; }
 
-        /// <summary>Starts the cycle service: repeating cycles, or a single cycle (Run once).</summary>
-        private async Task LaunchCycle(bool runOnce)
+        /// <summary>Starts the cycle service: repeating cycles, or a single cycle (Run once). <paramref name="resume"/>: carry on with the saved countdown to the next cycle.</summary>
+        private async Task LaunchCycle(bool runOnce, bool resume)
         {
                 _logger.LogInfo($"LaunchBotCommand executed{(runOnce ? " (run once)" : "")}");
                 try {
@@ -284,7 +287,7 @@ namespace Bot.GUI.ViewModels
                     _userNotifications.ShowStatus($"Cycle settings: {_currentConfig.CycleManagement.MinWaitTimeBetweenCyclesMinutes}-{_currentConfig.CycleManagement.MaxWaitTimeBetweenCyclesMinutes}min intervals, shutdown: {_currentConfig.CycleManagement.ShutdownEmulatorsAfterCycle}", NotificationType.Info);
                     
                     _currentConfig.CycleManagement.MaxCycles = runOnce ? 1 : 0;
-                    _ = Task.Run(async () => await _cycleService.StartCycleAsync(_currentConfig, _botCancellationTokenSource.Token), _botCancellationTokenSource.Token);
+                    _ = Task.Run(async () => await _cycleService.StartCycleAsync(_currentConfig, _botCancellationTokenSource.Token, resume), _botCancellationTokenSource.Token);
                 }
                 catch (Exception ex) {
                     _logger.LogError($"Error in LaunchBotCommand: {ex}", category: LogCategories.System);
@@ -503,7 +506,7 @@ namespace Bot.GUI.ViewModels
             return i >= 0 && i + 1 < args.Length ? args[i + 1] : null;
         }
 
-        /// <summary>Command line switches for unattended runs: --schedule / --cycle / --once, --castle-battle, --bear-hunt, --task, --launch. Only the first one that applies runs.</summary>
+        /// <summary>Command line switches for unattended runs: --schedule / --cycle (continue the countdown) / --new-cycle / --once, --castle-battle, --bear-hunt, --task, --launch. Only the first one that applies runs.</summary>
         private void AutoLaunchFromCommandLine(BotConfig config)
         {
             if (_autoLaunchDone) return;
@@ -512,20 +515,24 @@ namespace Bot.GUI.ViewModels
             _autoLaunchDone = TryAutoStartCycle(args) || TryAutoCastleBattle(args, config) || TryAutoBearHunt(args, config) || TryAutoRunTask(args, config) || TryAutoLaunchInstances(args);
         }
 
-        // "--schedule" (or the older "--cycle") presses Run on schedule, "--once" presses Run once, for unattended runs
+        // "--schedule" (or the older "--cycle") presses Run on schedule (continues the countdown), "--new-cycle" starts a cycle at once, "--once" presses Run once
         private bool TryAutoStartCycle(string[] args)
         {
-            if (!(HasArg(args, "--schedule") || HasArg(args, "--cycle") || HasArg(args, "--once")))
-            {
-                return false;
-            }
+            var (command, what) = CycleLaunchFor(args);
+            if (command == null) return false;
 
-            var runOnce = HasArg(args, "--once");
-            _logger.LogInfo(runOnce ? "Auto-starting one cycle (--once)" : "Auto-starting the cycle service on schedule (--schedule)");
+            _logger.LogInfo($"Auto-starting: {what}");
             // The first call comes from the constructor, before the commands exist: run it once that has finished
-            System.Windows.Application.Current?.Dispatcher.BeginInvoke(() =>
-                (runOnce ? RunOnceCommand : LaunchBotCommand)?.Execute(null));
+            System.Windows.Application.Current?.Dispatcher.BeginInvoke(() => (command() as ICommand)?.Execute(null));
             return true;
+        }
+
+        private (Func<ICommand?>? command, string what) CycleLaunchFor(string[] args)
+        {
+            if (HasArg(args, "--once")) return (() => RunOnceCommand, "one cycle (--once)");
+            if (HasArg(args, "--new-cycle")) return (() => LaunchNewCycleCommand, "the cycle service with a new cycle (--new-cycle)");
+            if (HasArg(args, "--schedule") || HasArg(args, "--cycle")) return (() => LaunchBotCommand, "the cycle service on schedule, continuing the countdown (--schedule)");
+            return (null, "");
         }
 
         // "--task <TaskType> [--character <name>]" presses ▶ for one task on the first instance, e.g. --task MysticTrial --character llsa

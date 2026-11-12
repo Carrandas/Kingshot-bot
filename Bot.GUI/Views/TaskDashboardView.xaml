@@ -92,7 +92,10 @@
                 <StackPanel Orientation="Horizontal">
                     <Button Content="▶  Run on schedule" Background="#FF4CAF50" Style="{StaticResource ActionButton}"
                             Command="{Binding RunOnScheduleCommand}"
-                            ToolTip="Run a cycle now, then again after every cycle wait (Settings: min-max minutes)"/>
+                            ToolTip="Continue the countdown of the last run (next cycle in N minutes); when none is left, run a cycle now. Then again after every cycle wait (Settings: min-max minutes)"/>
+                    <Button Content="↻  New cycle" Background="#FF2E7D32" Style="{StaticResource ActionButton}"
+                            Command="{Binding RunNewCycleCommand}"
+                            ToolTip="Run a cycle now whatever countdown is left, then keep the schedule"/>
                     <Button Content="①  Run once" Background="#FF0D7377" Style="{StaticResource ActionButton}"
                             Command="{Binding RunOnceCommand}"
                             ToolTip="Run the task list once on every enabled character, then stop"/>
