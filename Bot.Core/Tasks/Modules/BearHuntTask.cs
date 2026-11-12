@@ -105,13 +105,19 @@ namespace Bot.Core.Tasks.Modules
             {
                 var locator = new LocatorService(logger, account, TaskType);
                 await locator.EnsureViewAsync(ViewType.MapView, instance, cancellationToken);
+                if (BearHuntStatus.RestoringGear)
+                {
+                    string restored = await MoveGearAsync(character, settings, toBear: false, instance, logger, cancellationToken);
+                    await locator.EnsureViewAsync(ViewType.MapView, instance, cancellationToken);
+                    return TaskExecutionDetails.Succeeded(restored);
+                }
                 var stage = BearHuntPlanner.StageAt(DateTime.UtcNow, start, settings);
                 var state = BearHuntStatus.Get(character);
                 var parts = new List<string>();
 
                 if ((stage is BearHuntStage.Prep or BearHuntStage.Running) && state?.Prepared != true)
                 {
-                    parts.Add(await PrepareAsync(character, instance, logger, cancellationToken));
+                    parts.Add(await PrepareAsync(character, settings, instance, logger, cancellationToken));
                     await locator.EnsureViewAsync(ViewType.MapView, instance, cancellationToken);
                 }
                 if (stage == BearHuntStage.Running)
@@ -161,15 +167,37 @@ namespace Bot.Core.Tasks.Modules
         #region Prep
 
         /// <summary>Auto-join off (it would send the troops elsewhere), then the marches home</summary>
-        private async Task<string> PrepareAsync(string character, int instance, LogService logger, CancellationToken cancellationToken)
+        private async Task<string> PrepareAsync(string character, BearHuntSettings settings, int instance, LogService logger, CancellationToken cancellationToken)
         {
             BearHuntStatus.Set(character, BearHuntPhase.Preparing);
+            string gear = await MoveGearAsync(character, settings, toBear: true, instance, logger, cancellationToken);
             string autoJoin = await SwitchAutoJoinOffAsync(character, instance, logger, cancellationToken);
             string marches = await RecallMarchesAsync(character, instance, logger, cancellationToken);
             string pets = await UsePetBuffsAsync(character, instance, logger, cancellationToken);
             BearHuntStatus.MarkPrepared(character);
-            logger.LogInfo($"[{character}] Bear Hunt: prepared ({autoJoin}; {marches}; {pets})");
-            return $"{autoJoin}; {marches}; {pets}";
+            string summary = string.Join("; ", new[] { gear, autoJoin, marches, pets }.Where(p => p.Length > 0));
+            logger.LogInfo($"[{character}] Bear Hunt: prepared ({summary})");
+            return summary;
+        }
+
+        /// <summary>The character's gear swaps: to the bear heroes in the prep (<paramref name="toBear"/>), back to the normal ones after the bear. "" when it has none.</summary>
+        private async Task<string> MoveGearAsync(string character, BearHuntSettings settings, bool toBear, int instance, LogService logger, CancellationToken cancellationToken)
+        {
+            var swaps = settings.GearSwapsFor(character);
+            if (swaps.Count == 0) return "";
+            var swapper = new HeroGearSwapper(point => ClickAsync(instance, logger, point), () => TakeScreenshotAsync(instance, logger), logger, cancellationToken);
+            var results = new List<string>();
+            foreach (var swap in swaps)
+            {
+                string from = toBear ? swap.NormalHero : swap.BearHero, to = toBear ? swap.BearHero : swap.NormalHero;
+                string? problem = await swapper.MoveGearAsync(from, to);
+                string result = problem == null ? $"gear {from} > {to}" : $"gear {from} > {to} failed ({problem})";
+                if (problem != null) logger.LogWarning($"[{character}] Bear Hunt: {result}");
+                results.Add(result);
+            }
+            string text = string.Join(", ", results);
+            logger.LogInfo($"[{character}] Bear Hunt: {text}");
+            return text;
         }
 
         /// <summary>Paw > Pet Skill > Quick Use on a battle skill: every battle skill (rally capacity, attack...) on for 2 hours</summary>

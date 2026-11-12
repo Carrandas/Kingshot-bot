@@ -42,8 +42,30 @@ namespace Bot.Core.Services
                 current = pick.Character;
             }
 
+            await RestoreGearAsync(account, onlyCharacter, runPass, logger, token);
+
             foreach (var entry in BearHuntStatus.All()) BearHuntStatus.Set(entry.Character, BearHuntPhase.Done, $"{entry.OwnRallies} own, {entry.Joins} joined");
             logger.LogInfo("🐻 Bear Hunt is over");
+        }
+
+        /// <summary>After the bear: every prepared character that swapped its gear gets one pass that moves it back</summary>
+        private static async Task RestoreGearAsync(AccountSettings account, string? onlyCharacter,
+            Func<string?, CancellationToken, Task<TaskExecutionDetails>> runPass, LogService logger, CancellationToken token)
+        {
+            var settings = account.BearHuntSettings;
+            var swapped = Characters(account, onlyCharacter)
+                .Where(c => settings.GearSwapsFor(c).Count > 0 && BearHuntStatus.Get(c)?.Prepared == true).ToList();
+            if (swapped.Count == 0) return;
+            BearHuntStatus.RestoringGear = true;
+            try
+            {
+                foreach (var character in swapped)
+                {
+                    logger.LogInfo($"🐻 Bear Hunt: gear back to normal on {character}");
+                    await RunPassAsync(account, character, CharacterRoster.GetActiveName(account.InstanceNumber), runPass, logger, token);
+                }
+            }
+            finally { BearHuntStatus.RestoringGear = false; }
         }
 
         private static async Task RunPassAsync(AccountSettings account, string character, string? current,

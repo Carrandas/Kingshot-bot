@@ -425,6 +425,38 @@
                                              ToolTip="5 min rally + the walk there and back; the next own rally goes when this has passed"/>
                                 </StackPanel>
 
+                                <StackPanel Margin="0,0,0,8">
+                                    <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                                        <TextBlock Text="Gear swap" FontWeight="SemiBold" Foreground="White"
+                                                   ToolTip="Per character: before the bear the gear moves from the normal hero to the bear hero (Unequip All, then Quick Equip), after the bear it moves back"/>
+                                        <Button Content="+ Add" Padding="8,1" Margin="6,0,0,0"
+                                                Command="{Binding DataContext.AddGearSwapCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"/>
+                                    </StackPanel>
+                                    <ItemsControl ItemsSource="{Binding GearSwaps}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                                                    <CheckBox IsChecked="{Binding Enabled}" VerticalAlignment="Center" Margin="0,0,10,0" ToolTip="Swap the gear for this character"/>
+                                                    <ComboBox Width="120" IsEditable="True"
+                                                              ItemsSource="{Binding DataContext.CharacterNames, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                              Text="{Binding Character, UpdateSourceTrigger=LostFocus}"/>
+                                                    <TextBlock Text="normal"/>
+                                                    <ComboBox Width="110" IsEditable="True"
+                                                              ItemsSource="{Binding DataContext.HeroNames, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                              Text="{Binding NormalHero, UpdateSourceTrigger=LostFocus}" ToolTip="The hero that wears the gear normally"/>
+                                                    <TextBlock Text="bear"/>
+                                                    <ComboBox Width="110" IsEditable="True"
+                                                              ItemsSource="{Binding DataContext.HeroNames, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                              Text="{Binding BearHero, UpdateSourceTrigger=LostFocus}" ToolTip="The hero that wears the gear during the bear"/>
+                                                    <Button Content="✕" Padding="6,0" ToolTip="Remove"
+                                                            Command="{Binding DataContext.RemoveGearSwapCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                            CommandParameter="{Binding}"/>
+                                                </StackPanel>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </StackPanel>
+
                                 <TextBlock TextWrapping="Wrap" Foreground="{StaticResource MutedBrush}" FontSize="11"
                                            Text="Beta: the bear icon and the trap's rally screens are not calibrated yet. Until then the own rally saves screenshots under logs/screenshots/bearhunt/ and skips; joining, Auto-Join Stop and the recall of gatherers work. No own rally after the start + 24:30."/>
                             </StackPanel>

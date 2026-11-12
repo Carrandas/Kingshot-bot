@@ -43,6 +43,9 @@ namespace Bot.Core.Services
         public static DateTime? EndsUtc { get; private set; }
         public static bool IsRunning => EndsUtc != null;
 
+        /// <summary>The bear is over and the passes only move the heroes' gear back</summary>
+        public static bool RestoringGear { get; set; }
+
         /// <summary>
         /// The War list had no rally left to join: the list is the alliance's, so another character won't find one
         /// either. Stay put until then.
@@ -66,6 +69,7 @@ namespace Bot.Core.Services
 
         public static void Stop()
         {
+            RestoringGear = false;
             BearStartUtc = null;
             EndsUtc = null;
             Changed?.Invoke();

@@ -35,6 +35,8 @@ namespace Bot.Core.Tasks.Modules
         private const string FreeRefreshTemplate = "free-refresh.png";            // a paid refresh shows a price instead
         private const string TapToExitTemplate = "tap-to-exit.png";               // bottom of the Victory/Failed screen
         private const string VictoryTemplate = "victory-title.png";
+        private const string SpeedX1Template = "speed-x1.png";                     // the battle speed button, bottom right
+        private static readonly Rectangle SpeedArea = new Rectangle(580, 900, 140, 130);
 
         private static readonly Rectangle PanelOpenArrowArea = new Rectangle(0, 420, 60, 260);
         private static readonly Rectangle PanelCloseArrowArea = new Rectangle(400, 420, 120, 260);
@@ -254,6 +256,7 @@ namespace Bot.Core.Tasks.Modules
             await ClickAsync(instance, logger, QuickDeployPoint);
             await Task.Delay(1500, cancellationToken);
             await ClickAsync(instance, logger, FightPoint);
+            await SpeedUpAsync(instance, logger, cancellationToken);
 
             for (int waited = 0; waited < BattleTimeoutSeconds; waited += 2)
             {
@@ -274,6 +277,19 @@ namespace Bot.Core.Tasks.Modules
             }
             logger.LogWarning($"[{account.AccountName}] Arena: no battle result after {BattleTimeoutSeconds}s");
             return null;
+        }
+
+        /// <summary>The battle's speed button (bottom right) reads x1 at the start of a fight: one tap makes it x2. Only tapped while the x1 shows, so a kept x2 is never cycled on</summary>
+        private async Task SpeedUpAsync(int instance, LogService logger, CancellationToken cancellationToken)
+        {
+            for (int attempt = 0; attempt < 3; attempt++)
+            {
+                await Task.Delay(1500, cancellationToken);
+                var speed = await MatchAsync(SpeedX1Template, SpeedArea, Threshold, instance, logger);
+                if (!speed.found) continue;
+                await ClickCenterInRectAsync(instance, logger, speed.rect);
+                return;
+            }
         }
 
         /// <summary>

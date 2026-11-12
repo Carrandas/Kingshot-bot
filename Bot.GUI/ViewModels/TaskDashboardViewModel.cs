@@ -43,6 +43,10 @@ namespace Bot.GUI.ViewModels
         public ICommand StartCastleBattleCommand { get; }
         public ICommand StartBearHuntCommand { get; }
         public ICommand StartKingshotCommand { get; }
+        public ICommand AddGearSwapCommand { get; }
+        public ICommand RemoveGearSwapCommand { get; }
+        /// <summary>Choices for the gear swap's heroes</summary>
+        public string[] HeroNames { get; } = HeroCatalog.Names;
 
         /// <summary>Bear Hunt tab: one row per character with its phase</summary>
         public ObservableCollection<BearRow> BearRows { get; } = new();
@@ -66,6 +70,8 @@ namespace Bot.GUI.ViewModels
             RunTaskCommand = new AsyncRelayCommand(p => RunSingleAsync(p as TaskRow), p => !IsBusy && p is TaskRow);
             ScanCharactersCommand = new AsyncRelayCommand(_ => ScanCharactersAsync(), _ => !IsBusy && SelectedAccount != null);
             StartKingshotCommand = new AsyncRelayCommand(_ => StartKingshotAsync(), _ => !IsBusy && SelectedAccount != null);
+            AddGearSwapCommand = new RelayCommand(_ => AddGearSwap(), _ => BearSettings != null);
+            RemoveGearSwapCommand = new RelayCommand(RemoveGearSwap, p => p is HeroGearSwap);
             // allowed while the cycle runs: the battle stops it first
             StartCastleBattleCommand = new AsyncRelayCommand(_ => StartCastleBattleAsync(), _ => CanStartMode(SelectedAccount?.CastleBattleSettings.IsValid));
             CastleBattleStatus.Changed += () => OnUi(RefreshBattle);
@@ -185,6 +191,13 @@ namespace Bot.GUI.ViewModels
             if (sender != null && e.PropertyName != nameof(BearHuntSettings.IsValid)) _configVM.SaveConfigIfNotApplying();
             RefreshBear();
         });
+
+        private void AddGearSwap() => BearSettings?.GearSwaps.Add(new HeroGearSwap { Character = CharacterNames.FirstOrDefault() ?? string.Empty });
+
+        private void RemoveGearSwap(object? parameter)
+        {
+            if (parameter is HeroGearSwap swap) BearSettings?.GearSwaps.Remove(swap);
+        }
 
         private async System.Threading.Tasks.Task StartBearHuntAsync()
         {

@@ -1,8 +1,12 @@
 using System;
+using System.Collections.ObjectModel;
+using System.Collections.Specialized;
 using System.ComponentModel;
+using System.Linq;
 using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Text.Json.Serialization;
+using Bot.Core.Services;
 
 namespace Bot.Core.Models
 {
@@ -68,6 +72,49 @@ namespace Bot.Core.Models
             var scanned = Trap == 2 ? ScannedTrap2Utc : ScannedTrap1Utc;
             if (scanned.HasValue && scanned.Value + EventLength > DateTime.UtcNow) NextBearUtc = scanned;
         }
+
+        private ObservableCollection<HeroGearSwap> _gearSwaps = new();
+
+        public BearHuntSettings() => Watch(_gearSwaps);
+
+        /// <summary>Optional per character: the gear goes to the bear hero in the prep and back to the normal hero after the bear</summary>
+        [JsonPropertyName("gearSwaps")]
+        public ObservableCollection<HeroGearSwap> GearSwaps
+        {
+            get => _gearSwaps;
+            set
+            {
+                Unwatch(_gearSwaps);
+                _gearSwaps = value ?? new ObservableCollection<HeroGearSwap>();
+                Watch(_gearSwaps);
+                OnPropertyChanged(nameof(GearSwaps));
+            }
+        }
+
+        private void Watch(ObservableCollection<HeroGearSwap> swaps)
+        {
+            swaps.CollectionChanged += OnGearSwapsChanged;
+            foreach (var swap in swaps) swap.PropertyChanged += OnGearSwapChanged;
+        }
+
+        private void Unwatch(ObservableCollection<HeroGearSwap> swaps)
+        {
+            swaps.CollectionChanged -= OnGearSwapsChanged;
+            foreach (var swap in swaps) swap.PropertyChanged -= OnGearSwapChanged;
+        }
+
+        private void OnGearSwapsChanged(object? sender, NotifyCollectionChangedEventArgs e)
+        {
+            if (e.OldItems != null) foreach (HeroGearSwap swap in e.OldItems) swap.PropertyChanged -= OnGearSwapChanged;
+            if (e.NewItems != null) foreach (HeroGearSwap swap in e.NewItems) swap.PropertyChanged += OnGearSwapChanged;
+            OnPropertyChanged(nameof(GearSwaps));
+        }
+
+        private void OnGearSwapChanged(object? sender, PropertyChangedEventArgs e) => OnPropertyChanged(nameof(GearSwaps));
+
+        /// <summary>The swaps to do for <paramref name="character"/>: ticked, with both heroes named</summary>
+        public System.Collections.Generic.List<HeroGearSwap> GearSwapsFor(string character) =>
+            GearSwaps.Where(s => s.Enabled && s.IsComplete && CharacterRoster.SameName(s.Character, character)).ToList();
 
         /// <summary>Team flag for our own rally on the bear (set to 5% infantry, 10% cavalry, 85% archers in the game)</summary>
         [JsonPropertyName("ownTeam")]
