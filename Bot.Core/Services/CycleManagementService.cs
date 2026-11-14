@@ -48,6 +48,9 @@ namespace Bot.Core.Services
         /// <summary>When the wait between cycles ends; null while a cycle runs or the service is stopped</summary>
         public DateTime? NextCycleUtc { get; private set; }
 
+        /// <summary>The service is idle between two cycles (no cycle runs), so the emulator is free for hand actions such as Start Kingshot</summary>
+        public bool IsWaitingForNextCycle => _isRunning && NextCycleUtc.HasValue;
+
         /// <summary>Raised when the cycle state the dashboard shows changes (cycle started/finished, waiting, stopped)</summary>
         public event Action? OnScheduleChanged;
 
@@ -74,7 +77,7 @@ namespace Bot.Core.Services
         /// </summary>
         public async Task<TaskExecutionDetails> StartKingshotAsync(AccountSettings account, CancellationToken cancellationToken)
         {
-            if (_isRunning) return TaskExecutionDetails.Failed("The cycle is running");
+            if (_isRunning && !IsWaitingForNextCycle) return TaskExecutionDetails.Failed("The cycle is running");
 
             _logger.LogInfo($"🚀 Starting LDPlayer instance {account.InstanceNumber} and Kingshot...");
             if (!await _instanceManager.StartInstanceAsync(account.InstanceNumber, cancellationToken))

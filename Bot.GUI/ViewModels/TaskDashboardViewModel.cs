@@ -71,7 +71,7 @@ namespace Bot.GUI.ViewModels
             RunNewCycleCommand = new RelayCommand(_ => { _main.LaunchNewCycleCommand.Execute(null); RefreshSoon(); }, _ => !IsBusy);
             RunTaskCommand = new AsyncRelayCommand(p => RunSingleAsync(p as TaskRow), p => !IsBusy && p is TaskRow);
             ScanCharactersCommand = new AsyncRelayCommand(_ => ScanCharactersAsync(), _ => !IsBusy && SelectedAccount != null);
-            StartKingshotCommand = new AsyncRelayCommand(_ => StartKingshotAsync(), _ => !IsBusy && SelectedAccount != null);
+            StartKingshotCommand = new AsyncRelayCommand(_ => StartKingshotAsync(), _ => CanStartKingshot);
             AddGearSwapCommand = new RelayCommand(_ => AddGearSwap(), _ => BearSettings != null);
             RemoveGearSwapCommand = new RelayCommand(RemoveGearSwap, p => p is HeroGearSwap);
             // allowed while the cycle runs: the battle stops it first
@@ -139,6 +139,10 @@ namespace Bot.GUI.ViewModels
         }
 
         public bool IsBusy => _cycleService.IsRunning || _singleRunActive || ModeStatus.AnyRunning;
+
+        /// <summary>Start Kingshot also works while the bot waits between cycles (no cycle runs then)</summary>
+        private bool CanStartKingshot => SelectedAccount != null && !_singleRunActive && !ModeStatus.AnyRunning
+            && (!_cycleService.IsRunning || _cycleService.IsWaitingForNextCycle);
 
         /// <summary>Castle Battle settings of the selected instance (both characters share them)</summary>
         public CastleBattleSettings? BattleSettings => _selectedAccount?.CastleBattleSettings;
@@ -521,7 +525,7 @@ namespace Bot.GUI.ViewModels
 
         private async System.Threading.Tasks.Task StartKingshotAsync()
         {
-            if (_selectedAccount == null || IsBusy) return;
+            if (_selectedAccount == null || !CanStartKingshot) return;
             _singleRunActive = true;
             SingleRunText = "Starting LDPlayer and Kingshot...";
             Refresh();
