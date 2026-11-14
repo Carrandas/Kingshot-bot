@@ -603,6 +603,9 @@ namespace Bot.Core.Services
             return success;
         }
 
+        /// <summary>Closes the account's emulator like at the end of a cycle (used after the Bear Hunt mode, which leaves it open)</summary>
+        public Task ShutdownInstanceAfterModeAsync(AccountSettings account) => ShutdownAccountInstanceAsync(account);
+
         private async Task ShutdownAccountInstanceAsync(AccountSettings account)
         {
             try

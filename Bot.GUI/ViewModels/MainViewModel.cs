@@ -398,8 +398,13 @@ namespace Bot.GUI.ViewModels
                     _logger.LogInfo($"🐻 Bear Hunt started: bear at {start.ToLocalTime():HH:mm} ({start:HH:mm} UTC), trap {settings.Trap}", category: LogCategories.UserAction);
                     BearHuntMode.Begin(account, start, onlyCharacter, skipPrep);
                 },
-                body: token => BearHuntRunner.RunAsync(account, start, onlyCharacter,
-                    (name, t) => _cycleService.RunSingleTaskAsync(account, TaskType.BearHunt, name, t), _logger, token),
+                body: async token =>
+                {
+                    await BearHuntRunner.RunAsync(account, start, onlyCharacter,
+                        (name, t) => _cycleService.RunSingleTaskAsync(account, TaskType.BearHunt, name, t), _logger, token);
+                    // over by itself (not stopped by hand): close the emulator like after a cycle
+                    if (_currentConfig?.CycleManagement.ShutdownEmulatorsAfterCycle != false) await _cycleService.ShutdownInstanceAfterModeAsync(account);
+                },
                 end: async () =>
                 {
                     BearHuntMode.End(settings, DateTime.UtcNow);

@@ -117,7 +117,7 @@ namespace Bot.Core.Tasks.Modules
 
                 if ((stage is BearHuntStage.Prep or BearHuntStage.Running) && state?.Prepared != true)
                 {
-                    parts.Add(await PrepareAsync(character, settings, instance, logger, cancellationToken));
+                    parts.Add(await PrepareAsync(character, settings, locator, instance, logger, cancellationToken));
                     await locator.EnsureViewAsync(ViewType.MapView, instance, cancellationToken);
                 }
                 if (stage == BearHuntStage.Running)
@@ -167,12 +167,22 @@ namespace Bot.Core.Tasks.Modules
         #region Prep
 
         /// <summary>Auto-join off (it would send the troops elsewhere), then the marches home</summary>
-        private async Task<string> PrepareAsync(string character, BearHuntSettings settings, int instance, LogService logger, CancellationToken cancellationToken)
+        private async Task<string> PrepareAsync(string character, BearHuntSettings settings, LocatorService locator, int instance, LogService logger, CancellationToken cancellationToken)
         {
             BearHuntStatus.Set(character, BearHuntPhase.Preparing);
             string gear = await MoveGearAsync(character, settings, toBear: true, instance, logger, cancellationToken);
+            await locator.EnsureViewAsync(ViewType.MapView, instance, cancellationToken);
             string autoJoin = await SwitchAutoJoinOffAsync(character, instance, logger, cancellationToken);
+            if (autoJoin.StartsWith("auto-join:", StringComparison.Ordinal) && autoJoin != "auto-join switched off")
+            {
+                // llsa on 2026-11-14: the popup did not open, then no marches were recalled and the paw was missing; look again from a clean map
+                await SaveStepScreenshotAsync("autojoin-failed", instance, logger);
+                await locator.EnsureViewAsync(ViewType.MapView, instance, cancellationToken);
+                autoJoin = await SwitchAutoJoinOffAsync(character, instance, logger, cancellationToken);
+            }
+            await locator.EnsureViewAsync(ViewType.MapView, instance, cancellationToken);
             string marches = await RecallMarchesAsync(character, instance, logger, cancellationToken);
+            await locator.EnsureViewAsync(ViewType.MapView, instance, cancellationToken);
             string pets = await UsePetBuffsAsync(character, instance, logger, cancellationToken);
             BearHuntStatus.MarkPrepared(character);
             string summary = string.Join("; ", new[] { gear, autoJoin, marches, pets }.Where(p => p.Length > 0));
