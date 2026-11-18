@@ -106,6 +106,17 @@ namespace Bot.Core.IntegrationTests
         [TestCase("176.610 / 1.481.610", 1_305_000L)]
         [TestCase("", null)]
         [TestCase("1,481,610/176,610", null)]   // misread: more than the maximum
+        [TestCase("1.758.2401784710", 26_470L)] // 2026-11-16, wee's rally: "/" read as "1"
+        [TestCase("1.758.2401.784.710", 26_470L)]
+        [TestCase("1.758.240.1.784.710", null)] // no clean split: stays unreadable
+        [TestCase("176.6101.481.610", 305_000L)] // 176,610/(1,)481,610: ambiguous, the smaller free count wins
+        // More misreads from the bear of 2026-11-16 that were joined although nearly full
+        [TestCase("1.941.990,1942193", 203L)]    // comma for the slash
+        [TestCase("1.841.880,1.902.160", 60_280L)]
+        [TestCase("1.703.487/1753.2710", 29_223L)] // extra digit in the max (1,753,210): the smallest reading wins
+        [TestCase("1.647123/19421923", 274_800L)]  // extra digit, still room: joined
+        [TestCase("180.210/1.685,710", 1_505_500L)] // comma inside the max: the slash still splits
+        [TestCase("1.4222521.753.210", null)]     // no clean split: unreadable, joined as before
         public void FreeTroops(string text, long? free) => Assert.That(BearHuntTask.FreeTroops(text), Is.EqualTo(free));
     }
 }

@@ -571,14 +571,60 @@ namespace Bot.Core.Tasks.Modules
             return ReadRallyTroops(image, plusY);
         }
 
-        /// <summary>Max minus current of "176,610/1,481,610"; null when it can't be read (then the row is joined)</summary>
+        /// <summary>A larger rally maximum is a misread (1.4M-1.95M seen in the bear of 2026-11-16)</summary>
+        internal const long MaxRallyCapacity = 3_000_000;
+
+        /// <summary>
+        /// Max minus current of "176,610/1,481,610"; null when it can't be read (then the row is joined). The OCR misreads this
+        /// line often (bear of 2026-11-16: 5 of ~60 joins went to rallies with under 100,000 free, one with 203), so every
+        /// reading a known misread allows is tried, and the smallest plausible free count wins: a doubtful row is skipped.
+        /// </summary>
         internal static long? FreeTroops(string text)
         {
-            var m = System.Text.RegularExpressions.Regex.Match(text, @"([\d,.]+)\s*/\s*([\d,.]+)", System.Text.RegularExpressions.RegexOptions.None, RegexTimeouts.Default);
-            if (!m.Success) return null;
-            static long? Number(string s) => long.TryParse(s.Replace(",", "").Replace(".", ""), out var n) ? n : null;
-            long? current = Number(m.Groups[1].Value), max = Number(m.Groups[2].Value);
-            return current is long c && max is long x && x >= c ? x - c : null;
+            long? free = null;
+            foreach (var (current, max) in TroopReadings(text))
+            {
+                if (max >= current && max <= MaxRallyCapacity && (free == null || max - current < free))
+                    free = max - current;
+            }
+            return free;
+        }
+
+        /// <summary>
+        /// The slash splits current and max. Without one, a comma is the slash ("1.941.990,1942193": the game writes thousands
+        /// with dots), else the slash was read as a digit or lost (<see cref="SlashAsDigitReadings"/>).
+        /// </summary>
+        private static IEnumerable<(long Current, long Max)> TroopReadings(string text)
+        {
+            int split = text.IndexOf('/');
+            if (split < 0) split = text.IndexOf(',');
+            if (split < 0) return SlashAsDigitReadings(text);
+            if (!long.TryParse(DigitsOf(text[..split]), out var current)) return [];
+            return MaxReadings(DigitsOf(text[(split + 1)..])).Select(max => (current, max));
+        }
+
+        /// <summary>The max as read, or, when that is too large, with one digit dropped ("1753.2710" for 1,753,210)</summary>
+        private static IEnumerable<long> MaxReadings(string digits)
+        {
+            if (long.TryParse(digits, out var max) && max <= MaxRallyCapacity) return [max];
+            return Enumerable.Range(0, digits.Length)
+                .Select(i => long.TryParse(digits.Remove(i, 1), out var shorter) ? shorter : -1)
+                .Where(n => n >= 0);
+        }
+
+        private static string DigitsOf(string s) => new string(s.Where(char.IsAsciiDigit).ToArray());
+
+        /// <summary>
+        /// The slash read as a digit or lost ("1.758.240/1.784.710" read as "1.758.2401784710": joined with 26,470 free).
+        /// The current count is the first number with its thousands separators intact; the max is the rest without its
+        /// first digit (slash read as a digit) or whole (slash lost).
+        /// </summary>
+        private static IEnumerable<(long Current, long Max)> SlashAsDigitReadings(string text)
+        {
+            var m = System.Text.RegularExpressions.Regex.Match(text.Trim(), @"^((?>\d{1,3}(?:\.\d{3})+))(\d[\d.]*)$", System.Text.RegularExpressions.RegexOptions.None, RegexTimeouts.Default);
+            if (!m.Success || !long.TryParse(DigitsOf(m.Groups[1].Value), out var current)) return [];
+            string rest = DigitsOf(m.Groups[2].Value);
+            return new[] { rest[1..], rest }.Where(s => long.TryParse(s, out _)).Select(s => (current, long.Parse(s)));
         }
 
         private static void MarkFull(string character)

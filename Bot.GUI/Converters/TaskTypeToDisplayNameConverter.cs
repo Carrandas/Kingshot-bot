@@ -42,6 +42,7 @@ namespace Bot.GUI.Converters
             { TaskType.AllianceTechnology, "Alliance Technology" },
             { TaskType.CollectRewards, "Collect Store Rewards" },
             { TaskType.CollectBank, "Collect Bank" },
+            { TaskType.VoyageOfLight, "Voyage of Light" },
             { TaskType.PetAdventure, "Pet Adventure" },
             { TaskType.PetSkill, "Pet Skill" },
             { TaskType.MysticTrial, "Mystic Trial" },

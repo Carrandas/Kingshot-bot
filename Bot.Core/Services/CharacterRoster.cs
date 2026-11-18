@@ -173,13 +173,22 @@ namespace Bot.Core.Services
         public static string? KnownAccountId(AccountSettings account, string name, int? kingdom) =>
             Find(account, name, kingdom)?.AccountId is { Length: > 0 } id ? id : null;
 
+        /// <summary>The real account ID linked to the character active on this instance, or null (none known, or no active character)</summary>
+        public static string? ActiveKnownAccountId(AccountSettings account) =>
+            _active.TryGetValue(account.InstanceNumber, out var active) && KnownAccountId(account, active.Name, active.Kingdom) is { } id
+                && !IsFallbackId(id) ? id : null;
+
+        /// <summary>The ID Account Detection makes up when the OCR fails (<c>inst0_Name_fallback</c>)</summary>
+        public static bool IsFallbackId(string? accountId) => accountId?.EndsWith("_fallback", StringComparison.Ordinal) == true;
+
         /// <summary>
         /// Account Detection found the game account ID: store it on the active character, so the dashboard can find
         /// that character's gates and run history.
         /// </summary>
         public static void LinkAccountId(AccountSettings account, string accountId)
         {
-            if (string.IsNullOrEmpty(accountId) || !_active.TryGetValue(account.InstanceNumber, out var active)) return;
+            // A fallback ID (OCR failed) must never replace the real ID: the dashboard would lose the character's history
+            if (string.IsNullOrEmpty(accountId) || IsFallbackId(accountId) || !_active.TryGetValue(account.InstanceNumber, out var active)) return;
             Dispatch(() =>
             {
                 var entry = Find(account, active.Name, active.Kingdom);

@@ -255,6 +255,14 @@ namespace Bot.Core.Services
         /// </summary>
         private string GetFallbackAccountId(AccountSettings account)
         {
+            // Change Account knows which character is active: reuse the ID an earlier detection linked to it
+            var knownId = CharacterRoster.ActiveKnownAccountId(account);
+            if (knownId != null)
+            {
+                _logger.LogWarning($"[{account.AccountName}] ⚠️ Account detection failed - using the active character's known ID: '{knownId}'");
+                return knownId;
+            }
+
             // Use instance number and account name as fallback
             string fallbackId = $"inst{account.InstanceNumber}_{account.AccountName}_fallback";
             _logger.LogWarning($"[{account.AccountName}] ⚠️ Account detection failed - using fallback ID: '{fallbackId}'");

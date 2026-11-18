@@ -95,6 +95,22 @@ namespace Bot.Core.Tests
         }
 
         [Test]
+        public void FallbackId_NeverReplacesTheKnownId()
+        {
+            // 2026-11-16: the ID OCR failed, "inst0_LDPlayer_fallback" was linked to llsa and the dashboard showed "never" everywhere
+            var account = new AccountSettings { InstanceNumber = 97 };
+            account.Characters.Add(new CharacterEntry { Name = "[KFC]llsa", Kingdom = 196, AccountId = "1104083889" });
+            CharacterRoster.SetActive(97, "[KFC]llsa", 196);
+
+            CharacterRoster.LinkAccountId(account, "inst97_LDPlayer_fallback");
+
+            Assert.That(account.Characters[0].AccountId, Is.EqualTo("1104083889"));
+            Assert.That(CharacterRoster.ActiveKnownAccountId(account), Is.EqualTo("1104083889"), "the fallback reuses the known ID");
+            Assert.That(CharacterRoster.IsFallbackId("inst0_LDPlayer_fallback"), Is.True);
+            Assert.That(CharacterRoster.IsFallbackId("1104083889"), Is.False);
+        }
+
+        [Test]
         public void Merge_KeepsCharactersTheScanMissed()
         {
             var account = new AccountSettings();

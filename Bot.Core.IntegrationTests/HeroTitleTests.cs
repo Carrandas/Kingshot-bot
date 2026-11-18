@@ -12,7 +12,7 @@ namespace Bot.Core.IntegrationTests
     public class HeroTitleTests
     {
         private static IEnumerable<string> Files() =>
-            Directory.GetFiles(Path.Combine(AppContext.BaseDirectory, "Screenshots", "heroes"), "*.png").Select(f => Path.GetFileNameWithoutExtension(f)!);
+            Directory.GetFiles(Path.Combine(AppContext.BaseDirectory, "Screenshots", "heroes"), "*.png").Select(f => Path.GetFileNameWithoutExtension(f));
 
         [TestCaseSource(nameof(Files))]
         public void Title_ReadsTheHero(string file)

@@ -44,7 +44,8 @@ namespace Bot.Core.Models
         Arena,
         CastleBattle,  // not in the cycle: the Bot tab's Castle Battle mode runs it
         BearHunt,      // in the cycle: reads the next bear once a day; the Bot tab's Bear Hunt mode does the bear
-        CollectBank    // the bank vault in the Deals hub, on its own 24h timer
+        CollectBank,   // the bank vault in the Deals hub, on its own 24h timer
+        VoyageOfLight  // timed Deals event: Claim All + Dispatch All every 8h
     }
 
     public class AccountSettings : INotifyPropertyChanged
