@@ -72,6 +72,11 @@ namespace Bot.Core.Tasks.Modules
                 var due = GetNextRunUtc(accountKey, account);
                 if (due != null)
                     return TaskExecutionDetails.SkippedBecause($"Next voyage check at {due:HH:mm} UTC");
+                if (!EventCalendar.MayRun(TaskType, DateTime.UtcNow))
+                {
+                    SetNextRun(accountKey, Schedule.NextUtcMidnight);
+                    return TaskExecutionDetails.SkippedBecause("Not on the event calendar today");
+                }
 
                 var locator = new LocatorService(logger, account, TaskType);
                 await locator.EnsureViewAsync(ViewType.BaseView, instance, cancellationToken);

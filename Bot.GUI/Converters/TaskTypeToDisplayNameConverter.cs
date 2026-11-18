@@ -15,7 +15,8 @@ namespace Bot.GUI.Converters
             TaskType.Startup,
             TaskType.Recovery,
             TaskType.AccountDetection,
-            TaskType.CastleBattle   // its own mode on the Bot tab, never in the cycle's task list
+            TaskType.CastleBattle,   // its own mode on the Bot tab, never in the cycle's task list
+            TaskType.VikingVengeance // its own mode too
         };
         
         private static readonly HashSet<TaskType> DisabledTasks = new()
@@ -43,13 +44,15 @@ namespace Bot.GUI.Converters
             { TaskType.CollectRewards, "Collect Store Rewards" },
             { TaskType.CollectBank, "Collect Bank" },
             { TaskType.VoyageOfLight, "Voyage of Light" },
+            { TaskType.AlchemyJunction, "Alchemy Junction" },
             { TaskType.PetAdventure, "Pet Adventure" },
             { TaskType.PetSkill, "Pet Skill" },
             { TaskType.MysticTrial, "Mystic Trial" },
             { TaskType.Arena, "Arena" },
             { TaskType.AutoJoinRally, "Auto Join Rally" },
             { TaskType.CastleBattle, "Castle Battle" },
-            { TaskType.BearHunt, "Bear Hunt" },
+            { TaskType.BearHunt, "Read events" },   // reads the Task List: the next bear and Viking Vengeance (the Bear Hunt tab runs the bear)
+            { TaskType.VikingVengeance, "Viking Vengeance" },
             { TaskType.CollectOnlineRewards, "Collect Online Rewards" },
             { TaskType.Journey, "Journey" },
             { TaskType.TruegoldCrucible, "Truegold Crucible" },

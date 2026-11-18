@@ -45,7 +45,9 @@ namespace Bot.Core.Models
         CastleBattle,  // not in the cycle: the Bot tab's Castle Battle mode runs it
         BearHunt,      // in the cycle: reads the next bear once a day; the Bot tab's Bear Hunt mode does the bear
         CollectBank,   // the bank vault in the Deals hub, on its own 24h timer
-        VoyageOfLight  // timed Deals event: Claim All + Dispatch All every 8h
+        VoyageOfLight,  // timed Deals event: Claim All + Dispatch All every 8h
+        VikingVengeance, // not in the cycle: the Viking Vengeance mode runs it (reinforce online members)
+        AlchemyJunction  // timed event: claim brews, play the Brew Workshop minigame
     }
 
     public class AccountSettings : INotifyPropertyChanged
@@ -70,6 +72,7 @@ namespace Bot.Core.Models
             ArenaSettings = new ArenaSettings();
             CastleBattleSettings = new CastleBattleSettings();
             BearHuntSettings = new BearHuntSettings();
+            VikingVengeanceSettings = new VikingVengeanceSettings();
 
             // Subscribe to nested settings PropertyChanged events to propagate changes
             TroopTrainingSettings.PropertyChanged += (sender, e) => OnPropertyChanged($"TroopTrainingSettings.{e.PropertyName}");
@@ -190,6 +193,9 @@ namespace Bot.Core.Models
 
         [JsonPropertyName("bearHuntSettings")]
         public BearHuntSettings BearHuntSettings { get; set; }
+
+        [JsonPropertyName("vikingVengeanceSettings")]
+        public VikingVengeanceSettings VikingVengeanceSettings { get; set; }
 
         private bool _doNotShutdown = false;
         [JsonPropertyName("doNotShutdown")]

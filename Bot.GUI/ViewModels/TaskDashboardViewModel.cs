@@ -35,6 +35,10 @@ namespace Bot.GUI.ViewModels
         public ObservableCollection<AccountSettings> Accounts => _configVM.Accounts;
         public ObservableCollection<CharacterItem> Characters { get; } = new();
         public ObservableCollection<TaskRow> Tasks { get; } = new();
+        /// <summary>The Daily tasks tab: every task row except the occasional events'</summary>
+        public ObservableCollection<TaskRow> DailyTasks { get; } = new();
+        /// <summary>The Scheduled events tab: tasks of events that come and go (the calendar says which days)</summary>
+        public ObservableCollection<TaskRow> EventTasks { get; } = new();
 
         public ICommand RunOnScheduleCommand { get; }
         public ICommand RunOnceCommand { get; }
@@ -42,6 +46,7 @@ namespace Bot.GUI.ViewModels
         public ICommand ScanCharactersCommand { get; }
         public ICommand StartCastleBattleCommand { get; }
         public ICommand StartBearHuntCommand { get; }
+        public ICommand StartVikingCommand { get; }
         public ICommand StartKingshotCommand { get; }
         public ICommand RunNewCycleCommand { get; }
         public ICommand AddGearSwapCommand { get; }
@@ -79,13 +84,16 @@ namespace Bot.GUI.ViewModels
             CastleBattleStatus.Changed += () => OnUi(RefreshBattle);
             StartBearHuntCommand = new AsyncRelayCommand(_ => StartBearHuntAsync(), _ => CanStartMode(SelectedAccount?.BearHuntSettings.IsValid));
             BearHuntStatus.Changed += () => OnUi(RefreshBear);
+            StartVikingCommand = new AsyncRelayCommand(_ => StartVikingAsync(), _ => CanStartMode(SelectedAccount?.VikingVengeanceSettings.IsValid));
+            VikingStatus.Changed += () => OnUi(RefreshViking);
+            EventCalendar.Changed += () => OnUi(RefreshCalendar);
 
             _cycleService.OnScheduleChanged += () => OnUi(Refresh);
             TaskRunHistory.Changed += () => OnUi(Refresh);
 
             // Relative times ("in 12 min") go stale: redraw twice a minute
             var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(30) };
-            timer.Tick += (_, _) => { Refresh(); RefreshBear(); };
+            timer.Tick += (_, _) => { Refresh(); RefreshBear(); RefreshViking(); };
             timer.Start();
 
             // A config reload refills Accounts with new objects: keep the same instance selected
@@ -110,12 +118,14 @@ namespace Bot.GUI.ViewModels
             set
             {
                 if (_selectedAccount == value) return;
-                if (_selectedAccount != null) { _selectedAccount.Characters.CollectionChanged -= OnCharactersChanged; _selectedAccount.HiddenTasks.CollectionChanged -= OnHiddenTasksChanged; _selectedAccount.CastleBattleSettings.PropertyChanged -= OnBattleSettingsChanged; _selectedAccount.BearHuntSettings.PropertyChanged -= OnBearSettingsChanged; }
+                if (_selectedAccount != null) { _selectedAccount.Characters.CollectionChanged -= OnCharactersChanged; _selectedAccount.HiddenTasks.CollectionChanged -= OnHiddenTasksChanged; _selectedAccount.CastleBattleSettings.PropertyChanged -= OnBattleSettingsChanged; _selectedAccount.BearHuntSettings.PropertyChanged -= OnBearSettingsChanged; _selectedAccount.VikingVengeanceSettings.PropertyChanged -= OnVikingSettingsChanged; }
                 _selectedAccount = value;
-                if (_selectedAccount != null) { _selectedAccount.Characters.CollectionChanged += OnCharactersChanged; _selectedAccount.HiddenTasks.CollectionChanged += OnHiddenTasksChanged; _selectedAccount.CastleBattleSettings.PropertyChanged += OnBattleSettingsChanged; _selectedAccount.BearHuntSettings.PropertyChanged += OnBearSettingsChanged; }
+                if (_selectedAccount != null) { _selectedAccount.Characters.CollectionChanged += OnCharactersChanged; _selectedAccount.HiddenTasks.CollectionChanged += OnHiddenTasksChanged; _selectedAccount.CastleBattleSettings.PropertyChanged += OnBattleSettingsChanged; _selectedAccount.BearHuntSettings.PropertyChanged += OnBearSettingsChanged; _selectedAccount.VikingVengeanceSettings.PropertyChanged += OnVikingSettingsChanged; }
                 OnPropertyChanged();
                 OnPropertyChanged(nameof(BattleSettings));
                 OnPropertyChanged(nameof(BearSettings));
+                OnPropertyChanged(nameof(VikingSettings));
+                RefreshViking();
                 OnBattleSettingsChanged(null, new PropertyChangedEventArgs(null));
                 OnPropertyChanged(nameof(ShowAccountPicker));
                 RebuildCharacters();
@@ -149,6 +159,10 @@ namespace Bot.GUI.ViewModels
 
         /// <summary>0 = Cycle, 1 = Castle Battle, 2 = Bear Hunt; a running battle or bear hunt shows its tab</summary>
         private int _selectedTabIndex;
+        // Tab order in TaskDashboardView.xaml: Daily tasks, Scheduled events, Castle Battle, Bear Hunt, Viking Vengeance
+        private const int CastleBattleTabIndex = 2;
+        private const int BearHuntTabIndex = 3;
+
         public int SelectedTabIndex { get => _selectedTabIndex; set { if (_selectedTabIndex != value) { _selectedTabIndex = value; OnPropertyChanged(); } } }
         private bool _battleWasRunning;
 
@@ -236,12 +250,60 @@ namespace Bot.GUI.ViewModels
             }
             bool running = BearHuntStatus.IsRunning;
             if (running) CycleStatus = BearStatusText;
-            if (running && !_bearWasRunning) SelectedTabIndex = 2;
+            if (running && !_bearWasRunning) SelectedTabIndex = BearHuntTabIndex;
             _bearWasRunning = running;
         }
 
         private string BuildBearStatus() =>
             BearHuntStatus.Summary(DateTime.UtcNow, BearSettings, BearHuntEnabled, Local, Relative);
+
+        #region Viking Vengeance
+
+        /// <summary>Viking Vengeance settings of the selected instance</summary>
+        public VikingVengeanceSettings? VikingSettings => _selectedAccount?.VikingVengeanceSettings;
+
+        private string _vikingStatusText = string.Empty;
+        public string VikingStatusText { get => _vikingStatusText; private set { if (_vikingStatusText != value) { _vikingStatusText = value; OnPropertyChanged(); } } }
+
+        private string _nextVikingText = string.Empty;
+        public string NextVikingText { get => _nextVikingText; private set { if (_nextVikingText != value) { _nextVikingText = value; OnPropertyChanged(); } } }
+
+        // the bot sets NextVikingUtc from its own thread: handle it on the UI thread
+        private void OnVikingSettingsChanged(object? sender, PropertyChangedEventArgs e) => OnUi(() =>
+        {
+            CommandManager.InvalidateRequerySuggested();
+            if (sender != null && e.PropertyName != nameof(VikingVengeanceSettings.IsValid)) _configVM.SaveConfigIfNotApplying();
+            RefreshViking();
+        });
+
+        private async System.Threading.Tasks.Task StartVikingAsync()
+        {
+            if (_selectedAccount == null) return;
+            var run = _main.RunVikingVengeanceAsync(_selectedAccount);
+            RefreshSoon();
+            await run;
+            Refresh();
+        }
+
+        /// <summary>Viking Vengeance tab: the next event and, while it runs, each character's last state</summary>
+        private void RefreshViking()
+        {
+            CommandManager.InvalidateRequerySuggested();
+            OnPropertyChanged(nameof(IsBusy));
+            NextVikingText = VikingSettings?.NextVikingUtc is DateTime next
+                ? $"Next Viking Vengeance: {Local(next)} local ({Relative(next)}); the bot starts {VikingSettings.PrepMinutes} min before"
+                : "Next Viking Vengeance: not known yet (Read events reads the Task List, or type it in)";
+            if (!VikingStatus.IsRunning)
+            {
+                VikingStatusText = VikingSettings?.Enabled == true ? "Waiting for the next event" : "Off: the bot won't start it by itself";
+                return;
+            }
+            var states = string.Join(" · ", VikingStatus.States().Select(s => $"{s.Character}: {s.State}"));
+            VikingStatusText = $"⚔ Running until {Local(VikingStatus.EndsUtc!.Value)} ({VikingStatus.Phase}){(states.Length > 0 ? " — " + states : "")}";
+            CycleStatus = VikingStatusText;
+        }
+
+        #endregion
 
         /// <summary>Roster names for the first-character choice</summary>
         private void RefreshCharacterNames()
@@ -281,7 +343,7 @@ namespace Bot.GUI.ViewModels
                 BattleRows[i].Update(name, entries.FirstOrDefault(e => CharacterRoster.SameName(e.Character, name)), BattleSettings?.HealAmountFor(name));
             }
             if (CastleBattleStatus.IsRunning) CycleStatus = BattleStatusText;
-            if (CastleBattleStatus.IsRunning && !_battleWasRunning) SelectedTabIndex = 1;
+            if (CastleBattleStatus.IsRunning && !_battleWasRunning) SelectedTabIndex = CastleBattleTabIndex;
             _battleWasRunning = CastleBattleStatus.IsRunning;
         }
 
@@ -335,10 +397,41 @@ namespace Bot.GUI.ViewModels
         private void RebuildTasks()
         {
             Tasks.Clear();
+            DailyTasks.Clear();
+            EventTasks.Clear();
             if (_selectedAccount == null) return;
             foreach (var type in Enum.GetValues<TaskType>().Where(t => TaskTypeToDisplayNameConverter.IsUserTask(t) && t != TaskType.ChangeAccount && !_selectedAccount.HiddenTasks.Contains(t)).OrderBy(TaskManager.GetRunOrder))
-                Tasks.Add(new TaskRow(type, TaskTypeToDisplayNameConverter.GetDisplayName(type), _selectedAccount, () => { _configVM.SaveConfigIfNotApplying(); Refresh(); }));
+            {
+                var row = new TaskRow(type, TaskTypeToDisplayNameConverter.GetDisplayName(type), _selectedAccount, () => { _configVM.SaveConfigIfNotApplying(); Refresh(); });
+                Tasks.Add(row);
+                (EventCalendar.BarNames.ContainsKey(type) ? EventTasks : DailyTasks).Add(row);
+            }
+            RefreshCalendar();
             Refresh();
+        }
+
+        private string _calendarText = "";
+        /// <summary>The Scheduled events tab's summary of the last calendar read</summary>
+        public string CalendarText { get => _calendarText; private set { if (_calendarText != value) { _calendarText = value; OnPropertyChanged(); } } }
+
+        private void RefreshCalendar()
+        {
+            var read = EventCalendar.Current;
+            if (read == null)
+            {
+                CalendarText = "Event calendar not read yet: \"Read events\" reads it once a day (Events > Calendar). Until then each event task checks for its event itself.";
+                return;
+            }
+            bool thisWeek = read.WeekStart == EventCalendar.WeekStartOf(DateTime.UtcNow);
+            var lines = EventCalendar.BarNames.Select(kv =>
+            {
+                var bars = EventCalendar.For(kv.Key);
+                string days = bars.Count == 0 ? "not on the calendar" : string.Join(", ", bars.Select(b => $"{b.FirstDay:ddd dd/MM} - {b.LastDay:ddd dd/MM}"));
+                return $"{TaskTypeToDisplayNameConverter.GetDisplayName(kv.Key)} ({kv.Value}): {days}";
+            });
+            CalendarText = $"Event calendar of the week of {read.WeekStart:dd/MM}, read {read.ReadUtc.ToLocalTime():ddd HH:mm}" +
+                (thisWeek ? "" : " (last week: the event tasks check for themselves until the next read)") +
+                Environment.NewLine + string.Join(Environment.NewLine, lines);
         }
 
         /// <summary>Game account key of the selected character, as the task gates and the history use it; null when not known yet</summary>
@@ -435,6 +528,7 @@ namespace Bot.GUI.ViewModels
 
             if (CastleBattleStatus.EndsUtc is DateTime battleEnds) return $"Castle Battle running until {Local(battleEnds)}";
             if (BearHuntStatus.IsRunning) return BuildBearStatus();
+            if (VikingStatus.IsRunning) return VikingStatusText;
             if (_singleRunActive) return SingleRunText;
             if (cycleRunning) return $"Cycle {_cycleService.CurrentCycle} running{runningText}";
             return BuildWaitingStatus(min, max, nextCycle);

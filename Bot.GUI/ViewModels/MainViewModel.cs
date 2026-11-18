@@ -182,6 +182,8 @@ namespace Bot.GUI.ViewModels
             {
                 try { await CheckBearScheduleAsync(); }
                 catch (Exception ex) { _logger.LogError($"Bear Hunt schedule check failed: {ex}"); }
+                try { await CheckVikingScheduleAsync(); }
+                catch (Exception ex) { _logger.LogError($"Viking Vengeance schedule check failed: {ex}"); }
             };
             bearTimer.Start();
         }
@@ -412,6 +414,45 @@ namespace Bot.GUI.ViewModels
                 });
         }
 
+        /// <summary>
+        /// Viking Vengeance mode: stops the cycle, every character recalls its marches and reinforces the online members
+        /// (the main character last), the game stays open on the main character until the event is over, then the troops
+        /// are recalled and a schedule that was running starts again. <paramref name="startUtc"/> null: the saved event
+        /// while it is due, else now (a test by hand).
+        /// </summary>
+        public async Task RunVikingVengeanceAsync(AccountSettings account, DateTime? startUtc = null, string? onlyCharacter = null)
+        {
+            if (_modes.IsBusy) return;
+            var settings = account.VikingVengeanceSettings;
+            var start = VikingVengeanceMode.ResolveStart(settings, startUtc, DateTime.UtcNow);
+            await _modes.RunAsync("Viking Vengeance", "⚔",
+                begin: () =>
+                {
+                    _logger.LogInfo($"⚔ Viking Vengeance started: event at {start.ToLocalTime():HH:mm} ({start:HH:mm} UTC), until {(start + settings.EventLength).ToLocalTime():HH:mm}", category: LogCategories.UserAction);
+                    VikingVengeanceMode.Begin(account, start);
+                },
+                body: async token =>
+                {
+                    await VikingVengeanceMode.RunAsync(account, start, onlyCharacter,
+                        (name, t) => _cycleService.RunSingleTaskAsync(account, TaskType.VikingVengeance, name, t), _logger, token);
+                    if (_currentConfig?.CycleManagement.ShutdownEmulatorsAfterCycle != false) await _cycleService.ShutdownInstanceAfterModeAsync(account);
+                },
+                end: async () =>
+                {
+                    VikingVengeanceMode.End(settings, DateTime.UtcNow);
+                    await ConfigVM.SaveConfigIfNotApplyingAsync();
+                });
+        }
+
+        /// <summary>Viking Vengeance on: start the mode once a known event's prep time has come (a bear or battle running first wins)</summary>
+        private async Task CheckVikingScheduleAsync()
+        {
+            if (_modes.IsBusy) return;
+            var due = VikingVengeanceMode.FindDue(ConfigVM.Accounts, DateTime.UtcNow);
+            if (due.Account == null) return;
+            await RunVikingVengeanceAsync(due.Account, due.StartUtc);
+        }
+
         /// <summary>The Bear Hunt switch: start the mode on the first instance with it on once its bear's prep time has come</summary>
         private async Task CheckBearScheduleAsync()
         {
@@ -511,13 +552,13 @@ namespace Bot.GUI.ViewModels
             return i >= 0 && i + 1 < args.Length ? args[i + 1] : null;
         }
 
-        /// <summary>Command line switches for unattended runs: --schedule / --cycle (continue the countdown) / --new-cycle / --once, --castle-battle, --bear-hunt, --task, --launch. Only the first one that applies runs.</summary>
+        /// <summary>Command line switches for unattended runs: --schedule / --cycle (continue the countdown) / --new-cycle / --once, --castle-battle, --bear-hunt, --viking, --task, --launch. Only the first one that applies runs.</summary>
         private void AutoLaunchFromCommandLine(BotConfig config)
         {
             if (_autoLaunchDone) return;
 
             var args = Environment.GetCommandLineArgs();
-            _autoLaunchDone = TryAutoStartCycle(args) || TryAutoCastleBattle(args, config) || TryAutoBearHunt(args, config) || TryAutoRunTask(args, config) || TryAutoLaunchInstances(args);
+            _autoLaunchDone = TryAutoStartCycle(args) || TryAutoCastleBattle(args, config) || TryAutoBearHunt(args, config) || TryAutoViking(args, config) || TryAutoRunTask(args, config) || TryAutoLaunchInstances(args);
         }
 
         // "--schedule" (or the older "--cycle") presses Run on schedule (continues the countdown), "--new-cycle" starts a cycle at once, "--once" presses Run once
@@ -584,6 +625,22 @@ namespace Bot.GUI.ViewModels
                 : bearAccount.Characters.FirstOrDefault(c => CharacterRoster.SameName(c.Name, characterArg))?.Name ?? characterArg;
             _logger.LogInfo($"Auto-starting the Bear Hunt{(character != null ? $" on {character} only" : "")}{(skipPrep ? " without prep (--bear-hunt-no-prep)" : " (--bear-hunt)")}");
             System.Windows.Application.Current?.Dispatcher.BeginInvoke(async () => await RunBearHuntAsync(bearAccount, null, character, skipPrep));
+            return true;
+        }
+
+        // "--viking [--character <name>]" presses Viking Vengeance on the first instance: the saved event while it is due, else one starting now (a test)
+        private bool TryAutoViking(string[] args, BotConfig config)
+        {
+            if (!HasArg(args, "--viking") || config.Accounts.FirstOrDefault() is not AccountSettings vikingAccount)
+            {
+                return false;
+            }
+
+            var characterArg = ArgValue(args, "--character");
+            var character = characterArg == null ? null
+                : vikingAccount.Characters.FirstOrDefault(c => CharacterRoster.SameName(c.Name, characterArg))?.Name ?? characterArg;
+            _logger.LogInfo($"Auto-starting Viking Vengeance{(character != null ? $" on {character} only" : "")} (--viking)");
+            System.Windows.Application.Current?.Dispatcher.BeginInvoke(async () => await RunVikingVengeanceAsync(vikingAccount, null, character));
             return true;
         }
 

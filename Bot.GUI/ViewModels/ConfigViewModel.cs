@@ -30,7 +30,8 @@ namespace Bot.GUI.ViewModels
             TaskType.Startup,
             TaskType.Recovery,
             TaskType.AccountDetection,
-            TaskType.CastleBattle   // its own mode on the Bot tab, never in the cycle's task list
+            TaskType.CastleBattle,   // its own mode on the Bot tab, never in the cycle's task list
+            TaskType.VikingVengeance // its own mode too
         };
         
         private static readonly HashSet<TaskType> DisabledTasks = new()

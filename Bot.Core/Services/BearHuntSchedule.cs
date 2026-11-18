@@ -8,7 +8,7 @@ namespace Bot.Core.Services
 {
     /// <summary>
     /// The map's Task List (tap the UTC banner at the top of the map): date headers ("Today", "2026/11/08") and one
-    /// row per event with its UTC time ("Bear Hunt - Trap 2" ... "UTC 13:00"). Finds the next bear of our trap.
+    /// row per event with its UTC time ("Bear Hunt - Trap 2" ... "UTC 13:00"). Finds the next bear of our trap and the next Viking Vengeance.
     /// </summary>
     public static class BearHuntSchedule
     {
@@ -17,6 +17,7 @@ namespace Bot.Core.Services
 
         private static readonly Regex DateRegex = new(@"(\d{4})\s*/\s*(\d{1,2})\s*/\s*(\d{1,2})", RegexOptions.None, RegexTimeouts.Default);
         private static readonly Regex TimeRegex = new(@"(\d{1,2})\s*[:.]\s*(\d{2})", RegexOptions.None, RegexTimeouts.Default);
+        private static readonly Regex VikingRegex = new(@"vik[il1]ng", RegexOptions.IgnoreCase, RegexTimeouts.Default);
         // OCR reads the trap's "1" as l, I or | now and then
         private static readonly Regex BearRegex = new(@"bear.*trap\s*([12lI|])", RegexOptions.IgnoreCase, RegexTimeouts.Default);
 
@@ -25,7 +26,14 @@ namespace Bot.Core.Services
         /// (one still running counts: joining late helps). Rows take the date of the header above them; rows before
         /// any header are today's.
         /// </summary>
-        public static DateTime? NextBear(IEnumerable<TaskListItem> items, int trap, DateTime nowUtc, TimeSpan eventLength)
+        public static DateTime? NextBear(IEnumerable<TaskListItem> items, int trap, DateTime nowUtc, TimeSpan eventLength) =>
+            NextEvent(items, nowUtc, eventLength, (row, date) => BearTime(row, trap, date));
+
+        /// <summary>The earliest "Viking Vengeance" row that is not over yet (the row's wording is not confirmed yet: any "viking" title counts)</summary>
+        public static DateTime? NextViking(IEnumerable<TaskListItem> items, DateTime nowUtc, TimeSpan eventLength) =>
+            NextEvent(items, nowUtc, eventLength, VikingTime);
+
+        private static DateTime? NextEvent(IEnumerable<TaskListItem> items, DateTime nowUtc, TimeSpan eventLength, Func<TaskListItem, DateTime, DateTime?> rowStart)
         {
             var date = nowUtc.Date;
             DateTime? best = null;
@@ -36,7 +44,7 @@ namespace Bot.Core.Services
                     date = HeaderDate(item.Text, nowUtc) ?? date;
                     continue;
                 }
-                if (BearTime(item, trap, date) is DateTime start && start + eventLength > nowUtc && (best == null || start < best))
+                if (rowStart(item, date) is DateTime start && start + eventLength > nowUtc && (best == null || start < best))
                     best = start;
             }
             return best;
@@ -58,6 +66,15 @@ namespace Bot.Core.Services
         {
             var bear = BearRegex.Match(row.Text);
             if (!bear.Success || TrapNumber(bear.Groups[1].Value) != trap) return null;
+            return RowTime(row, date);
+        }
+
+        /// <summary>The start of a Viking Vengeance row on <paramref name="date"/>; null for other rows</summary>
+        internal static DateTime? VikingTime(TaskListItem row, DateTime date) =>
+            VikingRegex.IsMatch(row.Text) ? RowTime(row, date) : null;
+
+        private static DateTime? RowTime(TaskListItem row, DateTime date)
+        {
             var time = TimeRegex.Match(row.Time);
             if (!time.Success) return null;
             int hours = int.Parse(time.Groups[1].Value), minutes = int.Parse(time.Groups[2].Value);

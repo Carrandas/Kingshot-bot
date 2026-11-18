@@ -79,6 +79,7 @@ namespace Bot.Core.Tasks
             tasks[TaskType.CollectRewards] = new CollectRewardsTask();
             tasks[TaskType.CollectBank] = new CollectBankTask();
             tasks[TaskType.VoyageOfLight] = new VoyageOfLightTask();
+            tasks[TaskType.AlchemyJunction] = new AlchemyJunctionTask();
             tasks[TaskType.PetAdventure] = new PetAdventureTask();
             tasks[TaskType.CollectOnlineRewards] = new CollectOnlineRewardsTask();
             tasks[TaskType.Journey] = new JourneyTask();
@@ -95,6 +96,7 @@ namespace Bot.Core.Tasks
             tasks[TaskType.AutoJoinRally] = new AutoJoinRallyTask();
             tasks[TaskType.CastleBattle] = new CastleBattleTask();
             tasks[TaskType.BearHunt] = new BearHuntTask();
+            tasks[TaskType.VikingVengeance] = new VikingVengeanceTask();
             return tasks;
         }
 
@@ -787,8 +789,10 @@ namespace Bot.Core.Tasks
             { TaskType.MysticTrial, 25 },
             { TaskType.Arena, 25 },
             { TaskType.AutoJoinRally, 26 },
+            { TaskType.AlchemyJunction, 26 },  // late: its brews come from missions the tasks before it finish (troops, alliance contributions)
             { TaskType.CastleBattle, 27 },     // never in a cycle list (the Castle Battle mode runs it); listed for completeness
-            { TaskType.BearHunt, 28 },         // the cycle only reads the next bear; the Bear Hunt mode runs the passes
+            { TaskType.BearHunt, 28 },         // "Read events": the cycle only reads the Task List (next bear, Viking Vengeance); the modes run the passes
+            { TaskType.VikingVengeance, 29 },  // never in a cycle list (the Viking Vengeance mode runs it)
             { TaskType.ChangeAccount, 999 }    // ChangeAccount should always run last
         };
 

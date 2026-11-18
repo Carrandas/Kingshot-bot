@@ -26,7 +26,7 @@ namespace Bot.Core.Tasks.Modules
     /// BETA: the bear icon and the trap's rally button are not calibrated yet (no live bear seen). Those steps save a
     /// screenshot under logs/screenshots/bearhunt/ and skip.
     /// </summary>
-    public class BearHuntTask : RallyTaskBase, IScheduledTask
+    public partial class BearHuntTask : RallyTaskBase, IScheduledTask
     {
         public override TaskType TaskType => TaskType.BearHunt;
         public override string Name => "Bear Hunt";
@@ -41,8 +41,6 @@ namespace Bot.Core.Tasks.Modules
         internal const double BearRowThreshold = 0.75;   // "Raging Bear" under a War row's members: 0.83-0.84 (the card's text, other background)
         private static readonly TimeSpan NotUpRetry = TimeSpan.FromSeconds(20);    // no bear icon yet: look again after this
         private const string AutoJoinStopTemplate = "autojoin-stop.png";  // the Auto-Join popup's orange Stop: 1.00, <= 0.38 elsewhere
-        private const string RecallArrowTemplate = "recall-arrow.png";    // Marching panel's return arrow: 0.94-1.00 on gathering rows, <= 0.82 on a rally's eye
-        private const string RecallTitleTemplate = "recall-title.png";    // "Recall squad?" popup: 1.00, <= 0.32 elsewhere
         private const string TaskListTitleTemplate = "tasklist-title.png"; // "Task List" (UTC banner): 1.00, <= 0.35 on other popups
         // Shared with Auto Join Rally
         private static readonly string AutoJoinOnTemplate = Path.Combine("autojoinrally", "autojoin-on.png");     // "Auto-joining..." button
@@ -71,11 +69,6 @@ namespace Bot.Core.Tasks.Modules
         private static readonly Rectangle AutoJoinTitleArea = new Rectangle(240, 110, 240, 80);
         private static readonly Rectangle AutoJoinPopupButtonsArea = new Rectangle(40, 1020, 640, 140);
         private static readonly System.Drawing.Point AutoJoinClosePoint = new System.Drawing.Point(667, 147);
-        private static readonly Rectangle RecallArrowArea = new Rectangle(180, 230, 70, 380);   // the panel's 6 rows, 61 px apart
-        private const double RecallArrowThreshold = 0.90;
-        private static readonly Rectangle RecallTitleArea = new Rectangle(200, 400, 320, 100);
-        private static readonly System.Drawing.Point RecallConfirmPoint = new System.Drawing.Point(512, 789);
-        private const int MaxRecalls = 8;
         // Task List: UTC banner at the top of the map, the list below "UTC Time", the close X
         private static readonly System.Drawing.Point UtcBannerPoint = new System.Drawing.Point(245, 28);
         private static readonly Rectangle TaskListTitleArea = new Rectangle(0, 320, 260, 80);
@@ -290,30 +283,6 @@ namespace Bot.Core.Tasks.Modules
             return "auto-join switched off";
         }
 
-        /// <summary>
-        /// Gatherers out would miss the bear: every Marching panel row with a return arrow > Recall squad? > Confirm.
-        /// Rallies (an eye instead of the arrow) stay.
-        /// </summary>
-        private async Task<string> RecallMarchesAsync(string character, int instance, LogService logger, CancellationToken cancellationToken)
-        {
-            int recalled = 0;
-            for (int i = 0; i < MaxRecalls; i++)
-            {
-                var arrow = await MatchAsync(RecallArrowTemplate, RecallArrowArea, RecallArrowThreshold, instance, logger);
-                if (!arrow.found) break;
-                await ClickCenterInRectAsync(instance, logger, arrow.rect);
-                await Task.Delay(1200, cancellationToken);
-                if (!(await MatchAsync(RecallTitleTemplate, RecallTitleArea, Threshold, instance, logger)).found)
-                {
-                    logger.LogWarning($"[{character}] Bear Hunt: no Recall popup after the return arrow");
-                    break;
-                }
-                await ClickAsync(instance, logger, RecallConfirmPoint);
-                await Task.Delay(1500, cancellationToken);
-                recalled++;
-            }
-            return recalled > 0 ? $"recalled {recalled} marches" : "no marches to recall";
-        }
 
         #endregion
 
@@ -652,9 +621,10 @@ namespace Bot.Core.Tasks.Modules
         {
             var settings = account.BearHuntSettings;
             string key = GateKey(account);
-            if (!_forceRead && DailyGate.DoneToday(TaskType, key))
+            if (!_forceRead && DailyGate.DoneToday(TaskType, key) && !VikingRereadDue(account))
                 return TaskExecutionDetails.SkippedBecause($"Already read today; next bear {(settings.NextBearUtc != null ? settings.NextBearUtcText + " UTC" : "unknown")}");
             _forceRead = false;
+            _lastReadUtc[key] = DateTime.UtcNow;
 
             int instance = account.InstanceNumber;
             var locator = new LocatorService(logger, account, TaskType);
@@ -664,11 +634,14 @@ namespace Bot.Core.Tasks.Modules
             if (items == null) return TaskExecutionDetails.Failed("The Task List did not open");
 
             DailyGate.MarkDone(TaskType, key);
+            await ReadEventCalendarAsync(account, logger, cancellationToken);
             var now = DateTime.UtcNow;
             var trap1 = BearHuntSchedule.NextBear(items, 1, now, settings.EventLength);
             var trap2 = BearHuntSchedule.NextBear(items, 2, now, settings.EventLength);
             settings.SetScanned(trap1, trap2); // both traps are kept: changing the trap in the GUI picks the other one
-            logger.LogInfo($"Bear Hunt: Task List read ({items.Count} rows): Trap 1 {FormatBear(trap1)}, Trap 2 {FormatBear(trap2)}");
+            var viking = BearHuntSchedule.NextViking(items, now, account.VikingVengeanceSettings.EventLength);
+            if (viking != null) account.VikingVengeanceSettings.NextVikingUtc = viking;
+            logger.LogInfo($"Bear Hunt: Task List read ({items.Count} rows): Trap 1 {FormatBear(trap1)}, Trap 2 {FormatBear(trap2)}, Viking Vengeance {FormatBear(viking)}");
             var next = settings.NextBearUtc;
             if (next == null)
             {
@@ -677,6 +650,20 @@ namespace Bot.Core.Tasks.Modules
             }
             logger.LogInfo($"Bear Hunt: next Trap {settings.Trap} bear at {next:yyyy-MM-dd HH:mm} UTC ({next.Value.ToLocalTime():HH:mm} local)");
             return TaskExecutionDetails.Succeeded($"Next bear {next:MM-dd HH:mm} UTC");
+        }
+
+        private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, DateTime> _lastReadUtc = new();
+        private static readonly TimeSpan VikingReread = TimeSpan.FromHours(4);
+
+        /// <summary>
+        /// Viking Vengeance can be put in the Task List later in the day: while it's on and none is known, the list is
+        /// read again every few hours (in memory: after a restart the first cycle reads it once more)
+        /// </summary>
+        private static bool VikingRereadDue(AccountSettings account)
+        {
+            var viking = account.VikingVengeanceSettings;
+            if (!viking.Enabled || viking.NextVikingUtc is DateTime next && next + viking.EventLength > DateTime.UtcNow) return false;
+            return !_lastReadUtc.TryGetValue(GateKey(account), out var last) || DateTime.UtcNow - last >= VikingReread;
         }
 
         private static string FormatBear(DateTime? bear) => bear is DateTime b ? $"{b:MM-dd HH:mm} UTC" : "none";

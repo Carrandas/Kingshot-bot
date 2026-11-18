@@ -14,7 +14,7 @@ using System.Drawing;
 namespace Bot.Core.Tasks.Modules
 {
     /// <summary>
-    /// Shared by the rally modes (Castle Battle, Bear Hunt): Alliance > War > Rally list with its green join "+",
+    /// Shared by the rally modes (Castle Battle, Bear Hunt, Viking Vengeance): Alliance > War > Rally list with its green join "+",
     /// the deploy screen's team flags, the Marching tracker at the top left of the map, and template matching with
     /// templates from other task folders ("castlebattle/deploy-button.png").
     /// </summary>
@@ -73,6 +73,46 @@ namespace Bot.Core.Tasks.Modules
 
         private static string ReadWhiteText(Mat image, Rectangle area, string? whitelist) =>
             MaskedTextOcr.Read(image, area, new Scalar(0, 0, 200), new Scalar(180, 60, 255), whitelist);
+
+        private static readonly string RecallArrowTemplate = Path.Combine("bearhunt", "recall-arrow.png");  // Marching panel's return arrow: 0.94-1.00 on gathering and reinforcing rows, <= 0.82 on a rally's eye
+        private static readonly string RecallTitleTemplate = Path.Combine("bearhunt", "recall-title.png");  // "Recall squad?" popup: 1.00, <= 0.32 elsewhere
+        private static readonly Rectangle RecallArrowArea = new Rectangle(180, 230, 70, 380);   // the panel's 6 rows, 61 px apart
+        private const double RecallArrowThreshold = 0.90;
+        private static readonly Rectangle RecallTitleArea = new Rectangle(200, 400, 320, 100);
+        private static readonly System.Drawing.Point RecallConfirmPoint = new System.Drawing.Point(512, 789);
+        private const int MaxRecalls = 8;
+
+        /// <summary>
+        /// Every Marching panel row with a return arrow (gathering, reinforcing) > Recall squad? > Confirm, on the map.
+        /// Rallies (an eye instead of the arrow) stay.
+        /// </summary>
+        protected async Task<string> RecallMarchesAsync(string character, int instance, LogService logger, CancellationToken cancellationToken)
+        {
+            int recalled = 0;
+            for (int i = 0; i < MaxRecalls; i++)
+            {
+                var arrow = await MatchAsync(RecallArrowTemplate, RecallArrowArea, RecallArrowThreshold, instance, logger);
+                if (!arrow.found) break;
+                await ClickCenterInRectAsync(instance, logger, arrow.rect);
+                await Task.Delay(1200, cancellationToken);
+                if (!(await MatchAsync(RecallTitleTemplate, RecallTitleArea, Threshold, instance, logger)).found)
+                {
+                    logger.LogWarning($"[{character}] {Name}: no Recall popup after the return arrow");
+                    break;
+                }
+                await ClickAsync(instance, logger, RecallConfirmPoint);
+                await Task.Delay(1500, cancellationToken);
+                recalled++;
+            }
+            return recalled > 0 ? $"recalled {recalled} marches" : "no marches to recall";
+        }
+
+        /// <summary>Waits on the map until the Marching tracker shows no march out (it hides when none is); false after <paramref name="timeout"/></summary>
+        protected async Task<bool> WaitForMarchesHomeAsync(TimeSpan timeout, int instance, LogService logger, CancellationToken cancellationToken)
+        {
+            if ((await ReadMarchTrackerAsync(instance, logger)).Busy == 0) return true;
+            return await WaitForAsync(async () => (await ReadMarchTrackerAsync(instance, logger)).Busy == 0, timeout, TimeSpan.FromSeconds(5), cancellationToken);
+        }
 
         #endregion
 
@@ -216,12 +256,8 @@ namespace Bot.Core.Tasks.Modules
                 return false;
             }
 
-            await ClickAsync(instance, logger, FlagPoint(team));
-            await Task.Delay(1500, cancellationToken);
-            await ClickAsync(instance, logger, DeployPoint);
-            await Task.Delay(2500, cancellationToken);
             // the deploy screen closing is the success; the War list can take longer to show (bear hunt 2026-11-08: joined, but not back on War after 2.5 s)
-            if (!(await MatchAsync(DeployButtonTemplate, DeployButtonArea, Threshold, instance, logger)).found)
+            if (await DeployWithFlagAsync(team, instance, logger, cancellationToken))
             {
                 logger.LogInfo($"[{character}] {Name}: joined a rally with team {team}");
                 // the War list gets 2 s to show up before the back taps start
@@ -235,6 +271,16 @@ namespace Bot.Core.Tasks.Modules
             logger.LogWarning($"[{character}] {Name}: Deploy stayed open (no free march?)");
             await BackToWarAsync(instance, logger, cancellationToken);
             return false;
+        }
+
+        /// <summary>On the deploy screen: team flag (its saved troops and ratio) > Deploy. True when the screen closed (sent); false = still open (no free march?)</summary>
+        protected async Task<bool> DeployWithFlagAsync(int team, int instance, LogService logger, CancellationToken cancellationToken)
+        {
+            await ClickAsync(instance, logger, FlagPoint(team));
+            await Task.Delay(1500, cancellationToken);
+            await ClickAsync(instance, logger, DeployPoint);
+            await Task.Delay(2500, cancellationToken);
+            return !(await MatchAsync(DeployButtonTemplate, DeployButtonArea, Threshold, instance, logger)).found;
         }
 
         /// <summary>Team flags 1-8 along the top of the deploy screen</summary>

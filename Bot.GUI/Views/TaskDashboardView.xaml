@@ -78,6 +78,55 @@
             <Setter Property="FontWeight" Value="SemiBold"/>
             <Setter Property="VerticalAlignment" Value="Center"/>
         </Style>
+        <!-- One task row of the Daily tasks and Scheduled events lists -->
+        <DataTemplate x:Key="TaskRowTemplate">
+            <Border Margin="0,0,0,4" Padding="10,6" CornerRadius="8">
+                <Border.Style>
+                    <Style TargetType="Border">
+                        <Setter Property="Background" Value="{StaticResource RowBrush}"/>
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding IsRunningNow}" Value="True">
+                                <Setter Property="Background" Value="#FF1E4D45"/>
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Border.Style>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="32"/>
+                        <ColumnDefinition Width="46"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="190"/>
+                        <ColumnDefinition Width="160"/>
+                    </Grid.ColumnDefinitions>
+                    <CheckBox Grid.Column="0" IsChecked="{Binding Enabled}" VerticalAlignment="Center"/>
+                    <TextBlock Grid.Column="2" Text="{Binding DisplayName}" TextTrimming="CharacterEllipsis" Foreground="White" FontSize="13" VerticalAlignment="Center"/>
+                    <StackPanel Grid.Column="3" Orientation="Horizontal" VerticalAlignment="Center" ToolTip="{Binding LastRunTooltip}">
+                        <Ellipse Width="9" Height="9" Margin="0,0,8,0" VerticalAlignment="Center">
+                            <Ellipse.Style>
+                                <Style TargetType="Ellipse">
+                                    <Setter Property="Fill" Value="#FF666666"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding LastRunState}" Value="ok">
+                                            <Setter Property="Fill" Value="#FF4CAF50"/>
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding LastRunState}" Value="failed">
+                                            <Setter Property="Fill" Value="#FFE57373"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Ellipse.Style>
+                        </Ellipse>
+                        <TextBlock Text="{Binding LastRunText}" Foreground="#FFCCCCCC" FontSize="12"/>
+                    </StackPanel>
+                    <TextBlock Grid.Column="4" Text="{Binding NextRunText}" TextTrimming="CharacterEllipsis" ToolTip="{Binding NextRunText}" Foreground="#FFCCCCCC" FontSize="12" VerticalAlignment="Center"/>
+                    <Button Grid.Column="1" Content="▶" HorizontalAlignment="Left" Style="{StaticResource PlayButton}"
+                            Command="{Binding DataContext.RunTaskCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                            CommandParameter="{Binding}"
+                            ToolTip="Run only this task on the selected character now (disabled while the bot runs)"/>
+                </Grid>
+            </Border>
+        </DataTemplate>
     </UserControl.Resources>
 
     <Grid Margin="20,16,20,16">
@@ -173,7 +222,7 @@
             </Border>
 
             <TabControl Grid.Column="1" SelectedIndex="{Binding SelectedTabIndex}" Background="Transparent" BorderThickness="0" Padding="0,8,0,0">
-            <TabItem Header="Cycle">
+            <TabItem Header="Daily tasks">
             <!-- Tasks of the selected character -->
             <Border Style="{StaticResource CardStyle}">
                 <DockPanel Grid.IsSharedSizeScope="True">
@@ -192,57 +241,34 @@
                         <TextBlock Grid.Column="4" Text="NEXT RUN" Style="{StaticResource HeaderText}"/>
                     </Grid>
                     <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-                        <ItemsControl x:Name="TaskList" ItemsSource="{Binding Tasks}">
-                            <ItemsControl.ItemTemplate>
-                                <DataTemplate>
-                                    <Border Margin="0,0,0,4" Padding="10,6" CornerRadius="8">
-                                        <Border.Style>
-                                            <Style TargetType="Border">
-                                                <Setter Property="Background" Value="{StaticResource RowBrush}"/>
-                                                <Style.Triggers>
-                                                    <DataTrigger Binding="{Binding IsRunningNow}" Value="True">
-                                                        <Setter Property="Background" Value="#FF1E4D45"/>
-                                                    </DataTrigger>
-                                                </Style.Triggers>
-                                            </Style>
-                                        </Border.Style>
-                                        <Grid>
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="32"/>
-                                                <ColumnDefinition Width="46"/>
-                                                <ColumnDefinition Width="*"/>
-                                                <ColumnDefinition Width="190"/>
-                                                <ColumnDefinition Width="160"/>
-                                            </Grid.ColumnDefinitions>
-                                            <CheckBox Grid.Column="0" IsChecked="{Binding Enabled}" VerticalAlignment="Center"/>
-                                            <TextBlock Grid.Column="2" Text="{Binding DisplayName}" TextTrimming="CharacterEllipsis" Foreground="White" FontSize="13" VerticalAlignment="Center"/>
-                                            <StackPanel Grid.Column="3" Orientation="Horizontal" VerticalAlignment="Center" ToolTip="{Binding LastRunTooltip}">
-                                                <Ellipse Width="9" Height="9" Margin="0,0,8,0" VerticalAlignment="Center">
-                                                    <Ellipse.Style>
-                                                        <Style TargetType="Ellipse">
-                                                            <Setter Property="Fill" Value="#FF666666"/>
-                                                            <Style.Triggers>
-                                                                <DataTrigger Binding="{Binding LastRunState}" Value="ok">
-                                                                    <Setter Property="Fill" Value="#FF4CAF50"/>
-                                                                </DataTrigger>
-                                                                <DataTrigger Binding="{Binding LastRunState}" Value="failed">
-                                                                    <Setter Property="Fill" Value="#FFE57373"/>
-                                                                </DataTrigger>
-                                                            </Style.Triggers>
-                                                        </Style>
-                                                    </Ellipse.Style>
-                                                </Ellipse>
-                                                <TextBlock Text="{Binding LastRunText}" Foreground="#FFCCCCCC" FontSize="12"/>
-                                            </StackPanel>
-                                            <TextBlock Grid.Column="4" Text="{Binding NextRunText}" TextTrimming="CharacterEllipsis" ToolTip="{Binding NextRunText}" Foreground="#FFCCCCCC" FontSize="12" VerticalAlignment="Center"/>
-                                            <Button Grid.Column="1" Content="▶" HorizontalAlignment="Left" Style="{StaticResource PlayButton}"
-                                                    Command="{Binding DataContext.RunTaskCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
-                                                    CommandParameter="{Binding}"
-                                                    ToolTip="Run only this task on the selected character now (disabled while the bot runs)"/>
-                                        </Grid>
-                                    </Border>
-                                </DataTemplate>
-                            </ItemsControl.ItemTemplate>
+                        <ItemsControl x:Name="TaskList" ItemsSource="{Binding DailyTasks}" ItemTemplate="{StaticResource TaskRowTemplate}">
+                        </ItemsControl>
+                    </ScrollViewer>
+                </DockPanel>
+            </Border>
+            </TabItem>
+
+            <TabItem Header="Scheduled events">
+            <!-- Tasks of events that come and go: the event calendar says which days -->
+            <Border Style="{StaticResource CardStyle}">
+                <DockPanel Grid.IsSharedSizeScope="True">
+                    <TextBlock DockPanel.Dock="Top" Margin="10,0,10,10" Text="{Binding CalendarText}" TextWrapping="Wrap" Foreground="#FFCCCCCC" FontSize="12"/>
+                    <Grid DockPanel.Dock="Top" Margin="10,0,10,8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="32"/>
+                            <ColumnDefinition Width="46"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="190"/>
+                            <ColumnDefinition Width="160"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="ON" Style="{StaticResource HeaderText}" ToolTip="In the cycle's task list (all characters)"/>
+                        <TextBlock Grid.Column="1" Text="RUN" Style="{StaticResource HeaderText}"/>
+                        <TextBlock Grid.Column="2" Text="TASK" Style="{StaticResource HeaderText}"/>
+                        <TextBlock Grid.Column="3" Text="LAST RUN" Style="{StaticResource HeaderText}"/>
+                        <TextBlock Grid.Column="4" Text="NEXT RUN" Style="{StaticResource HeaderText}"/>
+                    </Grid>
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                        <ItemsControl ItemsSource="{Binding EventTasks}" ItemTemplate="{StaticResource TaskRowTemplate}">
                         </ItemsControl>
                     </ScrollViewer>
                 </DockPanel>
@@ -506,6 +532,73 @@
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
                     </DockPanel>
+                </Border>
+            </TabItem>
+
+            <!-- Viking Vengeance: the switch, the next event, the main character, the flag and the minimum free capacity -->
+            <TabItem Header="Viking Vengeance">
+                <Border Style="{StaticResource CardStyle}">
+                    <StackPanel>
+                        <Button Content="⚔  Viking Vengeance" Background="#FF5C6BC0" Style="{StaticResource ActionButton}"
+                                HorizontalAlignment="Left" Margin="0,0,0,12"
+                                Command="{Binding StartVikingCommand}"
+                                ToolTip="Stop the cycle and do it now: the saved event while it is due, else one starting now (recall, reinforce the online members, wait on the main character, recall)"/>
+                        <CheckBox IsChecked="{Binding VikingSettings.Enabled}" Margin="0,0,0,8"
+                                  ToolTip="Read events (the cycle task) finds the time in the Task List; the bot then starts by itself before the event">
+                            <TextBlock Text="Viking Vengeance on" Foreground="White" FontSize="14" FontWeight="SemiBold"/>
+                        </CheckBox>
+                        <TextBlock Text="{Binding VikingStatusText}" Foreground="White" FontSize="13" TextWrapping="Wrap" Margin="0,0,0,4"/>
+                        <TextBlock Text="{Binding NextVikingText}" Foreground="{StaticResource MutedBrush}" FontSize="12" Margin="0,0,0,14"/>
+
+                        <StackPanel DataContext="{Binding VikingSettings}">
+                            <StackPanel.Resources>
+                                <Style TargetType="TextBlock">
+                                    <Setter Property="Foreground" Value="#FFCCCCCC"/>
+                                    <Setter Property="FontSize" Value="12"/>
+                                    <Setter Property="VerticalAlignment" Value="Center"/>
+                                    <Setter Property="Margin" Value="0,0,6,0"/>
+                                </Style>
+                                <Style TargetType="TextBox">
+                                    <Setter Property="Width" Value="44"/>
+                                    <Setter Property="Height" Value="26"/>
+                                    <Setter Property="Margin" Value="0,0,14,0"/>
+                                    <Setter Property="VerticalContentAlignment" Value="Center"/>
+                                    <Setter Property="HorizontalContentAlignment" Value="Center"/>
+                                </Style>
+                                <Style TargetType="ComboBox">
+                                    <Setter Property="Width" Value="54"/>
+                                    <Setter Property="Margin" Value="0,0,14,0"/>
+                                </Style>
+                            </StackPanel.Resources>
+
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                                <TextBlock Text="Next event (UTC)"/>
+                                <TextBox Width="130" Text="{Binding NextVikingUtcText, UpdateSourceTrigger=LostFocus}"
+                                         ToolTip="yyyy-MM-dd HH:mm in UTC. Filled by Read events from the Task List; type it to set it by hand"/>
+                                <TextBlock Text="Main character"/>
+                                <ComboBox Width="120" IsEditable="True"
+                                          ItemsSource="{Binding DataContext.CharacterNames, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                          Text="{Binding MainCharacter, UpdateSourceTrigger=LostFocus}"
+                                          ToolTip="Sends last and keeps the game open until the event is over. Empty: the last ticked character"/>
+                            </StackPanel>
+
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                                <TextBlock Text="Flag"/>
+                                <ComboBox ItemsSource="{Binding DataContext.TeamOptions, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                          SelectedItem="{Binding Team}" ToolTip="Deploy flag for the reinforcements (its saved troops and ratio)"/>
+                                <TextBlock Text="Min. free capacity"/>
+                                <TextBox Width="80" Text="{Binding MinFreeTroops, UpdateSourceTrigger=PropertyChanged}"
+                                         ToolTip="A member gets help only while at least this much of their Reinforce Capacity is free"/>
+                                <TextBlock Text="Start (min before)"/>
+                                <TextBox Text="{Binding PrepMinutes, UpdateSourceTrigger=PropertyChanged}"/>
+                                <TextBlock Text="Lasts (min)"/>
+                                <TextBox Text="{Binding EventMinutes, UpdateSourceTrigger=PropertyChanged}" ToolTip="The troops are recalled after this"/>
+                            </StackPanel>
+
+                            <TextBlock TextWrapping="Wrap" Foreground="{StaticResource MutedBrush}" FontSize="11"
+                                       Text="Beta: every ticked character recalls its marches, waits until they are home and gives Squad Help to each online member (R5 card, then R4..R1; never our own characters), the main character last. The game stays open on it until the end, then every character recalls its troops and the cycle continues."/>
+                        </StackPanel>
+                    </StackPanel>
                 </Border>
             </TabItem>
             </TabControl>

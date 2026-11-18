@@ -145,6 +145,8 @@ namespace Bot.Core.Tasks.Modules
 
         private static TaskExecutionDetails? CheckSkip(string accountKey)
         {
+            if (!EventCalendar.MayRun(TaskType.AllianceMobilization, DateTime.UtcNow))
+                return TaskExecutionDetails.SkippedBecause("Not on the event calendar today");
             if (_hasRights.TryGetValue(accountKey, out var rights) && !rights)
                 return TaskExecutionDetails.SkippedBecause("Not R4 or higher on this character, skipped");
             if (_lastRunUtc.TryGetValue(accountKey, out var lastRun) && DateTime.UtcNow - lastRun < MinInterval)
