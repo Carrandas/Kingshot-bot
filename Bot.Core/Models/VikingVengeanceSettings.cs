@@ -20,7 +20,7 @@ namespace Bot.Core.Models
         private string _mainCharacter = string.Empty;
         private int _team = 3;
         private int _minFreeTroops = 100_000;
-        private int _prepMinutes = 10;
+        private int _prepMinutes = 20;   // each character needs ~7 min (gatherers home ~5 min, 6 reinforcements); 10 left Asli 4 min late on 2026-11-19
         private int _eventMinutes = 35;
         private DateTime? _nextVikingUtc;
 

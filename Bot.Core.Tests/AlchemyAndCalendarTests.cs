@@ -116,6 +116,20 @@ namespace Bot.Core.Tests
             Assert.That(EventCalendar.MayRun(TaskType.AllianceMobilization, Wednesday, poor), Is.True, "too few bars");
         }
 
+        /// <summary>Thursday's view runs Tue-Mon: column 0 is Tuesday, and the next Monday is still covered</summary>
+        [Test]
+        public void MayRun_ViewStartingTuesday()
+        {
+            var tuesday = Monday.AddDays(1);
+            var read = new CalendarRead { ReadUtc = Wednesday.AddDays(1), WeekStart = tuesday };
+            read.Events.Add(new CalendarEvent("Brew Workshop", tuesday.AddDays(1), tuesday.AddDays(3)));   // Wed-Fri
+            for (int i = 1; i < EventCalendar.MinTrustedBars; i++) read.Events.Add(new CalendarEvent($"Filler event {i}", tuesday, tuesday.AddDays(6)));
+            Assert.That(EventCalendar.MayRun(TaskType.AlchemyJunction, Monday.AddDays(4), read), Is.True, "Friday");
+            Assert.That(EventCalendar.MayRun(TaskType.AlchemyJunction, Monday.AddDays(5), read), Is.False, "Saturday");
+            Assert.That(EventCalendar.Covers(read, Monday.AddDays(7)), Is.True, "next Monday is the view's last day");
+            Assert.That(EventCalendar.Covers(read, Monday), Is.False, "the Monday before it");
+        }
+
         [Test]
         public void MayRun_TasksWithoutABarAlwaysRun() =>
             Assert.That(EventCalendar.MayRun(TaskType.Arena, Wednesday, Week()), Is.True);

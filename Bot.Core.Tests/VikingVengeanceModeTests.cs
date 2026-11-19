@@ -21,13 +21,13 @@ namespace Bot.Core.Tests
         }
 
         [Test]
-        public void FindDue_FromTheTenMinutePrepUntilShortlyBeforeTheEnd()
+        public void FindDue_FromTheTwentyMinutePrepUntilShortlyBeforeTheEnd()
         {
             var account = Account(Viking);
             Assert.Multiple(() =>
             {
-                Assert.That(VikingVengeanceMode.FindDue(new[] { account }, Viking.AddMinutes(-11)).Account, Is.Null);
-                Assert.That(VikingVengeanceMode.FindDue(new[] { account }, Viking.AddMinutes(-10)).StartUtc, Is.EqualTo(Viking));
+                Assert.That(VikingVengeanceMode.FindDue(new[] { account }, Viking.AddMinutes(-21)).Account, Is.Null);
+                Assert.That(VikingVengeanceMode.FindDue(new[] { account }, Viking.AddMinutes(-20)).StartUtc, Is.EqualTo(Viking));
                 Assert.That(VikingVengeanceMode.FindDue(new[] { account }, Viking.AddMinutes(20)).Account, Is.SameAs(account));
                 Assert.That(VikingVengeanceMode.FindDue(new[] { account }, Viking.AddMinutes(31)).Account, Is.Null);
             });

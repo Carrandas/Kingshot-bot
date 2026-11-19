@@ -47,7 +47,8 @@ namespace Bot.Core.Models
         CollectBank,   // the bank vault in the Deals hub, on its own 24h timer
         VoyageOfLight,  // timed Deals event: Claim All + Dispatch All every 8h
         VikingVengeance, // not in the cycle: the Viking Vengeance mode runs it (reinforce online members)
-        AlchemyJunction  // timed event: claim brews, play the Brew Workshop minigame
+        AlchemyJunction, // timed event: claim brews, play the Brew Workshop minigame
+        GovernorDuel     // timed event on the Events screen: the day's 10 challenges, then the milestone chest
     }
 
     public class AccountSettings : INotifyPropertyChanged

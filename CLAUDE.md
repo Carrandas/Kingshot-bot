@@ -100,20 +100,21 @@ data/                 # next to the exe, created at runtime: daily_gates.json, t
 - The Bear Hunt task shows as **"Read events"** in the GUI (`TaskType.BearHunt` is kept for the config): its daily Task List read also saves the next Viking Vengeance, and reads again every 4 h while Viking Vengeance is on and none is known.
 
 ## Viking Vengeance (beta)
-- Its own mode like the Bear Hunt: `VikingVengeanceMode` (rules + runner, unit-tested) and `VikingVengeanceTask` passes; started by the 30 s timer `PrepMinutes` (10) before `VikingVengeanceSettings.NextVikingUtc`, by the Bot tab's **⚔ Viking Vengeance** button or `--viking [--character <name>]` (no event due: one starting now, a test).
+- Its own mode like the Bear Hunt: `VikingVengeanceMode` (rules + runner, unit-tested) and `VikingVengeanceTask` passes; started by the 30 s timer `PrepMinutes` (20; 10 left the second character ~4 min late) before `VikingVengeanceSettings.NextVikingUtc`, by the Bot tab's **⚔ Viking Vengeance** button or `--viking [--character <name>]` (no event due: one starting now, a test).
 - Send phase, each ticked character with `MainCharacter` (Asli) last: recall every march (gathering and reinforcing rows share the return arrow), wait until the Marching tracker is empty, then Alliance > Members: the R5 card, then the R4/R3/R2/R1 groups opened one at a time (headers y 500/571/640/710 while collapsed). Each green "Online" card (online members list first) > Squad Help > Reinforce popup: `FreeTroops` of "184,710/1,040,000" must be >= `MinFreeTroops` (100k), else Cancel > Confirm > flag `Team` (3) > Deploy. One reinforcement per member per character (`VikingStatus`, keyed by the card's name OCR): the popup still offers Confirm with our troops counted in. Stops when no march is free (Deploy stays open, or Squad Help gives no Reinforce popup).
 - The member popup has a red **Remove** (kick; our characters are R4) next to Squad Help: only the template-matched Squad Help is tapped. Our own card matches "Online" but opens no popup.
 - Then the game stays open on the main character until start + `EventMinutes` (35), every character recalls its troops (main first), and the schedule continues.
 - Live test 2026-11-18 (`--viking`, no event): llsa and Asli each recalled their gatherers and reinforced 6 online members (6/6 marches). Not yet seen: the Task List row (expected 2026-11-19), the event itself.
 
 ## Occasional events (Scheduled events tab)
-- The Bot tab has two task lists: **Daily tasks** and **Scheduled events**. The second one holds the tasks of events that come and go, the keys of `EventCalendar.BarNames`: Voyage of Light, Alchemy Junction and Alliance Mobilization. It also shows a summary of the calendar. Both lists share the `TaskRowTemplate` row.
+- The Bot tab has two task lists: **Daily tasks** and **Scheduled events**. The second one holds the tasks of events that come and go, the keys of `EventCalendar.BarNames`: Voyage of Light, Alchemy Junction, Alliance Mobilization and Governor Duel. It also shows a summary of the calendar. Both lists share the `TaskRowTemplate` row.
 - **Event calendar** (`EventCalendar`, read by "Read events" = `BearHuntTask.Calendar.cs` right after the Task List; a failure only logs a warning):
-  - Events icon in the city > Calendar tab: a Monday–Sunday week view with one bar per event. Only the current week is shown.
-  - Bars are found by colour. Day columns are Mon 15–112 … Sun 608–706, and the end day comes from the arrow tip − 15 px.
+  - Events icon in the city > Calendar tab: a 7-day view with one bar per event, from two days before today to four days after (today is the teal third header cell; on a Wednesday it looks like Mon–Sun). The read dates column 0 from today's column (`TodayColumn`); `CalendarRead.WeekStart` is that first day.
+  - The icon is matched with Alliance Mobilization's template and 0.65 threshold, because it is animated and often carries a red dot (0.77). A miss logs the score and saves `logs/screenshots/bearhunt/calendar-no-events-icon-*.png`.
+  - Bars are found by colour. Day columns are 15–112 … 608–706, and the end day comes from the arrow tip − 15 px.
   - Labels are read by OCR; `CleanLabel` drops stray letters from the icons and the text after "...".
   - The read is saved to `data/event_calendar.json`.
-  - `MayRun(task, now)` is permissive. It skips a task ("Not on the event calendar today") only when this week's read has ≥ 6 bars and lacks the event's bar on that day. With no read, an old read or a poor one, the task's own check decides.
+  - `MayRun(task, now)` is permissive. It skips a task ("Not on the event calendar today") only when a read whose view covers today has ≥ 6 bars and lacks the event's bar on that day. With no read, an old read or a poor one, the task's own check decides.
   - The bar names are "Brew Workshop" (the Alchemy Junction group header is not a bar), "Voyage of Light" and "Alliance Mobilization". Mobilization's name hasn't been seen on the calendar yet: check the first read of a week that has it.
 - **Alchemy Junction** (`AlchemyJunctionTask`, `AlchemyBoard` vision, `AlchemySolver` pure logic, unit and screenshot tested):
   - Entry: the event icon in the city's right column, found by its purple-hair blob (456–460 px in a 42x39 box). The icon is animated and its label scrolls, so templates scored 0.63–0.98. A miss on a calendar day rechecks in 1 h instead of waiting for the reset.
@@ -126,13 +127,19 @@ data/                 # next to the exe, created at runtime: daily_gates.json, t
     - Each jar placed costs 1 Magic Brew. Once the row is full, right jars stay on green platforms and wrong ones go back, leaving a splash of their colour in that slot's history row.
     - A colour-only Mastermind: never put a colour where it already failed. Exclusions come from the visible history rows (every 195 px above the current row at y 1005) plus `data/alchemy_junction_exclusions.json`.
     - One jar per step, re-reading the board each time (a tap can miss).
-    - It stops when the brew count OCR (white digits in the pill) reads 0, and never taps while the count is unreadable.
+    - It stops when the brew count OCR (white digits in the pill) reads 0, and never taps while the count is unreadable. A lone "6" reads empty as a single line, so an empty read is retried as a single word.
     - A jar tapped at 0 brews opens the **Magic Brew Pack** shop (real money). The `brew-pack.png` guard backs out of it.
     - The workshop page's counter can show more than the pill (2 vs 0 on 2026-11-18); the pill is the one that counts.
     - Saved exclusions are keyed per character and slot count, and dropped on a fresh order (no history row, nothing kept or placed).
     - Never taps the green "+" (buys brews), "Go", Brewmaster Stall or the locked Bonanza columns.
   - Timer `data/alchemy_junction_times.json`: 4 h after a run (brews come from missions other tasks finish: troop power, alliance contributions, a Terror rally); no icon → next reset. Priority 26, late in the cycle.
   - Played by hand 2026-11-18: Asli orders 1–7, llsa 1–13.
+
+- **Governor Duel** (`GovernorDuelTask`, screenshot tested, calibrated on llsa 2026-11-19):
+  - Events icon (Alliance Mobilization's template) > the "Governor Duel" tab, found by its label while paging the strip with slow drags.
+  - 10 challenges a day, reset at 00:00 UTC. The loop reads the screen each step: **Challenge** (opponent matched, "9/10" under it) > the fight (~5 s) > a victory/defeat card, closed by a tap on blank space (360,1235) > **Find Opponent** > Challenge … until "Today's Challenges Completed".
+  - Then the Daily Milestone chest (top right, 1/3/5 wins): one tap on a lit chest in its popup claims them all.
+  - `DailyGate` once a day; an unknown screen mid-loop leaves the gate open for the next cycle. Never taps Edit Squad, the formations or Battle Report.
 
 ## Key Patterns
 - **Config**: Singleton `ConfigurationManager`, JSON-serialized task settings per account.

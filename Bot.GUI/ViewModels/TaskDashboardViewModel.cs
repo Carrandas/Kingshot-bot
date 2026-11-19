@@ -422,15 +422,15 @@ namespace Bot.GUI.ViewModels
                 CalendarText = "Event calendar not read yet: \"Read events\" reads it once a day (Events > Calendar). Until then each event task checks for its event itself.";
                 return;
             }
-            bool thisWeek = read.WeekStart == EventCalendar.WeekStartOf(DateTime.UtcNow);
+            bool current = EventCalendar.Covers(read, DateTime.UtcNow);
             var lines = EventCalendar.BarNames.Select(kv =>
             {
                 var bars = EventCalendar.For(kv.Key);
                 string days = bars.Count == 0 ? "not on the calendar" : string.Join(", ", bars.Select(b => $"{b.FirstDay:ddd dd/MM} - {b.LastDay:ddd dd/MM}"));
                 return $"{TaskTypeToDisplayNameConverter.GetDisplayName(kv.Key)} ({kv.Value}): {days}";
             });
-            CalendarText = $"Event calendar of the week of {read.WeekStart:dd/MM}, read {read.ReadUtc.ToLocalTime():ddd HH:mm}" +
-                (thisWeek ? "" : " (last week: the event tasks check for themselves until the next read)") +
+            CalendarText = $"Event calendar {read.WeekStart:dd/MM} to {read.WeekStart.AddDays(6):dd/MM}, read {read.ReadUtc.ToLocalTime():ddd HH:mm}" +
+                (current ? "" : " (out of date: the event tasks check for themselves until the next read)") +
                 Environment.NewLine + string.Join(Environment.NewLine, lines);
         }
 

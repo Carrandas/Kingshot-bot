@@ -13,7 +13,10 @@ namespace Bot.Core.Services
     /// <summary>One bar of the Events > Calendar week view: the event and its first and last UTC day</summary>
     public sealed record CalendarEvent(string Name, DateTime FirstDay, DateTime LastDay);
 
-    /// <summary>What the calendar read saved: the week it showed (its Monday) and the bars on it</summary>
+    /// <summary>
+    /// What the calendar read saved: the date of the view's first column and the bars on it. The name stays for the
+    /// saved file; the view is not a Monday-Sunday week but runs from two days before today to four days after.
+    /// </summary>
     public sealed class CalendarRead
     {
         public DateTime ReadUtc { get; set; }
@@ -22,10 +25,10 @@ namespace Bot.Core.Services
     }
 
     /// <summary>
-    /// The game's event calendar (Events > Calendar tab): a week view, Monday to Sunday, with one bar per event over the
+    /// The game's event calendar (Events > Calendar tab): a 7-day view with one bar per event over the
     /// days it runs. The daily "Read events" task saves it; occasional event tasks (Voyage of Light, Alchemy Junction,
     /// Alliance Mobilization) ask <see cref="MayRun"/> and skip the days their event isn't on. The calendar only ever
-    /// keeps a task from running when it has a read of this week with enough bars that lacks the event: no read, an
+    /// keeps a task from running when it has a read covering today with enough bars that lacks the event: no read, an
     /// old read or a poor one leaves the decision to the task's own check (its icon or tab).
     /// </summary>
     public static class EventCalendar
@@ -36,6 +39,7 @@ namespace Bot.Core.Services
             [TaskType.VoyageOfLight] = "Voyage of Light",
             [TaskType.AlchemyJunction] = "Brew Workshop",
             [TaskType.AllianceMobilization] = "Alliance Mobilization",
+            [TaskType.GovernorDuel] = "Governor Duel",
         };
 
         /// <summary>Fewer bars than this and the read is not trusted to say an event is missing (a full week shows ~20)</summary>
@@ -101,13 +105,23 @@ namespace Bot.Core.Services
 
         public static DateTime WeekStartOf(DateTime utc) => utc.Date.AddDays(-(((int)utc.DayOfWeek + 6) % 7));
 
+        /// <summary>
+        /// Today's column of the view (teal header cell). Always the third one on the screens seen: the view runs from two
+        /// days back (Wednesday 2026-11-18 showed Mon-Sun, Thursday 11-19 Tue-Mon, read then as a Monday week a day off)
+        /// </summary>
+        internal const int DefaultTodayColumn = 2;
+
+        /// <summary>The read's view includes <paramref name="nowUtc"/>'s day</summary>
+        public static bool Covers(CalendarRead read, DateTime nowUtc) =>
+            nowUtc.Date >= read.WeekStart && nowUtc.Date <= read.WeekStart.AddDays(6);
+
         /// <summary>False only when this week's trusted read lacks the task's event today (see the class summary)</summary>
         public static bool MayRun(TaskType task, DateTime nowUtc) => MayRun(task, nowUtc, Current);
 
         internal static bool MayRun(TaskType task, DateTime nowUtc, CalendarRead? read)
         {
             if (!BarNames.TryGetValue(task, out var name) || read == null) return true;
-            if (read.WeekStart != WeekStartOf(nowUtc) || read.Events.Count < MinTrustedBars) return true;
+            if (!Covers(read, nowUtc) || read.Events.Count < MinTrustedBars) return true;
             var found = Find(read, name);
             return found.Count > 0 && found.Any(e => nowUtc.Date >= e.FirstDay && nowUtc.Date <= e.LastDay);
         }
@@ -142,7 +156,7 @@ namespace Bot.Core.Services
         private const int MinBarPixels = 80;
         private const int MinBarHeight = 36;   // bars are ~50 px high; a cut-off one at the edge is skipped
 
-        /// <summary>The bars fully on screen: label, first and last day column (0 = Monday)</summary>
+        /// <summary>The bars fully on screen: label, first and last day column (0 = the view's first day)</summary>
         internal static List<(string Label, int FirstColumn, int LastColumn)> ReadBars(Mat image)
         {
             using var hsv = image.CvtColor(ColorConversionCodes.BGR2HSV);
@@ -176,6 +190,20 @@ namespace Bot.Core.Services
         }
 
         internal static int Column(int x) => Math.Clamp((int)((x - Left) / ColumnWidth), 0, 6);
+
+        /// <summary>The column of the teal (today) header cell; null when the header is not on screen</summary>
+        internal static int? TodayColumn(Mat image)
+        {
+            using var hsv = image.CvtColor(ColorConversionCodes.BGR2HSV);
+            using var teal = hsv.InRange(new Scalar(75, 60, 0), new Scalar(100, 255, 255));
+            for (int column = 0; column < 7; column++)
+            {
+                int x0 = (int)(Left + ColumnWidth * column) + 15, x1 = (int)(Left + ColumnWidth * (column + 1)) - 15;
+                using var cell = new Mat(teal, new Rect(x0, 325, x1 - x0, 50));   // the header's date cells, y 320-380
+                if (Cv2.CountNonZero(cell) > cell.Total() / 2) return column;     // 66% on today's cell, 0% on the others
+            }
+            return null;
+        }
 
         /// <summary>A bar pixel: saturated, bright, not the tan group header (H 17, S 128) nor today's teal column</summary>
         private static bool IsBar(Vec3b p)

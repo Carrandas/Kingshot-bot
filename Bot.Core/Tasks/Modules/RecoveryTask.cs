@@ -56,6 +56,7 @@ namespace Bot.Core.Tasks.Modules
             [TaskType.CollectRewards] = "Collect Store Rewards",
             [TaskType.CollectBank] = "Collect Bank",
             [TaskType.VoyageOfLight] = "Voyage of Light",
+            [TaskType.GovernorDuel] = "Governor Duel",
             [TaskType.AlchemyJunction] = "Alchemy Junction",
             [TaskType.CollectOnlineRewards] = "Collect Online Rewards",
             [TaskType.PetAdventure] = "Pet Adventure",
@@ -170,6 +171,8 @@ namespace Bot.Core.Tasks.Modules
             return false;
         }
 
+        private const float ViewThreshold = 0.7f;   // same as LocatorService's base/map view check
+
         private sealed record RecoveryImages(string AdClose, string AdClose2, string BackArrow, string BaseView, string MapView);
 
         /// <summary>One recovery attempt. True: recovered, false: give up on the enhanced recovery, null: try again.</summary>
@@ -199,8 +202,10 @@ namespace Bot.Core.Tasks.Modules
                 screenshot = await AdbMigrationHelper.TakeScreenshotAsync(adbController, logger, cancellationToken);
                 if (IsMissing(screenshot)) return null;
 
-                var (foundBase, _, _) = _templateMatcher.MatchTemplate(screenshot, images.BaseView, account.InstanceNumber, 0.6f);
-                var (foundMap, _, _) = _templateMatcher.MatchTemplate(screenshot, images.MapView, account.InstanceNumber, 0.6f);
+                // The locator's 0.7: at 0.6 an unknown screen (base 0.60 on 2026-11-19) counted as recovered here while the
+                // locator still saw no view, so the failed task restarted on the same screen every 30 s instead of the game
+                var (foundBase, _, baseConfidence) = _templateMatcher.MatchTemplate(screenshot, images.BaseView, account.InstanceNumber, ViewThreshold);
+                var (foundMap, _, mapConfidence) = _templateMatcher.MatchTemplate(screenshot, images.MapView, account.InstanceNumber, ViewThreshold);
 
                 if (foundBase || foundMap)
                 {
@@ -212,7 +217,7 @@ namespace Bot.Core.Tasks.Modules
                     return true;
                 }
 
-                logger.LogInfo($"[{account.AccountName}] Maps not found yet, continuing recovery loop...");
+                logger.LogInfo($"[{account.AccountName}] Maps not found yet (base {baseConfidence:F2}, map {mapConfidence:F2}), continuing recovery loop...");
             }
             catch (Exception ex)
             {

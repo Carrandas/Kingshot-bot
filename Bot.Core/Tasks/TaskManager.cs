@@ -79,6 +79,7 @@ namespace Bot.Core.Tasks
             tasks[TaskType.CollectRewards] = new CollectRewardsTask();
             tasks[TaskType.CollectBank] = new CollectBankTask();
             tasks[TaskType.VoyageOfLight] = new VoyageOfLightTask();
+            tasks[TaskType.GovernorDuel] = new GovernorDuelTask();
             tasks[TaskType.AlchemyJunction] = new AlchemyJunctionTask();
             tasks[TaskType.PetAdventure] = new PetAdventureTask();
             tasks[TaskType.CollectOnlineRewards] = new CollectOnlineRewardsTask();
@@ -789,6 +790,7 @@ namespace Bot.Core.Tasks
             { TaskType.MysticTrial, 25 },
             { TaskType.Arena, 25 },
             { TaskType.AutoJoinRally, 26 },
+            { TaskType.GovernorDuel, 25 },     // Events screen, like Alliance Mobilization
             { TaskType.AlchemyJunction, 26 },  // late: its brews come from missions the tasks before it finish (troops, alliance contributions)
             { TaskType.CastleBattle, 27 },     // never in a cycle list (the Castle Battle mode runs it); listed for completeness
             { TaskType.BearHunt, 28 },         // "Read events": the cycle only reads the Task List (next bear, Viking Vengeance); the modes run the passes

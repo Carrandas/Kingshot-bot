@@ -36,6 +36,16 @@ namespace Bot.Core.IntegrationTests
             Assert.That((bar!.Value.First, bar.Value.Last), Is.EqualTo((first, last)), name);
         }
 
+        /// <summary>Today (Wednesday 11/18) is the teal third header cell; on the scrolled page the header is half gone</summary>
+        [TestCase("calendar-week-1.png", 2)]
+        [TestCase("calendar-week-2.png", 2)]
+        [TestCase("calendar-week-3.png", 2)]
+        public void TodayColumn(string screenshot, int expected)
+        {
+            using var image = Cv2.ImDecode(Fixtures.Load(screenshot), ImreadModes.Color);
+            Assert.That(EventCalendar.TodayColumn(image), Is.EqualTo(expected));
+        }
+
         /// <summary>Group headers ("Alchemy Junction", "Deals") are not bars</summary>
         [TestCase("calendar-week-1.png", "Alchemy Junction")]
         [TestCase("calendar-week-2.png", "Deals")]

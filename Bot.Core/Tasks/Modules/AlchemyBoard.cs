@@ -112,11 +112,19 @@ namespace Bot.Core.Tasks.Modules
         }
 
         /// <summary>The Magic Brew count in the pill over the board (white digits); null when unreadable</summary>
+        /// <remarks>
+        /// A lone "6" reads empty as a single line (llsa stalled at 6 brews on 2026-11-19; a 6 made from the pill's own 9
+        /// turned upside down does the same), so an empty line is read again as a single word, which gets it
+        /// </remarks>
         public static int? ReadBrews(Mat image)
         {
-            string text = MaskedTextOcr.Read(image, new System.Drawing.Rectangle(BrewCountArea.X, BrewCountArea.Y, BrewCountArea.Width, BrewCountArea.Height),
-                new Scalar(0, 0, 200), new Scalar(180, 60, 255), "0123456789");
-            return int.TryParse(text.Replace(" ", ""), out int brews) ? brews : null;
+            var area = new System.Drawing.Rectangle(BrewCountArea.X, BrewCountArea.Y, BrewCountArea.Width, BrewCountArea.Height);
+            foreach (var mode in new[] { Tesseract.PageSegMode.SingleLine, Tesseract.PageSegMode.SingleWord })
+            {
+                string text = MaskedTextOcr.Read(image, area, new Scalar(0, 0, 200), new Scalar(180, 60, 255), "0123456789", mode);
+                if (int.TryParse(text.Replace(" ", ""), out int brews)) return brews;
+            }
+            return null;
         }
 
         /// <summary>Median hue of the strongly coloured pixels in <paramref name="area"/>; null below <paramref name="minPixels"/></summary>

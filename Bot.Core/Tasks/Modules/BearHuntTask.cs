@@ -624,7 +624,6 @@ namespace Bot.Core.Tasks.Modules
             if (!_forceRead && DailyGate.DoneToday(TaskType, key) && !VikingRereadDue(account))
                 return TaskExecutionDetails.SkippedBecause($"Already read today; next bear {(settings.NextBearUtc != null ? settings.NextBearUtcText + " UTC" : "unknown")}");
             _forceRead = false;
-            _lastReadUtc[key] = DateTime.UtcNow;
 
             int instance = account.InstanceNumber;
             var locator = new LocatorService(logger, account, TaskType);
@@ -632,6 +631,7 @@ namespace Bot.Core.Tasks.Modules
             var items = await ReadTaskListAsync(instance, logger, cancellationToken);
             await locator.EnsureViewAsync(ViewType.MapView, instance, cancellationToken);
             if (items == null) return TaskExecutionDetails.Failed("The Task List did not open");
+            _lastReadUtc[key] = DateTime.UtcNow;   // only a read that worked delays the next Viking re-read (a lost one tries again next cycle)
 
             DailyGate.MarkDone(TaskType, key);
             await ReadEventCalendarAsync(account, logger, cancellationToken);
