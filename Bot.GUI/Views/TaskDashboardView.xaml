@@ -72,6 +72,14 @@
             </Setter>
         </Style>
 
+        <!-- The tabs' implicit light-grey TextBlock label styles would also colour the text inside the
+             (light) dropdowns: the empty TextBlock style here is nearer, so the items keep the ComboBox's dark text -->
+        <Style TargetType="ComboBox">
+            <Style.Resources>
+                <Style TargetType="TextBlock"/>
+            </Style.Resources>
+        </Style>
+
         <Style x:Key="HeaderText" TargetType="TextBlock">
             <Setter Property="Foreground" Value="{StaticResource MutedBrush}"/>
             <Setter Property="FontSize" Value="11"/>
@@ -420,7 +428,7 @@
                                         <Setter Property="VerticalContentAlignment" Value="Center"/>
                                         <Setter Property="HorizontalContentAlignment" Value="Center"/>
                                     </Style>
-                                    <Style TargetType="ComboBox">
+                                    <Style TargetType="ComboBox" BasedOn="{StaticResource {x:Type ComboBox}}">
                                         <Setter Property="Width" Value="54"/>
                                         <Setter Property="Margin" Value="0,0,14,0"/>
                                     </Style>
@@ -444,14 +452,27 @@
                                     <TextBlock Text="Own rally flag"/>
                                     <ComboBox ItemsSource="{Binding DataContext.TeamOptions, RelativeSource={RelativeSource AncestorType=UserControl}}"
                                               SelectedItem="{Binding OwnTeam}" ToolTip="Set this flag once in the game: 5% infantry, 10% cavalry, 85% archers"/>
-                                    <TextBlock Text="Join flag"/>
-                                    <ComboBox ItemsSource="{Binding DataContext.TeamOptions, RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                              SelectedItem="{Binding JoinTeam}" ToolTip="Team flag for joining the alliance's bear rallies"/>
                                     <TextBlock Text="Join up to"/>
                                     <TextBox Text="{Binding MaxJoins, UpdateSourceTrigger=PropertyChanged}" ToolTip="Rallies joined at once per character: the top ones of the War list"/>
                                     <TextBlock Text="Own rally away (s)"/>
                                     <TextBox Text="{Binding RallyRoundSeconds, UpdateSourceTrigger=PropertyChanged}"
                                              ToolTip="5 min rally + the walk there and back; the next own rally goes when this has passed"/>
+                                </StackPanel>
+
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                                    <TextBlock Text="Join flags" ToolTip="Up to 6 flags for joining the alliance's bear rallies (– = not set). The 1st march takes the 1st set flag, the 2nd the 2nd, ...; with fewer flags than marches they repeat from the first"/>
+                                    <ComboBox Width="44" Margin="0,0,6,0" ItemsSource="{Binding DataContext.FlagSlotOptions, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                              DisplayMemberPath="Label" SelectedValuePath="Value" SelectedValue="{Binding JoinTeam}" ToolTip="Join flag for this march (– = not set)"/>
+                                    <ComboBox Width="44" Margin="0,0,6,0" ItemsSource="{Binding DataContext.FlagSlotOptions, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                              DisplayMemberPath="Label" SelectedValuePath="Value" SelectedValue="{Binding JoinTeam2}" ToolTip="Join flag for this march (– = not set)"/>
+                                    <ComboBox Width="44" Margin="0,0,6,0" ItemsSource="{Binding DataContext.FlagSlotOptions, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                              DisplayMemberPath="Label" SelectedValuePath="Value" SelectedValue="{Binding JoinTeam3}" ToolTip="Join flag for this march (– = not set)"/>
+                                    <ComboBox Width="44" Margin="0,0,6,0" ItemsSource="{Binding DataContext.FlagSlotOptions, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                              DisplayMemberPath="Label" SelectedValuePath="Value" SelectedValue="{Binding JoinTeam4}" ToolTip="Join flag for this march (– = not set)"/>
+                                    <ComboBox Width="44" Margin="0,0,6,0" ItemsSource="{Binding DataContext.FlagSlotOptions, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                              DisplayMemberPath="Label" SelectedValuePath="Value" SelectedValue="{Binding JoinTeam5}" ToolTip="Join flag for this march (– = not set)"/>
+                                    <ComboBox Width="44" Margin="0,0,6,0" ItemsSource="{Binding DataContext.FlagSlotOptions, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                              DisplayMemberPath="Label" SelectedValuePath="Value" SelectedValue="{Binding JoinTeam6}" ToolTip="Join flag for this march (– = not set)"/>
                                 </StackPanel>
 
                                 <StackPanel Margin="0,0,0,8">
@@ -565,7 +586,7 @@
                                     <Setter Property="VerticalContentAlignment" Value="Center"/>
                                     <Setter Property="HorizontalContentAlignment" Value="Center"/>
                                 </Style>
-                                <Style TargetType="ComboBox">
+                                <Style TargetType="ComboBox" BasedOn="{StaticResource {x:Type ComboBox}}">
                                     <Setter Property="Width" Value="54"/>
                                     <Setter Property="Margin" Value="0,0,14,0"/>
                                 </Style>
@@ -583,9 +604,22 @@
                             </StackPanel>
 
                             <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
-                                <TextBlock Text="Flag"/>
-                                <ComboBox ItemsSource="{Binding DataContext.TeamOptions, RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                          SelectedItem="{Binding Team}" ToolTip="Deploy flag for the reinforcements (its saved troops and ratio)"/>
+                                <TextBlock Text="Flags" ToolTip="Up to 6 deploy flags for the reinforcements, each keeps its saved troops and ratio (– = not set). The 1st reinforcement takes the 1st set flag, the 2nd the 2nd, ...; with fewer flags than marches they repeat from the first"/>
+                                <ComboBox Width="44" Margin="0,0,6,0" ItemsSource="{Binding DataContext.FlagSlotOptions, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                          DisplayMemberPath="Label" SelectedValuePath="Value" SelectedValue="{Binding Team}" ToolTip="Reinforcement flag for this march (– = not set)"/>
+                                <ComboBox Width="44" Margin="0,0,6,0" ItemsSource="{Binding DataContext.FlagSlotOptions, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                          DisplayMemberPath="Label" SelectedValuePath="Value" SelectedValue="{Binding Team2}" ToolTip="Reinforcement flag for this march (– = not set)"/>
+                                <ComboBox Width="44" Margin="0,0,6,0" ItemsSource="{Binding DataContext.FlagSlotOptions, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                          DisplayMemberPath="Label" SelectedValuePath="Value" SelectedValue="{Binding Team3}" ToolTip="Reinforcement flag for this march (– = not set)"/>
+                                <ComboBox Width="44" Margin="0,0,6,0" ItemsSource="{Binding DataContext.FlagSlotOptions, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                          DisplayMemberPath="Label" SelectedValuePath="Value" SelectedValue="{Binding Team4}" ToolTip="Reinforcement flag for this march (– = not set)"/>
+                                <ComboBox Width="44" Margin="0,0,6,0" ItemsSource="{Binding DataContext.FlagSlotOptions, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                          DisplayMemberPath="Label" SelectedValuePath="Value" SelectedValue="{Binding Team5}" ToolTip="Reinforcement flag for this march (– = not set)"/>
+                                <ComboBox Width="44" Margin="0,0,6,0" ItemsSource="{Binding DataContext.FlagSlotOptions, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                          DisplayMemberPath="Label" SelectedValuePath="Value" SelectedValue="{Binding Team6}" ToolTip="Reinforcement flag for this march (– = not set)"/>
+                            </StackPanel>
+
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
                                 <TextBlock Text="Min. free capacity"/>
                                 <TextBox Width="80" Text="{Binding MinFreeTroops, UpdateSourceTrigger=PropertyChanged}"
                                          ToolTip="A member gets help only while at least this much of their Reinforce Capacity is free"/>

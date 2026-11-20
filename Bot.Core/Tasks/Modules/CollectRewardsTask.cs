@@ -147,7 +147,7 @@ namespace Bot.Core.Tasks.Modules
         // Tab strip (three visible tab slots; the strip scrolls sideways)
         private const int TabY = 140;
         private static readonly int[] TabSlotX = { 140, 335, 535 };
-        private const int MaxTabPages = 6; // the strip scrolls ~2 tabs per swipe and has about 12 tabs
+        private const int MaxTabPages = 9; // the strip scrolls ~2 tabs per swipe; the end check stops sooner (6 pages missed the Cards tab on 2026-11-20 after a new tab)
         private const int MaxClaimsPerRun = 6;
         // A slow drag scrolls the tab strip by about the distance dragged (~2 tabs). A fast swipe makes the
         // strip fling several tabs further and skip some, so the duration must stay long.

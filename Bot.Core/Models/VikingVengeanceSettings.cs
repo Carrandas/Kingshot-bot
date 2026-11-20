@@ -19,6 +19,7 @@ namespace Bot.Core.Models
         private bool _enabled = true;
         private string _mainCharacter = string.Empty;
         private int _team = 3;
+        private int _team2, _team3, _team4, _team5, _team6;
         private int _minFreeTroops = 100_000;
         private int _prepMinutes = 20;   // each character needs ~7 min (gatherers home ~5 min, 6 reinforcements); 10 left Asli 4 min late on 2026-11-19
         private int _eventMinutes = 35;
@@ -32,9 +33,23 @@ namespace Bot.Core.Models
         [JsonPropertyName("mainCharacter")]
         public string MainCharacter { get => _mainCharacter; set => Set(ref _mainCharacter, value ?? string.Empty); }
 
-        /// <summary>Deploy flag for the reinforcements (its saved troops and ratio)</summary>
+        /// <summary>Reinforcement flag slot 1 (0 = not set; each flag keeps its saved troops and ratio)</summary>
         [JsonPropertyName("team")]
         public int Team { get => _team; set => Set(ref _team, value); }
+
+        /// <summary>Reinforcement flag slots 2-6 (0 = not set); see <see cref="Flag"/></summary>
+        [JsonPropertyName("team2")] public int Team2 { get => _team2; set => Set(ref _team2, value); }
+        [JsonPropertyName("team3")] public int Team3 { get => _team3; set => Set(ref _team3, value); }
+        [JsonPropertyName("team4")] public int Team4 { get => _team4; set => Set(ref _team4, value); }
+        [JsonPropertyName("team5")] public int Team5 { get => _team5; set => Set(ref _team5, value); }
+        [JsonPropertyName("team6")] public int Team6 { get => _team6; set => Set(ref _team6, value); }
+
+        /// <summary>The set reinforcement flags in slot order</summary>
+        [JsonIgnore]
+        public System.Collections.Generic.List<int> Flags => TeamFlags.Set(new[] { Team, Team2, Team3, Team4, Team5, Team6 });
+
+        /// <summary>Flag for the character's reinforcement <paramref name="index"/> (0-based): the set flags in turn, repeating from the first</summary>
+        public int Flag(int index) => TeamFlags.ForMarch(Flags, index, 3);
 
         /// <summary>A member gets help only while at least this much of their Reinforce Capacity is free</summary>
         [JsonPropertyName("minFreeTroops")]
@@ -76,7 +91,7 @@ namespace Bot.Core.Models
             }
         }
 
-        [JsonIgnore] public bool IsValid => Team is >= 1 and <= 8 && MinFreeTroops >= 0;
+        [JsonIgnore] public bool IsValid => Flags.Count > 0 && MinFreeTroops >= 0;
         [JsonIgnore] public TimeSpan Prep => TimeSpan.FromMinutes(Math.Max(0, PrepMinutes));
         [JsonIgnore] public TimeSpan EventLength => TimeSpan.FromMinutes(Math.Max(1, EventMinutes));
 

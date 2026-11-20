@@ -62,7 +62,10 @@ namespace Bot.GUI.ViewModels
 
         /// <summary>Castle Battle tab: one row per character with its phase</summary>
         public ObservableCollection<BattleRow> BattleRows { get; } = new();
-        public int[] TeamOptions { get; } = { 1, 2, 3, 4, 5, 6, 7, 8 };
+        public int[] TeamOptions { get; } = Enumerable.Range(1, TeamFlags.MaxFlag).ToArray();
+        /// <summary>Choices for a join / reinforcement flag slot: not set (0) or flag 1-12</summary>
+        public FlagOption[] FlagSlotOptions { get; } =
+            new[] { new FlagOption(0, "–") }.Concat(Enumerable.Range(1, TeamFlags.MaxFlag).Select(i => new FlagOption(i, i.ToString(System.Globalization.CultureInfo.InvariantCulture)))).ToArray();
 
         public TaskDashboardViewModel(MainViewModel main, CycleManagementService cycleService, TaskManager taskManager, ConfigViewModel configVM)
         {
@@ -849,4 +852,7 @@ namespace Bot.GUI.ViewModels
         public event PropertyChangedEventHandler? PropertyChanged;
         protected void OnPropertyChanged([CallerMemberName] string? name = null) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
     }
+
+    /// <summary>One choice of a flag slot dropdown: <see cref="Value"/> 0 = not set</summary>
+    public sealed record FlagOption(int Value, string Label);
 }

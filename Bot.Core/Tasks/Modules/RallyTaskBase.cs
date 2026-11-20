@@ -276,15 +276,41 @@ namespace Bot.Core.Tasks.Modules
         /// <summary>On the deploy screen: team flag (its saved troops and ratio) > Deploy. True when the screen closed (sent); false = still open (no free march?)</summary>
         protected async Task<bool> DeployWithFlagAsync(int team, int instance, LogService logger, CancellationToken cancellationToken)
         {
-            await ClickAsync(instance, logger, FlagPoint(team));
-            await Task.Delay(1500, cancellationToken);
+            await SelectFlagAsync(team, instance, logger, cancellationToken);
             await ClickAsync(instance, logger, DeployPoint);
             await Task.Delay(2500, cancellationToken);
             return !(await MatchAsync(DeployButtonTemplate, DeployButtonArea, Threshold, instance, logger)).found;
         }
 
-        /// <summary>Team flags 1-8 along the top of the deploy screen</summary>
-        internal static System.Drawing.Point FlagPoint(int team) => new System.Drawing.Point(63 + 74 * (Math.Clamp(team, 1, 8) - 1), 122);
+        /// <summary>
+        /// Taps team flag <paramref name="team"/> on the deploy screen. 1-7 show whole (8 is cut off at the strip's right end but its
+        /// left half takes the tap); 9-12 first need the strip dragged to its end (slow drag, no fling).
+        /// </summary>
+        protected async Task SelectFlagAsync(int team, int instance, LogService logger, CancellationToken cancellationToken)
+        {
+            if (team > 8)
+            {
+                await SwipeAsync(instance, logger, new System.Drawing.Point(560, 122), new System.Drawing.Point(60, 122), 1500);
+                await Task.Delay(1000, cancellationToken);
+            }
+            await ClickAsync(instance, logger, FlagPoint(team));
+            await Task.Delay(1500, cancellationToken);
+            // flags 9-12 are tapped at estimated spots (not calibrated yet): keep what the strip looked like
+            if (team > 8)
+                await SaveDebugScreenshotAsync(instance, logger, $"flag-{team}-{DateTime.Now:HHmmss}.png", System.IO.Path.Combine("screenshots", "flags"));
+        }
+
+        /// <summary>
+        /// Team flags along the top of the deploy screen, 74 px apart: 1-8 as the screen opens; 9-12 with the strip dragged to its end,
+        /// estimated as flag 12 mirroring flag 1's margin at the strip's right end (~600) - calibrate from logs/screenshots/flags/
+        /// </summary>
+        internal static System.Drawing.Point FlagPoint(int team)
+        {
+            team = Math.Clamp(team, 1, Bot.Core.Models.TeamFlags.MaxFlag);
+            return team <= 8
+                ? new System.Drawing.Point(63 + 74 * (team - 1), 122)
+                : new System.Drawing.Point(557 - 74 * (Bot.Core.Models.TeamFlags.MaxFlag - team), 122);
+        }
 
         #endregion
     }

@@ -86,6 +86,10 @@ namespace Bot.Core.IntegrationTests
         {
             Assert.That(CastleBattleTask.FlagPoint(1), Is.EqualTo(new System.Drawing.Point(63, 122)));
             Assert.That(CastleBattleTask.FlagPoint(2), Is.EqualTo(new System.Drawing.Point(137, 122)));
+            Assert.That(CastleBattleTask.FlagPoint(8), Is.EqualTo(new System.Drawing.Point(581, 122)));
+            // 9-12: strip dragged to its end (estimated until calibrated)
+            Assert.That(CastleBattleTask.FlagPoint(12), Is.EqualTo(new System.Drawing.Point(557, 122)));
+            Assert.That(CastleBattleTask.FlagPoint(9), Is.EqualTo(new System.Drawing.Point(335, 122)));
         }
     }
 }

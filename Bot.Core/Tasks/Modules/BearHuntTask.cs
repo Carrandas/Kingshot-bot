@@ -299,8 +299,7 @@ namespace Bot.Core.Tasks.Modules
                 return false;
             }
 
-            await ClickAsync(instance, logger, FlagPoint(settings.OwnTeam));
-            await Task.Delay(1500, cancellationToken);
+            await SelectFlagAsync(settings.OwnTeam, instance, logger, cancellationToken);
             await ClickAsync(instance, logger, DeployPoint);
             await Task.Delay(2500, cancellationToken);
             if ((await MatchAsync(DeployButtonTemplate, DeployButtonArea, Threshold, instance, logger)).found)
@@ -402,7 +401,8 @@ namespace Bot.Core.Tasks.Modules
 
             BearHuntStatus.Set(character, BearHuntPhase.Joining);
             DateTime? eventEnd = BearHuntStatus.BearStartUtc + settings.EventLength;
-            int joined = await JoinTopRalliesAsync(character, settings.JoinTeam, allowed, eventEnd, instance, logger, cancellationToken);
+            int joinsOut = BearHuntPlanner.JoinsOut(march.Busy, BearHuntStatus.Get(character), DateTime.UtcNow);
+            int joined = await JoinTopRalliesAsync(character, settings, joinsOut, allowed, eventEnd, instance, logger, cancellationToken);
             await LeaveWarAsync(instance, logger, cancellationToken);
 
             // fewer joins than queues: the list ran out (the same for every character), so wait instead of switching
@@ -415,7 +415,8 @@ namespace Bot.Core.Tasks.Modules
             return joined;
         }
 
-        private async Task<int> JoinTopRalliesAsync(string character, int team, int allowed, DateTime? eventEnd, int instance, LogService logger, CancellationToken cancellationToken)
+        /// <summary><paramref name="joinsOut"/>: joins already marching, so the first join here takes the flag after theirs</summary>
+        private async Task<int> JoinTopRalliesAsync(string character, BearHuntSettings settings, int joinsOut, int allowed, DateTime? eventEnd, int instance, LogService logger, CancellationToken cancellationToken)
         {
             int joined = 0;
             // a "+" that opened no deploy screen (the rally just joined stays green for a moment, or it just left) is skipped
@@ -427,12 +428,12 @@ namespace Bot.Core.Tasks.Modules
                 var bear = await FirstBearRowAsync(buttons, character, tried, eventEnd, instance, logger);
                 if (bear == null) continue;     // only other rallies on screen (now in tried): the next call scrolls on
                 tried.Add(bear.Value.Y);
-                if (!await JoinAsync(character, bear.Value, team, instance, logger, cancellationToken)) continue;
+                if (!await JoinAsync(character, bear.Value, settings.JoinFlag(joinsOut + joined), instance, logger, cancellationToken)) continue;
                 joined++;
                 BearHuntStatus.CountJoin(character);
                 await Task.Delay(2000, cancellationToken);  // let the list refresh: the joined "+" turns grey
             }
-            logger.LogInfo($"[{character}] Bear Hunt: joined {joined} rallies with team {team}");
+            logger.LogInfo($"[{character}] Bear Hunt: joined {joined} rallies (join flags {string.Join("/", settings.JoinFlags)})");
             return joined;
         }
 

@@ -58,6 +58,16 @@ namespace Bot.Core.Services
             return Math.Clamp(free, 0, Math.Max(0, maxJoins));
         }
 
+        /// <summary>
+        /// Joins of this character still out: the busy marches minus our own rally while it is away (sent, not failed since, not back yet).
+        /// The next join takes the join flag after these (<see cref="BearHuntSettings.JoinFlag"/>).
+        /// </summary>
+        public static int JoinsOut(int busy, BearHuntStatus.Entry? state, DateTime nowUtc)
+        {
+            bool ownOut = state is { OwnRallies: > 0, OwnFailures: 0 } && state.OwnBackUtc > nowUtc;
+            return Math.Max(0, busy - (ownOut ? 1 : 0));
+        }
+
         /// <summary>Marching time added to a joined rally's countdown (the "14km away" rows arrive in well under this)</summary>
         public static readonly TimeSpan JoinMarch = TimeSpan.FromSeconds(30);
 

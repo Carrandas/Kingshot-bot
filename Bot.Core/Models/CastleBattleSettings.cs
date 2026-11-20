@@ -63,7 +63,7 @@ namespace Bot.Core.Models
 
         /// <summary>The teams are flags 1-8</summary>
         [JsonIgnore]
-        public bool IsValid => OffensiveTeam is >= 1 and <= 8 && DefensiveTeam is >= 1 and <= 8;
+        public bool IsValid => TeamFlags.IsFlag(OffensiveTeam) && TeamFlags.IsFlag(DefensiveTeam);
 
         public event PropertyChangedEventHandler? PropertyChanged;
 

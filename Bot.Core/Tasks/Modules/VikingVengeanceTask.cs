@@ -107,13 +107,13 @@ namespace Bot.Core.Tasks.Modules
             var result = HelpResult.Skipped;
             if (leader.found)
             {
-                result = await HelpMemberAsync(account, character, leader.rect, "R5", instance, logger, cancellationToken);
+                result = await HelpMemberAsync(account, character, leader.rect, "R5", sent, instance, logger, cancellationToken);
                 if (result == HelpResult.Sent) sent++;
             }
 
             for (int g = 0; g < GroupHeaderY.Length && result is HelpResult.Skipped or HelpResult.Sent; g++)
             {
-                var (groupSent, groupResult) = await HelpGroupAsync(account, character, g, instance, logger, cancellationToken);
+                var (groupSent, groupResult) = await HelpGroupAsync(account, character, g, sent, instance, logger, cancellationToken);
                 sent += groupSent;
                 result = groupResult;
             }
@@ -123,8 +123,11 @@ namespace Bot.Core.Tasks.Modules
             return sent;
         }
 
-        /// <summary>Opens rank group <paramref name="group"/>, helps its online members (listed first), closes it again</summary>
-        private async Task<(int sent, HelpResult last)> HelpGroupAsync(AccountSettings account, string character, int group, int instance, LogService logger, CancellationToken cancellationToken)
+        /// <summary>
+        /// Opens rank group <paramref name="group"/>, helps its online members (listed first), closes it again.
+        /// <paramref name="sentBefore"/>: reinforcements this character already sent (they pick the flags in turn)
+        /// </summary>
+        private async Task<(int sent, HelpResult last)> HelpGroupAsync(AccountSettings account, string character, int group, int sentBefore, int instance, LogService logger, CancellationToken cancellationToken)
         {
             int headerY = GroupHeaderY[group];
             await ClickAsync(instance, logger, new System.Drawing.Point(360, headerY));
@@ -137,7 +140,7 @@ namespace Bot.Core.Tasks.Modules
             foreach (var label in labels.Take(MaxPerGroup))
             {
                 await WaitIfPausedAsync(cancellationToken);
-                last = await HelpMemberAsync(account, character, label, $"R{4 - group}", instance, logger, cancellationToken);
+                last = await HelpMemberAsync(account, character, label, $"R{4 - group}", sentBefore + sent, instance, logger, cancellationToken);
                 if (last == HelpResult.Sent) sent++;
                 if (last is HelpResult.NoMarch or HelpResult.Lost) break;
             }
@@ -150,8 +153,8 @@ namespace Bot.Core.Tasks.Modules
             return (sent, last == HelpResult.Sent ? HelpResult.Skipped : last);
         }
 
-        /// <summary>One online member: card > Squad Help > Reinforce (enough free?) > Confirm > flag > Deploy</summary>
-        private async Task<HelpResult> HelpMemberAsync(AccountSettings account, string character, Rectangle label, string group, int instance, LogService logger, CancellationToken cancellationToken)
+        /// <summary>One online member: card > Squad Help > Reinforce (enough free?) > Confirm > flag > Deploy. <paramref name="sentBefore"/> picks the flag.</summary>
+        private async Task<HelpResult> HelpMemberAsync(AccountSettings account, string character, Rectangle label, string group, int sentBefore, int instance, LogService logger, CancellationToken cancellationToken)
         {
             var screenshot = await TakeScreenshotAsync(instance, logger);
             string name = screenshot == null ? "" : ReadMemberName(screenshot, label);
@@ -179,7 +182,7 @@ namespace Bot.Core.Tasks.Modules
 
             await ClickAsync(instance, logger, ConfirmPoint);
             await Task.Delay(2500, cancellationToken);
-            return await DeployToMemberAsync(character, key, free.Value, settings.Team, instance, logger, cancellationToken);
+            return await DeployToMemberAsync(character, key, free.Value, settings.Flag(sentBefore), instance, logger, cancellationToken);
         }
 
         /// <summary>The Reinforce popup's free capacity when it is enough; otherwise Cancel (the member counts as done) and null</summary>

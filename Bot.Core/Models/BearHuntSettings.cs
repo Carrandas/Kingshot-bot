@@ -22,6 +22,7 @@ namespace Bot.Core.Models
         private int _trap = 1;
         private int _ownTeam = 3;
         private int _joinTeam = 4;
+        private int _joinTeam2, _joinTeam3, _joinTeam4, _joinTeam5, _joinTeam6;
         private int _maxJoins = 6;
         private string _firstCharacter = string.Empty;
         private DateTime? _nextBearUtc;
@@ -133,9 +134,23 @@ namespace Bot.Core.Models
         [JsonPropertyName("ownTeam")]
         public int OwnTeam { get => _ownTeam; set => Set(ref _ownTeam, value); }
 
-        /// <summary>Team flag for joining the alliance's bear rallies</summary>
+        /// <summary>Join flag slot 1 (0 = not set): the first join of a character's marches uses it</summary>
         [JsonPropertyName("joinTeam")]
         public int JoinTeam { get => _joinTeam; set => Set(ref _joinTeam, value); }
+
+        /// <summary>Join flag slots 2-6 (0 = not set); see <see cref="JoinFlag"/></summary>
+        [JsonPropertyName("joinTeam2")] public int JoinTeam2 { get => _joinTeam2; set => Set(ref _joinTeam2, value); }
+        [JsonPropertyName("joinTeam3")] public int JoinTeam3 { get => _joinTeam3; set => Set(ref _joinTeam3, value); }
+        [JsonPropertyName("joinTeam4")] public int JoinTeam4 { get => _joinTeam4; set => Set(ref _joinTeam4, value); }
+        [JsonPropertyName("joinTeam5")] public int JoinTeam5 { get => _joinTeam5; set => Set(ref _joinTeam5, value); }
+        [JsonPropertyName("joinTeam6")] public int JoinTeam6 { get => _joinTeam6; set => Set(ref _joinTeam6, value); }
+
+        /// <summary>The set join flags in slot order</summary>
+        [JsonIgnore]
+        public System.Collections.Generic.List<int> JoinFlags => TeamFlags.Set(new[] { JoinTeam, JoinTeam2, JoinTeam3, JoinTeam4, JoinTeam5, JoinTeam6 });
+
+        /// <summary>Flag for the character's march <paramref name="index"/> (0-based): the set flags in turn, repeating from the first</summary>
+        public int JoinFlag(int index) => TeamFlags.ForMarch(JoinFlags, index, 4);
 
         /// <summary>Rallies joined at once per character (the top ones of the War list)</summary>
         [JsonPropertyName("maxJoins")]
@@ -208,7 +223,7 @@ namespace Bot.Core.Models
         public int SwitchLeadSeconds { get => _switchLeadSeconds; set => Set(ref _switchLeadSeconds, value); }
 
         [JsonIgnore]
-        public bool IsValid => OwnTeam is >= 1 and <= 8 && JoinTeam is >= 1 and <= 8 && Trap is 1 or 2 && MaxJoins >= 0;
+        public bool IsValid => TeamFlags.IsFlag(OwnTeam) && JoinFlags.Count > 0 && Trap is 1 or 2 && MaxJoins >= 0;
 
         [JsonIgnore] public TimeSpan Prep => TimeSpan.FromMinutes(Math.Max(0, PrepMinutes));
         [JsonIgnore] public TimeSpan LastSend => TimeSpan.FromSeconds(Math.Max(0, LastSendSeconds));
