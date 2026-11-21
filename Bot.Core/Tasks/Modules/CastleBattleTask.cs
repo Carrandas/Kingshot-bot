@@ -23,9 +23,10 @@ namespace Bot.Core.Tasks.Modules
     /// 2. read the Marching tracker (top left of the map) for the character's state: rallying, marching, garrisoned, back;
     /// 3. Alliance > War > Rally: join every rally with a green "+" (grey = already in or full) with the offensive team
     ///    flag (red "Rally") or the defensive one (blue "Def. Lineup"); each flag keeps its own troops and ratio.
-    /// Not in the cycle's task list.
+    /// Not in the cycle's task list. Before a scheduled battle (<see cref="CastleBattleStatus.Preparing"/>) a pass is the
+    /// prep instead: recall every march, wait until the troops are home, teleport near the castle.
     /// </summary>
-    public class CastleBattleTask : RallyTaskBase
+    public partial class CastleBattleTask : RallyTaskBase
     {
         public override TaskType TaskType => TaskType.CastleBattle;
         public override string Name => "Castle Battle";
@@ -66,13 +67,15 @@ namespace Bot.Core.Tasks.Modules
         private const int HealStep = 100;             // a batch the help no longer covers (allies went offline): 100 fewer
         private const int MinHealAmount = 100;
         private const int MaxHealRounds = 50;         // Heal / Help taps per pass, then rallies get their turn (18 allies online covered ~1,000 a batch)
+        private static readonly TimeSpan MarchesHomeTimeout = TimeSpan.FromMinutes(8);   // gatherers far out take a few minutes
 
         protected override async Task<TaskExecutionDetails> ExecuteTaskLogicAsync(AccountSettings account, LogService logger, CancellationToken cancellationToken, bool isReRun = false, IUserNotificationService? userNotifications = null)
         {
             int instance = account.InstanceNumber;
             string character = CharacterRoster.GetActiveName(instance) ?? account.AccountName;
             var settings = account.CastleBattleSettings;
-            if (!settings.IsValid) return TaskExecutionDetails.Failed("Castle Battle settings: the teams must be flags 1-8");
+            if (!settings.IsValid) return TaskExecutionDetails.Failed("Castle Battle settings: the teams must be flags 1-12");
+            if (CastleBattleStatus.Preparing) return await PrepareAsync(account, character, settings, logger, cancellationToken, userNotifications);
 
             try
             {
@@ -113,6 +116,63 @@ namespace Bot.Core.Tasks.Modules
             }
         }
 
+        #region Prep
+
+        /// <summary>Before the battle: recall every march, wait until the troops are home, then teleport near the castle</summary>
+        private async Task<TaskExecutionDetails> PrepareAsync(AccountSettings account, string character, CastleBattleSettings settings, LogService logger, CancellationToken cancellationToken, IUserNotificationService? userNotifications)
+        {
+            int instance = account.InstanceNumber;
+            try
+            {
+                var locator = new LocatorService(logger, account, TaskType);
+                await locator.EnsureViewAsync(ViewType.MapView, instance, cancellationToken);
+                string homeSpot = settings.Teleport ? await SaveHomeSpotAsync(account, character, settings, logger, cancellationToken) : "";
+                CastleBattleStatus.Set(character, CastleBattlePhase.Recalling);
+                string recalled = await RecallMarchesAsync(character, instance, logger, cancellationToken);
+                bool home = await WaitForMarchesHomeAsync(MarchesHomeTimeout, instance, logger, cancellationToken);
+                if (!home) logger.LogWarning($"[{character}] Castle Battle: marches still out after {MarchesHomeTimeout.TotalMinutes:F0} min");
+
+                string teleport = "no teleport (off)";
+                if (settings.Teleport)
+                {
+                    CastleBattleStatus.Set(character, CastleBattlePhase.Teleporting);
+                    teleport = home
+                        ? await TeleportNearCastleAsync(character, instance, logger, userNotifications)
+                        : "no teleport (troops still out: a city can't move with marches out)";
+                }
+                await locator.EnsureViewAsync(ViewType.MapView, instance, cancellationToken);
+
+                string result = $"{recalled}; {homeSpot}{teleport}";
+                CastleBattleStatus.Set(character, CastleBattlePhase.WaitingForBattle, teleport);
+                logger.LogInfo($"[{character}] Castle Battle prep: {result}");
+                return TaskExecutionDetails.Succeeded(result);
+            }
+            catch (OperationCanceledException)
+            {
+                return TaskExecutionDetails.Failed("Task was cancelled");
+            }
+            catch (Exception ex) when (ex is not BotLostException)
+            {
+                logger.LogError($"[{character}] Castle Battle prep: {ex.Message}");
+                return TaskExecutionDetails.Failed(ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// Teleport near the castle, next to the alliance's cities but not in the first row around it. Not built yet:
+        /// the map, the castle and the relocate screens still need calibration screenshots. Until then it saves what the
+        /// map shows (logs/screenshots/castlebattle/) and asks for a teleport by hand.
+        /// </summary>
+        private async Task<string> TeleportNearCastleAsync(string character, int instance, LogService logger, IUserNotificationService? userNotifications)
+        {
+            await SaveDebugScreenshotAsync(instance, logger, $"teleport-{DateTime.Now:HHmmss}.png", Path.Combine("screenshots", "castlebattle"));
+            logger.LogWarning($"[{character}] Castle Battle: teleport near the castle is not built yet, teleport {character} by hand");
+            userNotifications?.ShowStatus($"Castle Battle: teleport {character} near the castle by hand", NotificationType.Warning);
+            return "teleport by hand (not built yet)";
+        }
+
+        #endregion
+
         #region Heal
 
         private enum HealButton { None, Heal, Help, Speedups }
@@ -143,16 +203,16 @@ namespace Bot.Core.Tasks.Modules
                 }
                 // Speedups already showing: healing from before this pass that the help didn't cover
                 bool covered = button == HealButton.Help && await HelpCoveredAsync(character, amount, instance, logger, cancellationToken);
+                if (!covered)
+                {
+                    typed = null;   // Cancel healing refills the boxes: type them again
+                    (covered, amount) = await CancelTooBigBatchAsync(character, amount, instance, logger, cancellationToken);
+                }
                 if (covered)
                 {
                     healed++;
                     CastleBattleStatus.CountHeal(character);
-                    continue;
                 }
-                typed = null;   // Cancel healing refills the boxes: type them again
-                if (!await CancelHealingAsync(instance, logger, cancellationToken)) continue;   // healing finished after all
-                amount = Math.Max(MinHealAmount, amount - HealStep);
-                logger.LogInfo($"[{character}] Castle Battle: heal amount lowered to {amount}");
             }
 
             // only an amount that healed (or one lowered after a failure) is kept: an untried +100 is not
@@ -207,8 +267,8 @@ namespace Bot.Core.Tasks.Modules
         private async Task<bool> HelpCoveredAsync(string character, int amount, int instance, LogService logger, CancellationToken cancellationToken)
         {
             await ClickAsync(instance, logger, HealHelpPoint);
-            // the allies' helps arrive over a second or two: only Speedups that stays is a batch too big
-            for (int i = 0; i < 5; i++)
+            // the allies' helps arrive over a few seconds (late ones after ~5 s seen 2026-11-21): only Speedups that stays is a batch too big
+            for (int i = 0; i < 8; i++)
             {
                 await Task.Delay(700, cancellationToken);
                 if (await ReadHealButtonAsync(instance, logger) != HealButton.Speedups) return true;
@@ -276,11 +336,26 @@ namespace Bot.Core.Tasks.Modules
             await Task.Delay(1000, cancellationToken);
         }
 
-        /// <summary>Cancel healing > Confirm (refunds the resources). False when the confirmation didn't show.</summary>
-        private async Task<bool> CancelHealingAsync(int instance, LogService logger, CancellationToken cancellationToken)
+        /// <summary>A batch the help didn't cover: cancel it and lower the amount by 100. Healed = the help came in late after all.</summary>
+        private async Task<(bool Healed, int Amount)> CancelTooBigBatchAsync(string character, int amount, int instance, LogService logger, CancellationToken cancellationToken)
+        {
+            var cancel = await CancelHealingAsync(instance, logger, cancellationToken);
+            if (cancel != CancelResult.Cancelled) return (cancel == CancelResult.HealedAnyway, amount);
+            amount = Math.Max(MinHealAmount, amount - HealStep);
+            logger.LogInfo($"[{character}] Castle Battle: heal amount lowered to {amount}");
+            return (false, amount);
+        }
+
+        private enum CancelResult { Cancelled, HealedAnyway, NotShown }
+
+        /// <summary>
+        /// Cancel healing > Confirm (refunds the resources). HealedAnyway when the healing finished first (a late help: on
+        /// 2026-11-21 the infantry count dropped by the batch while no confirmation showed); NotShown when it still runs.
+        /// </summary>
+        private async Task<CancelResult> CancelHealingAsync(int instance, LogService logger, CancellationToken cancellationToken)
         {
             // that spot is Quick Select (fills every box to its max) once healing is done: tap it only while healing runs
-            if (await ReadHealButtonAsync(instance, logger) != HealButton.Speedups) return false;
+            if (await ReadHealButtonAsync(instance, logger) != HealButton.Speedups) return CancelResult.HealedAnyway;
             await ClickAsync(instance, logger, CancelHealingPoint);
             bool shown = false;
             for (int i = 0; i < 6 && !shown; i++)
@@ -290,12 +365,14 @@ namespace Bot.Core.Tasks.Modules
             }
             if (!shown)
             {
+                // the tap then hit Quick Select: harmless, the next Heal types every box again
+                if (await ReadHealButtonAsync(instance, logger) != HealButton.Speedups) return CancelResult.HealedAnyway;
                 logger.LogWarning("Castle Battle: no Cancel healing confirmation");
-                return false;
+                return CancelResult.NotShown;
             }
             await ClickAsync(instance, logger, CancelConfirmPoint);
             await Task.Delay(1200, cancellationToken);
-            return true;
+            return CancelResult.Cancelled;
         }
 
         private async Task CloseHealPopupAsync(int instance, LogService logger, CancellationToken cancellationToken)

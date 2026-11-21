@@ -17,7 +17,10 @@ namespace Bot.Core.Services
         Garrisoned,
         MarchingBack,
         SendingDefense,
-        Switching
+        Switching,
+        Recalling,
+        Teleporting,
+        WaitingForBattle
     }
 
     /// <summary>
@@ -35,13 +38,27 @@ namespace Bot.Core.Services
 
         public static DateTime? StartedUtc { get; private set; }
         public static DateTime? EndsUtc { get; private set; }
+        /// <summary>When the battle itself starts (the mode can start earlier for the prep)</summary>
+        public static DateTime? BattleStartUtc { get; private set; }
         public static bool IsRunning => StartedUtc != null;
+        /// <summary>Before the battle: the passes recall the troops and teleport instead of joining and healing</summary>
+        public static bool Preparing { get; private set; }
 
-        public static void Start(DateTime endsUtc)
+        public static void Start(DateTime endsUtc) => Start(DateTime.UtcNow, endsUtc, preparing: false);
+
+        public static void Start(DateTime battleStartUtc, DateTime endsUtc, bool preparing)
         {
             _entries.Clear();
             StartedUtc = DateTime.UtcNow;
+            BattleStartUtc = battleStartUtc;
             EndsUtc = endsUtc;
+            Preparing = preparing;
+            Changed?.Invoke();
+        }
+
+        public static void SetPreparing(bool preparing)
+        {
+            Preparing = preparing;
             Changed?.Invoke();
         }
 
@@ -49,6 +66,8 @@ namespace Bot.Core.Services
         {
             StartedUtc = null;
             EndsUtc = null;
+            BattleStartUtc = null;
+            Preparing = false;
             Changed?.Invoke();
         }
 
@@ -86,6 +105,9 @@ namespace Bot.Core.Services
             [CastleBattlePhase.MarchingBack] = "Marching back",
             [CastleBattlePhase.SendingDefense] = "Sending defense",
             [CastleBattlePhase.Switching] = "Switching character",
+            [CastleBattlePhase.Recalling] = "Recalling troops",
+            [CastleBattlePhase.Teleporting] = "Teleporting",
+            [CastleBattlePhase.WaitingForBattle] = "Ready, waiting for the battle",
         };
 
         public static string Describe(CastleBattlePhase phase) => Descriptions.TryGetValue(phase, out var text) ? text : phase.ToString();

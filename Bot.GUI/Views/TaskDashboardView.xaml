@@ -292,7 +292,12 @@
                                     HorizontalAlignment="Left" Margin="0,0,0,12"
                                     Command="{Binding StartCastleBattleCommand}"
                                     ToolTip="Stop the cycle and join castle battle rallies on every ticked character until Stop"/>
-                            <TextBlock Text="{Binding BattleStatusText}" Foreground="White" FontSize="14" FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,0,0,14"/>
+                            <CheckBox IsChecked="{Binding BattleSettings.Enabled}" Margin="0,0,0,8"
+                                      ToolTip="Read events (the cycle task) finds the time in the Task List; the bot then starts by itself before the battle">
+                                <TextBlock Text="Castle Battle on" Foreground="White" FontSize="14" FontWeight="SemiBold"/>
+                            </CheckBox>
+                            <TextBlock Text="{Binding BattleStatusText}" Foreground="White" FontSize="13" TextWrapping="Wrap" Margin="0,0,0,4"/>
+                            <TextBlock Text="{Binding NextBattleText}" Foreground="{StaticResource MutedBrush}" FontSize="12" Margin="0,0,0,14"/>
 
                             <Grid DataContext="{Binding BattleSettings}">
                                 <Grid.ColumnDefinitions>
@@ -304,6 +309,7 @@
                                     <ColumnDefinition Width="*"/>
                                 </Grid.ColumnDefinitions>
                                 <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
                                     <RowDefinition Height="Auto"/>
                                     <RowDefinition Height="Auto"/>
                                     <RowDefinition Height="Auto"/>
@@ -336,6 +342,19 @@
                                 <ComboBox Grid.Row="2" Grid.Column="1" Width="54" HorizontalAlignment="Left" Margin="0,4"
                                           ItemsSource="{Binding DataContext.TeamOptions, RelativeSource={RelativeSource AncestorType=UserControl}}"
                                           SelectedItem="{Binding DefensiveTeam}" ToolTip="Team flag at the top of the deploy screen; the flag keeps its troops and ratio"/>
+
+                                <StackPanel Grid.Row="4" Grid.ColumnSpan="6" Orientation="Horizontal" Margin="0,10,0,0">
+                                    <TextBlock Text="Next battle (UTC)"/>
+                                    <TextBox Width="130" Text="{Binding NextBattleUtcText, UpdateSourceTrigger=LostFocus}"
+                                             ToolTip="yyyy-MM-dd HH:mm in UTC. Filled by Read events from the Task List; type it to set it by hand"/>
+                                    <TextBlock Text="Start (min before)"/>
+                                    <TextBox Text="{Binding PrepMinutes, UpdateSourceTrigger=PropertyChanged}"
+                                             ToolTip="Stop the cycle this long before the battle: every character recalls its troops and teleports"/>
+                                    <CheckBox IsChecked="{Binding Teleport}" VerticalAlignment="Center"
+                                              ToolTip="Once the troops are home: teleport near the castle, next to the alliance (not built yet: the bot asks for a teleport by hand)">
+                                        <TextBlock Text="Teleport near the castle (by hand for now)"/>
+                                    </CheckBox>
+                                </StackPanel>
 
                                 <StackPanel Grid.Row="3" Grid.ColumnSpan="6" Orientation="Horizontal" Margin="0,10,0,0">
                                     <TextBlock Text="Heal amount" ToolTip="Starting heal batch; each character then keeps its own (BATCH column)"/>

@@ -642,7 +642,9 @@ namespace Bot.Core.Tasks.Modules
             settings.SetScanned(trap1, trap2); // both traps are kept: changing the trap in the GUI picks the other one
             var viking = BearHuntSchedule.NextViking(items, now, account.VikingVengeanceSettings.EventLength);
             if (viking != null) account.VikingVengeanceSettings.NextVikingUtc = viking;
-            logger.LogInfo($"Bear Hunt: Task List read ({items.Count} rows): Trap 1 {FormatBear(trap1)}, Trap 2 {FormatBear(trap2)}, Viking Vengeance {FormatBear(viking)}");
+            var castle = BearHuntSchedule.NextCastleBattle(items, now, account.CastleBattleSettings.EventLength);
+            if (castle != null) account.CastleBattleSettings.NextBattleUtc = castle;
+            logger.LogInfo($"Bear Hunt: Task List read ({items.Count} rows): Trap 1 {FormatBear(trap1)}, Trap 2 {FormatBear(trap2)}, Viking Vengeance {FormatBear(viking)}, Castle Battle {FormatBear(castle)}");
             var next = settings.NextBearUtc;
             if (next == null)
             {

@@ -13,6 +13,13 @@ namespace Bot.Core.IntegrationTests
     [TestFixture]
     public class CastleBattleTests
     {
+        /// <summary>llsa's map after Town > World on 2026-11-21 (only the coordinate pill kept): the city's spot before a teleport</summary>
+        [Test]
+        public void ReadsTheCityCoordinates()
+        {
+            Assert.That(CastleBattleTask.ReadCityCoordinates(Fixtures.Load("castle-map-coordinates.png")), Is.EqualTo((588, 592)));
+        }
+
         [Test]
         public void FindsTheGreenJoinButton()
         {

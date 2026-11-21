@@ -96,7 +96,7 @@ namespace Bot.GUI.ViewModels
 
             // Relative times ("in 12 min") go stale: redraw twice a minute
             var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(30) };
-            timer.Tick += (_, _) => { Refresh(); RefreshBear(); RefreshViking(); };
+            timer.Tick += (_, _) => { Refresh(); RefreshBear(); RefreshViking(); RefreshBattle(); };
             timer.Start();
 
             // A config reload refills Accounts with new objects: keep the same instance selected
@@ -177,8 +177,11 @@ namespace Bot.GUI.ViewModels
         {
             CommandManager.InvalidateRequerySuggested();
             if (sender != null && e.PropertyName != nameof(CastleBattleSettings.IsValid)) _configVM.SaveConfigIfNotApplying();
-            if (e.PropertyName == nameof(CastleBattleSettings.HealAmounts)) RefreshBattle();
+            RefreshBattle();
         });
+
+        private string _nextBattleText = string.Empty;
+        public string NextBattleText { get => _nextBattleText; private set { if (_nextBattleText != value) { _nextBattleText = value; OnPropertyChanged(); } } }
 
         #region Bear Hunt
 
@@ -331,9 +334,8 @@ namespace Bot.GUI.ViewModels
         {
             CommandManager.InvalidateRequerySuggested();
             OnPropertyChanged(nameof(IsBusy));
-            BattleStatusText = CastleBattleStatus.EndsUtc is DateTime ends
-                ? $"Castle Battle running until {Local(ends)} ({Relative(ends)})"
-                : "Stopped. Castle Battle joins rallies and heals on every ticked character until Stop or the max hours.";
+            BattleStatusText = BuildBattleStatus();
+            NextBattleText = BuildNextBattleText();
 
             var entries = CastleBattleStatus.All();
             var names = Characters.Where(c => c.Entry?.Enabled != false).Select(c => c.Name).ToList();
@@ -348,6 +350,21 @@ namespace Bot.GUI.ViewModels
             if (CastleBattleStatus.IsRunning) CycleStatus = BattleStatusText;
             if (CastleBattleStatus.IsRunning && !_battleWasRunning) SelectedTabIndex = CastleBattleTabIndex;
             _battleWasRunning = CastleBattleStatus.IsRunning;
+        }
+
+        private string BuildNextBattleText() => BattleSettings?.NextBattleUtc is DateTime next
+            ? $"Next Castle Battle: {Local(next)} local ({Relative(next)}); the bot starts {BattleSettings.PrepMinutes} min before"
+            : "Next Castle Battle: not known yet (Read events reads the Task List, or type it in)";
+
+        private string BuildBattleStatus()
+        {
+            if (CastleBattleStatus.EndsUtc is not DateTime ends)
+                return BattleSettings?.Enabled == true
+                    ? "Waiting for the next battle. Started by hand, it joins rallies and heals on every ticked character until Stop or the max hours."
+                    : "Off: the bot won't start it by itself. Started by hand, it joins rallies and heals on every ticked character until Stop or the max hours.";
+            if (CastleBattleStatus.BattleStartUtc is DateTime start && DateTime.UtcNow < start)
+                return $"Castle Battle prep: battle at {Local(start)} ({Relative(start)}), running until {Local(ends)}";
+            return $"Castle Battle running until {Local(ends)} ({Relative(ends)})";
         }
 
         private string _cycleStatus = string.Empty;

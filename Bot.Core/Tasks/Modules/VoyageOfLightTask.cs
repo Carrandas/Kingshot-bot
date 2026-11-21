@@ -19,9 +19,9 @@ namespace Bot.Core.Tasks.Modules
     /// Voyage of Light, a timed event in the Deals hub (ship tab): Claim All the returned ships, then Dispatch All.
     /// Both are the same button spot at the bottom left (green Claim All turns into teal Dispatch All); "Complete All"
     /// next to it costs event tokens and is never tapped. A voyage takes 8 h. Without the tab (event over) it waits
-    /// for the next 00:00 UTC reset.
+    /// for the next 00:00 UTC reset. Also claims the daily free gift and merges/opens My Treasures (VoyageOfLightTask.Treasures.cs).
     /// </summary>
-    public class VoyageOfLightTask : BaseTaskWithCommonPatterns, IScheduledTask
+    public partial class VoyageOfLightTask : BaseTaskWithCommonPatterns, IScheduledTask
     {
         public override TaskType TaskType => TaskType.VoyageOfLight;
         public override string Name => "Voyage of Light";
@@ -96,6 +96,7 @@ namespace Bot.Core.Tasks.Modules
                 else
                 {
                     result = await ClaimAndDispatchAsync(account, accountKey, instance, logger, cancellationToken);
+                    result += await CollectExtrasAsync(account, accountKey, instance, logger, cancellationToken);
                 }
 
                 await LeaveDealsAsync(instance, logger, cancellationToken);

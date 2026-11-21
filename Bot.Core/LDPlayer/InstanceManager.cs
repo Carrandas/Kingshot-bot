@@ -487,7 +487,21 @@ namespace Bot.Core.LDPlayer
             public bool ServerRecoveryAttempted;
             public int RebootAttempts;
             public int AdbRetryCount;
+            /// <summary>Since when the emulator runs without Android (null while Android is up or the emulator is off)</summary>
+            public DateTime? AndroidMissingSince;
+            /// <summary>Since when list2 shows no VirtualBox process (vbox pid -1) while the window is up</summary>
+            public DateTime? VmMissingSince;
         }
+
+        // The window up but the VM dead (vbox pid -1, "Android starting" for ever): on 2026-11-21 every Castle Battle pass
+        // failed for 12 minutes until ldconsole quit + launch. The boot wait now does that itself.
+        private const int VM_DEAD_REBOOT_SECONDS = 15;
+        private const int ANDROID_STUCK_REBOOT_SECONDS = 45;
+
+        /// <summary>Should a wait that sees the emulator without Android reboot it (VM gone, or Android stuck)?</summary>
+        internal static bool AndroidStuck(DateTime? androidMissingSince, DateTime? vmMissingSince, DateTime now) =>
+            (vmMissingSince is { } vm && (now - vm).TotalSeconds >= VM_DEAD_REBOOT_SECONDS) ||
+            (androidMissingSince is { } android && (now - android).TotalSeconds >= ANDROID_STUCK_REBOOT_SECONDS);
 
         /// <summary>
         /// Set inside a boot wait. Its recovery used to call StartInstanceAsync/RecoverAsync, whose own boot wait
@@ -554,12 +568,11 @@ namespace Bot.Core.LDPlayer
             // Check Android OS is started
             if (!detailedStatus.AndroidStarted)
             {
-                _logger.LogInfo($"[BootWait] Instance {instanceNumber} emulator running but Android not yet started (Status: {detailedStatus.StatusDescription}), waiting...");
-
-                // Poll every second: list2 is cheap (~40 ms) and Android often comes up well within the old fixed 5 s wait
-                await Task.Delay(1000, cancellationToken);
+                await HandleAndroidNotStartedAsync(instanceNumber, detailedStatus, state, cancellationToken);
                 return false;
             }
+            state.AndroidMissingSince = null;
+            state.VmMissingSince = null;
 
             // Instance is fully booted, now check ADB responsiveness
             _logger.LogInfo($"[BootWait] Instance {instanceNumber} fully booted ({detailedStatus.StatusDescription}), checking ADB responsiveness...");
@@ -624,22 +637,7 @@ namespace Bot.Core.LDPlayer
             // If not responsive after initial boot wait, try a reboot cycle
             if (elapsedTime.TotalSeconds >= INITIAL_BOOT_WAIT && state.RebootAttempts < MAX_REBOOT_ATTEMPTS)
             {
-                state.RebootAttempts++;
-                _logger.LogWarning($"[BootWait] Instance {instanceNumber} not responsive after {INITIAL_BOOT_WAIT} seconds. Attempting reboot cycle ({state.RebootAttempts}/{MAX_REBOOT_ATTEMPTS})...");
-
-                // Stop the instance
-                await StopInstanceAsync(instanceNumber, cancellationToken);
-                await Task.Delay(5000, cancellationToken);
-
-                // Start it again; this loop does the waiting (StartInstanceAsync would start a boot wait of its own)
-                await ModifyInstanceSettingsAsync(instanceNumber, cancellationToken);
-                await RunLdConsoleCommandAsync($"launch --index \"{instanceNumber}\"", cancellationToken);
-
-                // Reset flags for the new boot attempt
-                state.RecoveryAttempted = false;
-                state.ServerRecoveryAttempted = false;
-                state.AdbRetryCount = 0;
-                state.StartTime = DateTime.UtcNow; // Reset the timer for the new attempt
+                await RebootForBootWaitAsync(instanceNumber, state, $"not responsive after {INITIAL_BOOT_WAIT} seconds", cancellationToken);
                 return;
             }
 
@@ -658,6 +656,49 @@ namespace Bot.Core.LDPlayer
 
             _logger.LogInfo($"[BootWait] Instance {instanceNumber} not yet responsive to ADB (attempt {state.AdbRetryCount}), waiting... (Elapsed: {elapsedTime.TotalMinutes:F1} minutes)");
             await Task.Delay(5000, cancellationToken);
+        }
+
+        /// <summary>The emulator window runs but Android doesn't: wait, and reboot once the VM is gone or Android is stuck</summary>
+        private async Task HandleAndroidNotStartedAsync(int instanceNumber, InstanceDetailedStatus status, BootWaitState state, CancellationToken cancellationToken)
+        {
+            var now = DateTime.UtcNow;
+            state.AndroidMissingSince ??= now;
+            if (status.VBoxProcessId <= 0) state.VmMissingSince ??= now;
+            else state.VmMissingSince = null;
+            _logger.LogInfo($"[BootWait] Instance {instanceNumber} emulator running but Android not yet started (Status: {status.StatusDescription}, vbox pid {status.VBoxProcessId}), waiting...");
+
+            if (!state.Nested && state.RebootAttempts < MAX_REBOOT_ATTEMPTS && AndroidStuck(state.AndroidMissingSince, state.VmMissingSince, now))
+            {
+                string reason = state.VmMissingSince != null
+                    ? $"has no VM process for {VM_DEAD_REBOOT_SECONDS} s"
+                    : $"has no Android after {ANDROID_STUCK_REBOOT_SECONDS} s";
+                await RebootForBootWaitAsync(instanceNumber, state, reason, cancellationToken);
+                return;
+            }
+
+            // Poll every second: list2 is cheap (~40 ms) and Android often comes up well within the old fixed 5 s wait
+            await Task.Delay(1000, cancellationToken);
+        }
+
+        /// <summary>ldconsole quit + launch; this boot wait then waits for the new boot with a fresh timer</summary>
+        private async Task RebootForBootWaitAsync(int instanceNumber, BootWaitState state, string reason, CancellationToken cancellationToken)
+        {
+            state.RebootAttempts++;
+            _logger.LogWarning($"[BootWait] Instance {instanceNumber} {reason}. Attempting reboot cycle ({state.RebootAttempts}/{MAX_REBOOT_ATTEMPTS})...");
+
+            await StopInstanceAsync(instanceNumber, cancellationToken);
+            await Task.Delay(5000, cancellationToken);
+
+            // Start it again; this loop does the waiting (StartInstanceAsync would start a boot wait of its own)
+            await ModifyInstanceSettingsAsync(instanceNumber, cancellationToken);
+            await RunLdConsoleCommandAsync($"launch --index \"{instanceNumber}\"", cancellationToken);
+
+            state.RecoveryAttempted = false;
+            state.ServerRecoveryAttempted = false;
+            state.AdbRetryCount = 0;
+            state.AndroidMissingSince = null;
+            state.VmMissingSince = null;
+            state.StartTime = DateTime.UtcNow;
         }
 
         private async Task RecoverAdbConnectionAsync(int instanceNumber, BootWaitState state, CancellationToken cancellationToken)

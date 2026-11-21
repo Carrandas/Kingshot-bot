@@ -18,6 +18,8 @@ namespace Bot.Core.Services
         private static readonly Regex DateRegex = new(@"(\d{4})\s*/\s*(\d{1,2})\s*/\s*(\d{1,2})", RegexOptions.None, RegexTimeouts.Default);
         private static readonly Regex TimeRegex = new(@"(\d{1,2})\s*[:.]\s*(\d{2})", RegexOptions.None, RegexTimeouts.Default);
         private static readonly Regex VikingRegex = new(@"vik[il1]ng", RegexOptions.IgnoreCase, RegexTimeouts.Default);
+        // "Castle Battle" (not "Sanctuary Battle", the other battle rows)
+        private static readonly Regex CastleRegex = new(@"cast[il1]e\s*batt", RegexOptions.IgnoreCase, RegexTimeouts.Default);
         // OCR reads the trap's "1" as l, I or | now and then
         private static readonly Regex BearRegex = new(@"bear.*trap\s*([12lI|])", RegexOptions.IgnoreCase, RegexTimeouts.Default);
 
@@ -28,6 +30,10 @@ namespace Bot.Core.Services
         /// </summary>
         public static DateTime? NextBear(IEnumerable<TaskListItem> items, int trap, DateTime nowUtc, TimeSpan eventLength) =>
             NextEvent(items, nowUtc, eventLength, (row, date) => BearTime(row, trap, date));
+
+        /// <summary>The earliest "Castle Battle" row that is not over yet (seen 2026-11-20: "Castle Battle", UTC 12:00 on 2026/11/21)</summary>
+        public static DateTime? NextCastleBattle(IEnumerable<TaskListItem> items, DateTime nowUtc, TimeSpan eventLength) =>
+            NextEvent(items, nowUtc, eventLength, CastleTime);
 
         /// <summary>The earliest "Viking Vengeance" row that is not over yet (the row's wording is not confirmed yet: any "viking" title counts)</summary>
         public static DateTime? NextViking(IEnumerable<TaskListItem> items, DateTime nowUtc, TimeSpan eventLength) =>
@@ -68,6 +74,10 @@ namespace Bot.Core.Services
             if (!bear.Success || TrapNumber(bear.Groups[1].Value) != trap) return null;
             return RowTime(row, date);
         }
+
+        /// <summary>The start of a Castle Battle row on <paramref name="date"/>; null for other rows</summary>
+        internal static DateTime? CastleTime(TaskListItem row, DateTime date) =>
+            CastleRegex.IsMatch(row.Text) ? RowTime(row, date) : null;
 
         /// <summary>The start of a Viking Vengeance row on <paramref name="date"/>; null for other rows</summary>
         internal static DateTime? VikingTime(TaskListItem row, DateTime date) =>

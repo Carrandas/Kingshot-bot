@@ -184,6 +184,8 @@ namespace Bot.GUI.ViewModels
                 catch (Exception ex) { _logger.LogError($"Bear Hunt schedule check failed: {ex}"); }
                 try { await CheckVikingScheduleAsync(); }
                 catch (Exception ex) { _logger.LogError($"Viking Vengeance schedule check failed: {ex}"); }
+                try { await CheckCastleScheduleAsync(); }
+                catch (Exception ex) { _logger.LogError($"Castle Battle schedule check failed: {ex}"); }
             };
             bearTimer.Start();
         }
@@ -329,24 +331,66 @@ namespace Bot.GUI.ViewModels
 
         /// <summary>
         /// Castle Battle mode: stops the cycle, then runs Castle Battle passes on every ticked character of the instance
-        /// (switching between them) until Stop or the settings' max hours. A schedule that was running starts again when
-        /// the time is up (not after Stop).
+        /// (switching between them) until Stop or the settings' max hours after the start. A schedule that was running starts
+        /// again when the time is up (not after Stop). <paramref name="startUtc"/> null: the saved battle while it is due, else now.
+        /// Started before the battle, each character first does the prep (recall, teleport), then the mode waits for the start.
         /// </summary>
-        public async Task RunCastleBattleAsync(AccountSettings account, string? onlyCharacter = null)
+        public async Task RunCastleBattleAsync(AccountSettings account, DateTime? startUtc = null, string? onlyCharacter = null)
         {
-            var endsUtc = DateTime.UtcNow.AddHours(Math.Max(1, account.CastleBattleSettings.MaxHours));
+            if (_modes.IsBusy) return;
+            var settings = account.CastleBattleSettings;
+            var start = CastleBattleMode.ResolveStart(settings, startUtc, DateTime.UtcNow);
+            var endsUtc = start + settings.EventLength;
+            bool prep = CastleBattleMode.NeedsPrep(start, DateTime.UtcNow);
+            CastleBattleMode.MarkHandled(start);
             await _modes.RunAsync("Castle Battle", "⚔",
                 begin: () =>
                 {
-                    _logger.LogInfo($"⚔ Castle Battle started until {endsUtc.ToLocalTime():HH:mm}", category: LogCategories.UserAction);
-                    CastleBattleStatus.Start(endsUtc);
+                    _logger.LogInfo($"⚔ Castle Battle started: battle at {start.ToLocalTime():HH:mm} ({start:HH:mm} UTC), until {endsUtc.ToLocalTime():HH:mm}{(prep ? "; recall and teleport first" : "")}", category: LogCategories.UserAction);
+                    CastleBattleStatus.Start(start, endsUtc, prep);
                 },
-                body: token => CastleBattleLoopAsync(account, onlyCharacter, endsUtc, token),
-                end: () =>
+                body: async token =>
+                {
+                    if (prep)
+                    {
+                        await CastleBattlePrepAsync(account, onlyCharacter, start, token);
+                        await ConfigVM.SaveConfigIfNotApplyingAsync();   // the home spots, should the app restart during the battle
+                    }
+                    await CastleBattleLoopAsync(account, onlyCharacter, endsUtc, token);
+                    ShowCastleBattleHomeSpots(account, onlyCharacter, start);
+                },
+                end: async () =>
                 {
                     CastleBattleStatus.Stop();
-                    return Task.CompletedTask;
+                    CastleBattleMode.End(settings, DateTime.UtcNow);
+                    await ConfigVM.SaveConfigIfNotApplyingAsync();
                 });
+        }
+
+        /// <summary>The ticked characters (or the one asked for); null = never scanned, whoever is active</summary>
+        private static System.Collections.Generic.List<string?> CastleBattleCharacters(AccountSettings account, string? onlyCharacter)
+        {
+            var characters = onlyCharacter != null
+                ? new System.Collections.Generic.List<string?> { onlyCharacter }
+                : account.Characters.Where(c => c.Enabled).Select(c => (string?)c.Name).ToList();
+            if (characters.Count == 0) characters.Add(null);
+            return characters;
+        }
+
+        /// <summary>One prep pass per character (recall, wait for the troops, teleport), then wait for the battle to start</summary>
+        private async Task CastleBattlePrepAsync(AccountSettings account, string? onlyCharacter, DateTime startUtc, CancellationToken token)
+        {
+            foreach (var name in CastleBattleCharacters(account, onlyCharacter))
+                await RunCastleBattlePassAsync(account, name, token);
+            CastleBattleStatus.SetPreparing(false);
+
+            if (DateTime.UtcNow < startUtc)
+                _logger.LogInfo($"⚔ Castle Battle: prep done, waiting for the battle at {startUtc.ToLocalTime():HH:mm}");
+            while (DateTime.UtcNow < startUtc)
+            {
+                var left = startUtc - DateTime.UtcNow;
+                await Task.Delay(left < TimeSpan.FromSeconds(30) ? left : TimeSpan.FromSeconds(30), token);
+            }
         }
 
         private async Task CastleBattleLoopAsync(AccountSettings account, string? onlyCharacter, DateTime endsUtc, CancellationToken token)
@@ -354,10 +398,7 @@ namespace Bot.GUI.ViewModels
             while (DateTime.UtcNow < endsUtc)
             {
                 token.ThrowIfCancellationRequested();
-                var characters = onlyCharacter != null
-                    ? new System.Collections.Generic.List<string?> { onlyCharacter }
-                    : account.Characters.Where(c => c.Enabled).Select(c => (string?)c.Name).ToList();
-                if (characters.Count == 0) characters.Add(null);  // never scanned: whoever is active
+                var characters = CastleBattleCharacters(account, onlyCharacter);
 
                 foreach (var name in characters.TakeWhile(_ => DateTime.UtcNow < endsUtc))
                 {
@@ -366,6 +407,24 @@ namespace Bot.GUI.ViewModels
                 // one character: nothing to switch to, so give the rallies a moment between passes
                 if (characters.Count == 1) await Task.Delay(TimeSpan.FromSeconds(20), token);
             }
+        }
+
+        /// <summary>
+        /// After the battle (time up, not Stop): where each city stood before the teleport, to move back by hand (a battle in
+        /// our own kingdom has no go-back button; the teleport back is not automated yet)
+        /// </summary>
+        private void ShowCastleBattleHomeSpots(AccountSettings account, string? onlyCharacter, DateTime startUtc)
+        {
+            var spots = CastleBattleCharacters(account, onlyCharacter)
+                .Where(name => name != null)
+                .Select(name => (Name: name!, Spot: account.CastleBattleSettings.HomeSpotFor(name!)))
+                .Where(c => c.Spot != null && c.Spot.BattleUtc == startUtc)
+                .Select(c => $"{c.Name} to {c.Spot}")
+                .ToList();
+            if (spots.Count == 0) return;
+            string text = $"Castle Battle over: move back by hand: {string.Join(", ", spots)}";
+            _logger.LogWarning($"⚔ {text}");
+            _userNotifications.ShowStatus(text, NotificationType.Warning);
         }
 
         private async Task RunCastleBattlePassAsync(AccountSettings account, string? name, CancellationToken token)
@@ -451,6 +510,15 @@ namespace Bot.GUI.ViewModels
             var due = VikingVengeanceMode.FindDue(ConfigVM.Accounts, DateTime.UtcNow);
             if (due.Account == null) return;
             await RunVikingVengeanceAsync(due.Account, due.StartUtc);
+        }
+
+        /// <summary>Castle Battle on: start the mode once a known battle's prep time has come (a mode already running wins)</summary>
+        private async Task CheckCastleScheduleAsync()
+        {
+            if (_modes.IsBusy) return;
+            var due = CastleBattleMode.FindDue(ConfigVM.Accounts, DateTime.UtcNow);
+            if (due.Account == null) return;
+            await RunCastleBattleAsync(due.Account, due.StartUtc);
         }
 
         /// <summary>The Bear Hunt switch: start the mode on the first instance with it on once its bear's prep time has come</summary>
@@ -606,7 +674,7 @@ namespace Bot.GUI.ViewModels
             var character = characterArg == null ? null
                 : battleAccount.Characters.FirstOrDefault(c => CharacterRoster.SameName(c.Name, characterArg))?.Name ?? characterArg;
             _logger.LogInfo($"Auto-starting the Castle Battle{(character != null ? $" on {character} only" : "")} (--castle-battle)");
-            System.Windows.Application.Current?.Dispatcher.BeginInvoke(async () => await RunCastleBattleAsync(battleAccount, character));
+            System.Windows.Application.Current?.Dispatcher.BeginInvoke(async () => await RunCastleBattleAsync(battleAccount, onlyCharacter: character));
             return true;
         }
 
