@@ -26,6 +26,10 @@ namespace Bot.Core.Tasks.Modules
     /// </summary>
     public partial class AllianceMobilizationTask
     {
+        // Green "Completed" over a finished mission's card (own row, or an accepted open card): tapping it claims the points
+        // and the slot starts refreshing (5 min; its "Refresh 500" gems button then sits just below, y 812-880). 1.00, <= 0.36 elsewhere
+        private const string CompletedTemplate = "completed.png";
+        internal static readonly Rectangle CompletedArea = new(0, 640, 720, 600);
         private const string AcceptMissionTemplate = "accept-mission.png";              // teal Accept of the Exclusive Mission popup
         private const string FreeAttemptTemplate = "free-attempt.png";                  // green Free of the Purchase popup: 1.00, <= 0.50 elsewhere
         private const string AttemptPurchasesTitleTemplate = "attempt-purchases-title.png"; // gems popup: 1.00, <= 0.28 elsewhere
@@ -55,8 +59,10 @@ namespace Bot.Core.Tasks.Modules
         {
             await ScrollToTopAsync(instance, logger, cancellationToken);
             bool free = await ClaimFreeAttemptAsync(account, logger, instance, cancellationToken);
+            int claimed = await ClaimCompletedAsync(account, logger, instance, cancellationToken);
+            string done = (free ? "free attempt claimed, " : "") + (claimed > 0 ? $"{claimed} reward(s) claimed, " : "");
             if (!settings.KeepTerror && !settings.KeepTroopTraining)
-                return (free ? "free attempt claimed; " : "", null);
+                return (done.Length > 0 ? done.TrimEnd(',', ' ') + "; " : "", null);
 
             var shot = await TakeScreenshotAsync(instance, logger);
             if (shot == null) return ("", null);
@@ -67,7 +73,7 @@ namespace Bot.Core.Tasks.Modules
 
             var (accepted, refreshed) = await HandleOwnMissionsAsync(account, logger, instance, settings, coins, attempts, cancellationToken);
             int? left = attempts is { } a ? Math.Max(0, a - accepted) : null;
-            return ($"{(free ? "free attempt claimed, " : "")}own missions: {accepted} accepted, {refreshed} refreshed; ", left);
+            return ($"{done}own missions: {accepted} accepted, {refreshed} refreshed; ", left);
         }
 
         private async Task<(int Accepted, int Refreshed)> HandleOwnMissionsAsync(AccountSettings account, LogService logger, int instance,
@@ -85,6 +91,22 @@ namespace Bot.Core.Tasks.Modules
                 else if (done == OwnMissionAction.Refresh) refreshed++;
             }
             return (accepted, refreshed);
+        }
+
+        /// <summary>Taps every green Completed on the visible list (claims the mission's points). Returns how many.</summary>
+        private async Task<int> ClaimCompletedAsync(AccountSettings account, LogService logger, int instance, CancellationToken cancellationToken)
+        {
+            int claimed = 0;
+            for (int i = 0; i < 4; i++)
+            {
+                var completed = await MatchAsync(CompletedTemplate, CompletedArea, Threshold, instance, logger);
+                if (!completed.found) break;
+                await ClickCenterInRectAsync(instance, logger, completed.rect);
+                await Task.Delay(2500, cancellationToken);   // the coins fly to the points counter
+                claimed++;
+                logger.LogInfo($"[{account.AccountName}] Alliance Mobilization: completed mission claimed");
+            }
+            return claimed;
         }
 
         /// <summary>"+" with a red dot > Free. True when the free attempt was claimed.</summary>
@@ -280,6 +302,16 @@ namespace Bot.Core.Tasks.Modules
             description = Regex.Replace(description, @"\s+", " ", RegexOptions.None, RegexTimeouts.Default).Trim();
             string points = MaskedTextOcr.Read(image, PopupPointsArea, dark.Low, dark.High, "+0123456789,");
             return (description, ParsePoints(points));
+        }
+
+        /// <summary>
+        /// The "+200" right of an open card's coin (dark text on the card's white bottom); null when unreadable. Lets a
+        /// Terror / troop card under MinPoints be skipped without opening it (pages overlap, so it would be opened twice).
+        /// </summary>
+        internal static int? ReadCardPoints(byte[] screenshot, Rectangle icon)
+        {
+            var area = new Rectangle(icon.X - IconOffsetX + 38, icon.Y - IconOffsetY - 4, 110, 44);
+            return ParsePoints(MaskedTextOcr.Read(screenshot, area, new Scalar(0, 0, 0), new Scalar(180, 255, 130), "+0123456789,"));
         }
 
         internal static int? ParsePoints(string text)

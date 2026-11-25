@@ -89,7 +89,21 @@ namespace Bot.Core.IntegrationTests
                 Assert.That(task.FindOwnCoins(open).Select(p => p.X), Is.EqualTo(new[] { 153, 473 }).Within(3));
                 // accepted fist (avatar + progress bar) and a refreshing slot with its "Refresh 500" gems button
                 Assert.That(task.FindOwnCoins(done), Is.Empty);
+                // a finished card still shows its coin (and the Completed button), so the claim runs first
+                using var claimed = Cv2.ImDecode(Fixtures.Load("mobilization-own-claimed.png"), ImreadModes.Grayscale);
+                Assert.That(task.FindOwnCoins(claimed).Select(p => p.X), Is.EqualTo(new[] { 473 }).Within(3));
             });
+        }
+
+        [Test]
+        public void OpenCardPoints_ReadOffTheCard()
+        {
+            var shot = Fixtures.Load("mobilization-own-missions.png");
+            using var gray = Cv2.ImDecode(shot, ImreadModes.Grayscale);
+            var cards = new AllianceMobilizationTask().CheckCards(gray).Where(c => !c.CutOff).ToList();
+
+            // gift +1,050, blue gems +360, lion (Terror) +200
+            Assert.That(cards.Select(c => AllianceMobilizationTask.ReadCardPoints(shot, c.Icon)), Is.EqualTo(new int?[] { 1050, 360, 200 }));
         }
 
         [TestCase("mobilization-own-missions.png", true)]
@@ -126,6 +140,7 @@ namespace Bot.Core.IntegrationTests
         [TestCase("accept-mission.png", 200, 740, 490, 130, "mobilization-exclusive-troops.png")]
         [TestCase("free-attempt.png", 180, 720, 360, 140, "mobilization-free-attempt.png")]
         [TestCase("attempt-purchases-title.png", 120, 360, 480, 100, "mobilization-attempt-purchases.png")]
+        [TestCase("completed.png", 0, 640, 720, 600, "mobilization-own-completed.png")]
         public void PopupButtons_OnlyOnTheirScreen(string template, int x, int y, int w, int h, string presentOn)
         {
             using var matcher = new UnifiedTemplateMatchingService(new LogService(0));
@@ -134,6 +149,7 @@ namespace Bot.Core.IntegrationTests
             {
                 "mobilization-own-missions.png", "mobilization-own-accepted.png", "mobilization-free-attempt.png", "mobilization-attempt-purchases.png",
                 "mobilization-exclusive-troops.png", "mobilization-exclusive-truegold.png", "mobilization-open-terror.png", "mobilization-hammer.png",
+                "mobilization-own-completed.png", "mobilization-own-claimed.png",
             };
             Assert.Multiple(() =>
             {

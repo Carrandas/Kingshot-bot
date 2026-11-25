@@ -178,7 +178,8 @@ namespace Bot.Core.Tasks.Modules
 
         private static string DescribeResult(RefreshState state, bool noRightsHit, bool refreshOpen)
         {
-            string accepted = state.Accepted > 0 ? $"{state.Accepted} open mission(s) accepted, " : "";
+            string accepted = (state.Claimed > 0 ? $"{state.Claimed} open reward(s) claimed, " : "")
+                + (state.Accepted > 0 ? $"{state.Accepted} open mission(s) accepted, " : "");
             if (!refreshOpen) return accepted + "open missions not refreshed (switched off)";
             return accepted + (noRightsHit
                 ? "open missions: no Refresh mission button (needs R4 or higher)"
@@ -270,6 +271,7 @@ namespace Bot.Core.Tasks.Modules
             public int? Attempts;      // null: unread, accept and watch for the purchase popup
             public int Refreshed;
             public int Accepted;
+            public int Claimed;
             public Rectangle? LastTarget;
             public readonly HashSet<Rectangle> Checked = new();   // open cards looked at on this page (accepted or not wanted)
 
@@ -286,6 +288,7 @@ namespace Bot.Core.Tasks.Modules
             AccountSettings account, LogService logger, int instance, string accountKey, int page, RefreshState state, CancellationToken cancellationToken)
         {
             state.Checked.Clear();
+            state.Claimed += await ClaimCompletedAsync(account, logger, instance, cancellationToken);
             // Re-scan the page after each refresh: the refreshed card turns into a "Mission refreshing" slot
             while (true)
             {
@@ -296,7 +299,7 @@ namespace Bot.Core.Tasks.Modules
                 bool rightsKnown = _hasRights.ContainsKey(accountKey);
                 var cards = CheckCards(gray);
                 logger.LogInfo($"[{account.AccountName}] Alliance Mobilization page {page}: {cards.Count} open card(s)");
-                var (target, action) = SelectCard(account, logger, cards, rightsKnown, state);
+                var (target, action) = SelectCard(account, logger, cards, rightsKnown, state, shot);
                 if (target == null) return null;
 
                 var end = action switch
@@ -349,7 +352,7 @@ namespace Bot.Core.Tasks.Modules
         }
 
         /// <summary>The first card to look at (accept check), refresh or rank-check; null when the page has none.</summary>
-        private static (Rectangle? target, CardAction action) SelectCard(AccountSettings account, LogService logger, IReadOnlyList<CardCheck> cards, bool rightsKnown, RefreshState state)
+        private static (Rectangle? target, CardAction action) SelectCard(AccountSettings account, LogService logger, IReadOnlyList<CardCheck> cards, bool rightsKnown, RefreshState state, byte[] shot)
         {
             foreach (var card in cards)
             {
@@ -359,11 +362,19 @@ namespace Bot.Core.Tasks.Modules
                     continue;
                 }
                 if (state.Checked.Contains(card.Icon)) continue;
-                var action = ChooseAction(card.Keep, rightsKnown, state);
+                var action = SkipWeakCard(account, logger, card, ChooseAction(card.Keep, rightsKnown, state), rightsKnown, state, shot);
                 logger.LogInfo($"[{account.AccountName}]   card at {card.Icon.Location}: {(card.Keep != null ? $"keep ({card.Keep})" : "refresh")}{(action == null ? ", nothing to do" : $", {action}")}");
                 if (action != null) return (card.Icon, action.Value);
             }
             return (null, CardAction.Refresh);
+        }
+
+        /// <summary>A Terror / troop card whose own "+points" read under MinPoints isn't opened (a keep card: only the rank check is left)</summary>
+        private static CardAction? SkipWeakCard(AccountSettings account, LogService logger, CardCheck card, CardAction? action, bool rightsKnown, RefreshState state, byte[] shot)
+        {
+            if (action != CardAction.Check || ReadCardPoints(shot, card.Icon) is not { } points || points >= state.Settings.MinPoints) return action;
+            logger.LogInfo($"[{account.AccountName}]   card at {card.Icon.Location}: +{points}, under {state.Settings.MinPoints}, not opened");
+            return state.CanRefresh && !rightsKnown ? CardAction.Probe : null;
         }
 
         private static CardAction? ChooseAction(string? keep, bool rightsKnown, RefreshState state)
