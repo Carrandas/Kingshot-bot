@@ -260,12 +260,15 @@ namespace Bot.GUI.ViewModels
             OnPropertyChanged(nameof(AllTaskTypes));
         }
 
+        private static readonly string[] AutoSavedSettingsPrefixes =
+        {
+            "TroopTrainingSettings.", "FarmingBoostSettings.", "ArenaSettings.", "AllianceMobilizationSettings."
+        };
+
         private static bool IsAutoSavedAccountProperty(string? propertyName)
         {
             return propertyName is nameof(AccountSettings.AccountName) or nameof(AccountSettings.InstanceNumber) or nameof(AccountSettings.DoNotShutdown)
-                || propertyName?.StartsWith("TroopTrainingSettings.") == true
-                || propertyName?.StartsWith("FarmingBoostSettings.") == true
-                || propertyName?.StartsWith("ArenaSettings.") == true;
+                || (propertyName != null && AutoSavedSettingsPrefixes.Any(propertyName.StartsWith));
         }
 
         private void SelectedAccount_PropertyChanged(object? sender, PropertyChangedEventArgs e)

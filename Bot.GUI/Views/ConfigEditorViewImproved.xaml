@@ -979,6 +979,38 @@
                                             </StackPanel>
                                         </Border>
 
+                                        <!-- Alliance Mobilization Settings -->
+                                        <Border Style="{StaticResource CardStyle}"
+                                                Visibility="{Binding SelectedAccount.EnabledTasks,
+                                                            Converter={StaticResource TaskTypeToVisibilityConverter},
+                                                            ConverterParameter=AllianceMobilization}">
+                                            <StackPanel>
+                                                <TextBlock Text="Alliance Mobilization" FontWeight="SemiBold" Margin="0,0,0,10"/>
+                                                <TextBlock Text="Accept these Terror / troop training missions (own row and open missions below it); own missions of any other kind are refreshed" Foreground="#FFB0B0B0" FontSize="12" Margin="0,0,0,4" TextWrapping="Wrap"/>
+                                                <CheckBox Content="Keep Terror"
+                                                          IsChecked="{Binding SelectedAccount.AllianceMobilizationSettings.KeepTerror}"
+                                                          ToolTip="Accept an own &quot;Defeat Terror&quot; mission. With both keep switches off the own missions are left alone."/>
+                                                <CheckBox Content="Keep troop training" Margin="0,4,0,0"
+                                                          IsChecked="{Binding SelectedAccount.AllianceMobilizationSettings.KeepTroopTraining}"
+                                                          ToolTip="Accept an own &quot;Raise Power by training/promoting troops&quot; mission."/>
+                                                <Grid Margin="0,6,0,0">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="140"/>
+                                                        <ColumnDefinition Width="80"/>
+                                                        <ColumnDefinition Width="*"/>
+                                                    </Grid.ColumnDefinitions>
+                                                    <TextBlock Text="Minimum points:" Grid.Column="0" VerticalAlignment="Center"/>
+                                                    <TextBox Text="{Binding SelectedAccount.AllianceMobilizationSettings.MinPoints, UpdateSourceTrigger=PropertyChanged}"
+                                                             Grid.Column="1"
+                                                             ToolTip="Only Terror / troop training missions worth at least this many points are accepted (own and open missions). A weaker own mission is refreshed. Default 300."/>
+                                                </Grid>
+                                                <CheckBox Content="Refresh open missions (R4 and higher)" Margin="0,8,0,0"
+                                                          IsChecked="{Binding SelectedAccount.AllianceMobilizationSettings.RefreshOpenMissions}"
+                                                          ToolTip="Refresh the alliance's open missions below the own row that aren't bear, Terror, gems, gift or troop missions. Needs R4 or higher; skipped on characters without the Refresh mission button."/>
+                                                <TextBlock Text="The daily free mission attempt (red dot on the + next to Attempts) is always claimed." Foreground="#FFB0B0B0" FontSize="12" Margin="0,8,0,0" TextWrapping="Wrap"/>
+                                            </StackPanel>
+                                        </Border>
+
                                         <!-- Auto Build Settings -->
                                         <Border Style="{StaticResource CardStyle}"
                                                 Visibility="{Binding SelectedAccount.EnabledTasks, 

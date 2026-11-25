@@ -17,15 +17,17 @@ using Rectangle = System.Drawing.Rectangle;
 namespace Bot.Core.Tasks.Modules
 {
     /// <summary>
-    /// Events (top right, under VIP) > Alliance Mobilization tab: refreshes the Open Missions the alliance doesn't want.
-    /// The top row holds the character's own two missions and is left alone. Below it, an open mission card shows a
+    /// Events (top right, under VIP) > Alliance Mobilization tab. First the daily free mission attempt ("+" with a red dot)
+    /// and the character's own two missions in the top row (AllianceMobilizationTask.Own.cs: Terror and troop training
+    /// are accepted, anything else is refreshed, <see cref="AllianceMobilizationSettings"/>). Then, R4 and higher, it
+    /// refreshes the Open Missions the alliance doesn't want. Below the own row, an open mission card shows a
     /// "+points" coin; cards with a member's avatar are taken and are skipped. Bear, lion, gems, gift, fist (train troops)
     /// and fist with flag missions stay; any other open mission is tapped > Refresh mission > Refresh.
     ///
     /// SAFETY: refreshing an open mission is free (R4 and higher). The "Refresh 500 gems" buttons on refreshing slots are
     /// never tapped: only cards with a points coin are opened.
     /// </summary>
-    public class AllianceMobilizationTask : BaseTaskWithCommonPatterns, IScheduledTask
+    public partial class AllianceMobilizationTask : BaseTaskWithCommonPatterns, IScheduledTask
     {
         public override TaskType TaskType => TaskType.AllianceMobilization;
         public override string Name => "Alliance Mobilization";
@@ -85,7 +87,7 @@ namespace Bot.Core.Tasks.Modules
         private static readonly TimeSpan MinInterval = TimeSpan.FromMinutes(25);
         private static readonly ConcurrentDictionary<string, DateTime> _lastRunUtc = new();
         // Only R4 and higher get the Refresh mission button. The first open card on a character settles it (a keep card is
-        // opened and closed again); a character without the button is skipped until the app restarts.
+        // opened and closed again); a character without the button skips the open missions until the app restarts.
         private static readonly ConcurrentDictionary<string, bool> _hasRights = new();
 
         public void ClearSchedule(string accountKey)
@@ -95,7 +97,6 @@ namespace Bot.Core.Tasks.Modules
 
         public DateTime? GetNextRunUtc(string accountKey, AccountSettings account)
         {
-            if (_hasRights.TryGetValue(accountKey, out var rights) && !rights) return null;
             return _lastRunUtc.TryGetValue(accountKey, out var last) && last + MinInterval > DateTime.UtcNow ? last + MinInterval : null;
         }
 
@@ -119,7 +120,10 @@ namespace Bot.Core.Tasks.Modules
                     return open;
                 }
 
-                var (refreshed, noRightsHit, completed) = await RefreshMissionsAsync(account, logger, instance, accountKey, cancellationToken);
+                var settings = account.AllianceMobilizationSettings ?? new AllianceMobilizationSettings();
+                var (own, attempts) = await HandleOwnMissionsAsync(account, logger, instance, settings, cancellationToken);
+
+                var (state, noRightsHit, completed) = await RefreshOpenMissionsAsync(account, logger, instance, accountKey, settings, attempts, cancellationToken);
                 // A run that broke off (popup missing, screen changed) is retried on the next cycle
                 if (completed) _lastRunUtc[accountKey] = DateTime.UtcNow;
 
@@ -127,7 +131,7 @@ namespace Bot.Core.Tasks.Modules
                 await Task.Delay(1500, cancellationToken);
                 await locatorService.EnsureViewAsync(ViewType.BaseView, instance, cancellationToken);
 
-                string result = DescribeResult(refreshed, noRightsHit);
+                string result = own + DescribeResult(state, noRightsHit, settings.RefreshOpenMissions);
                 if (!completed && !noRightsHit) return TaskExecutionDetails.Failed($"Stopped early, {result}");
                 logger.LogInfo($"[{account.AccountName}] Alliance Mobilization done: {result}");
                 return TaskExecutionDetails.Succeeded(result);
@@ -147,18 +151,38 @@ namespace Bot.Core.Tasks.Modules
         {
             if (!EventCalendar.MayRun(TaskType.AllianceMobilization, DateTime.UtcNow))
                 return TaskExecutionDetails.SkippedBecause("Not on the event calendar today");
-            if (_hasRights.TryGetValue(accountKey, out var rights) && !rights)
-                return TaskExecutionDetails.SkippedBecause("Not R4 or higher on this character, skipped");
             if (_lastRunUtc.TryGetValue(accountKey, out var lastRun) && DateTime.UtcNow - lastRun < MinInterval)
                 return TaskExecutionDetails.SkippedBecause($"Ran {(int)(DateTime.UtcNow - lastRun).TotalMinutes} min ago");
             return null;
         }
 
-        private static string DescribeResult(int refreshed, bool noRightsHit)
+        /// <summary>
+        /// The open missions: Terror / troop training ones worth MinPoints are accepted while attempts are left (any rank),
+        /// the unwanted ones refreshed when switched on and the character isn't known to lack R4
+        /// </summary>
+        private async Task<(RefreshState state, bool noRights, bool completed)> RefreshOpenMissionsAsync(AccountSettings account, LogService logger, int instance,
+            string accountKey, AllianceMobilizationSettings settings, int? attempts, CancellationToken cancellationToken)
         {
-            return noRightsHit
-                ? "no Refresh mission button (needs R4 or higher)"
-                : $"{refreshed} mission(s) refreshed";
+            bool rightsMissing = _hasRights.TryGetValue(accountKey, out var rights) && !rights;
+            var state = new RefreshState
+            {
+                Settings = settings,
+                CanRefresh = settings.RefreshOpenMissions && !rightsMissing,
+                Attempts = attempts,
+                NoRights = rightsMissing,
+            };
+            if (!state.CanRefresh && !state.CanAccept) return (state, rightsMissing, true);
+            var (noRights, completed) = await RefreshMissionsAsync(account, logger, instance, accountKey, state, cancellationToken);
+            return (state, noRights || state.NoRights, completed);
+        }
+
+        private static string DescribeResult(RefreshState state, bool noRightsHit, bool refreshOpen)
+        {
+            string accepted = state.Accepted > 0 ? $"{state.Accepted} open mission(s) accepted, " : "";
+            if (!refreshOpen) return accepted + "open missions not refreshed (switched off)";
+            return accepted + (noRightsHit
+                ? "open missions: no Refresh mission button (needs R4 or higher)"
+                : $"{state.Refreshed} open mission(s) refreshed");
         }
 
         /// <summary>
@@ -201,11 +225,12 @@ namespace Bot.Core.Tasks.Modules
         }
 
         /// <summary>
-        /// Walks the mission list top to bottom and refreshes every open mission whose icon is not on the keep list.
+        /// Walks the mission list top to bottom: accepts the wanted open missions and refreshes every open mission whose
+        /// icon is not on the keep list.
         /// </summary>
-        private async Task<(int refreshed, bool noRights, bool completed)> RefreshMissionsAsync(AccountSettings account, LogService logger, int instance, string accountKey, CancellationToken cancellationToken)
+        private async Task<(bool noRights, bool completed)> RefreshMissionsAsync(AccountSettings account, LogService logger, int instance, string accountKey,
+            RefreshState state, CancellationToken cancellationToken)
         {
-            var state = new RefreshState();
             Mat? previousList = null;
             try
             {
@@ -213,7 +238,7 @@ namespace Bot.Core.Tasks.Modules
                 for (int page = 0; page <= MaxScrolls; page++)
                 {
                     var pageEnd = await RefreshPageAsync(account, logger, instance, accountKey, page, state, cancellationToken);
-                    if (pageEnd != null) return (state.Refreshed, pageEnd.Value.noRights, pageEnd.Value.completed);
+                    if (pageEnd != null) return pageEnd.Value;
 
                     // Scroll down; stop once the list no longer moves
                     await SwipeAsync(instance, logger, ScrollFrom, ScrollTo, PageSwipeMs);
@@ -234,14 +259,24 @@ namespace Bot.Core.Tasks.Modules
             {
                 previousList?.Dispose();
             }
-            return (state.Refreshed, false, true);
+            return (false, true);
         }
 
         private sealed class RefreshState
         {
+            public AllianceMobilizationSettings Settings = new();
+            public bool CanRefresh;
+            public bool NoRights;
+            public int? Attempts;      // null: unread, accept and watch for the purchase popup
             public int Refreshed;
+            public int Accepted;
             public Rectangle? LastTarget;
+            public readonly HashSet<Rectangle> Checked = new();   // open cards looked at on this page (accepted or not wanted)
+
+            public bool CanAccept => Attempts != 0 && (Settings.KeepTerror || Settings.KeepTroopTraining);
         }
+
+        private enum CardAction { Check, Probe, Refresh }
 
         /// <summary>
         /// Refreshes the open missions on the visible page. Returns null when the page is done (scroll on),
@@ -250,6 +285,7 @@ namespace Bot.Core.Tasks.Modules
         private async Task<(bool noRights, bool completed)?> RefreshPageAsync(
             AccountSettings account, LogService logger, int instance, string accountKey, int page, RefreshState state, CancellationToken cancellationToken)
         {
+            state.Checked.Clear();
             // Re-scan the page after each refresh: the refreshed card turns into a "Mission refreshing" slot
             while (true)
             {
@@ -260,25 +296,35 @@ namespace Bot.Core.Tasks.Modules
                 bool rightsKnown = _hasRights.ContainsKey(accountKey);
                 var cards = CheckCards(gray);
                 logger.LogInfo($"[{account.AccountName}] Alliance Mobilization page {page}: {cards.Count} open card(s)");
-                var (target, keepCard) = SelectCard(account, logger, cards, rightsKnown);
+                var (target, action) = SelectCard(account, logger, cards, rightsKnown, state);
                 if (target == null) return null;
 
-                var end = keepCard
-                    ? await ProbeRightsAsync(account, logger, instance, accountKey, target.Value, cancellationToken)
-                    : await RefreshTargetAsync(account, logger, instance, accountKey, target.Value, state, cancellationToken);
+                var end = action switch
+                {
+                    CardAction.Check => await CheckOpenCardAsync(account, logger, instance, target.Value, state, cancellationToken),
+                    CardAction.Probe => await ProbeRightsAsync(account, logger, instance, accountKey, target.Value, state, cancellationToken),
+                    _ => await RefreshTargetAsync(account, logger, instance, accountKey, target.Value, state, cancellationToken),
+                };
                 if (end != null) return end;
             }
         }
 
         /// <summary>Rank check only: open the card, look for the Refresh mission button, close it again. Null: carry on with the page.</summary>
         private async Task<(bool noRights, bool completed)?> ProbeRightsAsync(
-            AccountSettings account, LogService logger, int instance, string accountKey, Rectangle target, CancellationToken cancellationToken)
+            AccountSettings account, LogService logger, int instance, string accountKey, Rectangle target, RefreshState state, CancellationToken cancellationToken)
         {
             var probe = await RefreshCardAsync(account, logger, instance, target, probeOnly: true, cancellationToken);
             if (probe == RefreshOutcome.Failed) return (false, false);
             _hasRights[accountKey] = probe != RefreshOutcome.NoRights;
-            if (probe == RefreshOutcome.NoRights) return (true, true);
-            return null;
+            return probe == RefreshOutcome.NoRights ? NoRightsFound(state) : null;
+        }
+
+        /// <summary>No Refresh mission button: stop refreshing; walk on only when open missions can still be accepted</summary>
+        private static (bool noRights, bool completed)? NoRightsFound(RefreshState state)
+        {
+            state.CanRefresh = false;
+            state.NoRights = true;
+            return state.CanAccept ? null : (true, true);
         }
 
         /// <summary>Refreshes one mission. Null: carry on with the page.</summary>
@@ -297,15 +343,14 @@ namespace Bot.Core.Tasks.Modules
             var outcome = await RefreshCardAsync(account, logger, instance, target, probeOnly: false, cancellationToken);
             if (outcome == RefreshOutcome.Failed) return (false, false);
             _hasRights[accountKey] = outcome != RefreshOutcome.NoRights;
-            if (outcome == RefreshOutcome.NoRights) return (true, true);
+            if (outcome == RefreshOutcome.NoRights) return NoRightsFound(state);
             state.Refreshed++;
             return null;
         }
 
-        /// <summary>The first card that still needs a refresh (or a rank check); null when the page has none.</summary>
-        private static (Rectangle? target, bool keepCard) SelectCard(AccountSettings account, LogService logger, IReadOnlyList<CardCheck> cards, bool rightsKnown)
+        /// <summary>The first card to look at (accept check), refresh or rank-check; null when the page has none.</summary>
+        private static (Rectangle? target, CardAction action) SelectCard(AccountSettings account, LogService logger, IReadOnlyList<CardCheck> cards, bool rightsKnown, RefreshState state)
         {
-            bool keepCard = false;
             foreach (var card in cards)
             {
                 if (card.CutOff)
@@ -313,12 +358,20 @@ namespace Bot.Core.Tasks.Modules
                     logger.LogInfo($"[{account.AccountName}]   card at {card.Icon.Location}: cut off, judged on another page");
                     continue;
                 }
-                keepCard = card.Keep != null;
-                logger.LogInfo($"[{account.AccountName}]   card at {card.Icon.Location}: {(keepCard ? $"keep ({card.Keep})" : "refresh")}");
-                if (keepCard && rightsKnown) continue;
-                return (card.Icon, keepCard);
+                if (state.Checked.Contains(card.Icon)) continue;
+                var action = ChooseAction(card.Keep, rightsKnown, state);
+                logger.LogInfo($"[{account.AccountName}]   card at {card.Icon.Location}: {(card.Keep != null ? $"keep ({card.Keep})" : "refresh")}{(action == null ? ", nothing to do" : $", {action}")}");
+                if (action != null) return (card.Icon, action.Value);
             }
-            return (null, keepCard);
+            return (null, CardAction.Refresh);
+        }
+
+        private static CardAction? ChooseAction(string? keep, bool rightsKnown, RefreshState state)
+        {
+            if (keep != null && state.CanAccept && IsAcceptCandidate(keep, state.Settings)) return CardAction.Check;
+            if (!state.CanRefresh) return null;
+            if (keep == null) return CardAction.Refresh;
+            return rightsKnown ? null : CardAction.Probe;
         }
 
         /// <summary>
@@ -382,7 +435,13 @@ namespace Bot.Core.Tasks.Modules
                 await Task.Delay(1500, cancellationToken);
                 return RefreshOutcome.HasRights;
             }
-            await ClickCenterInRectAsync(instance, logger, refresh.rect);
+            return await TapRefreshAndConfirmAsync(account, logger, instance, refresh.rect, cancellationToken);
+        }
+
+        /// <summary>Refresh mission (on an open popup) > Refresh in the Confirmation popup; free for open and own missions alike</summary>
+        private async Task<RefreshOutcome> TapRefreshAndConfirmAsync(AccountSettings account, LogService logger, int instance, Rectangle refreshButton, CancellationToken cancellationToken)
+        {
+            await ClickCenterInRectAsync(instance, logger, refreshButton);
             await Task.Delay(2000, cancellationToken);
 
             var confirm = await MatchAsync(ConfirmRefreshTemplate, ConfirmRefreshArea, Threshold, instance, logger);
@@ -420,12 +479,15 @@ namespace Bot.Core.Tasks.Modules
         /// <summary>
         /// Top-left corners of the points coins in the three grid columns of the visible list, top to bottom.
         /// </summary>
-        private List<Point> FindCoins(Mat gray)
+        private List<Point> FindCoins(Mat gray) => FindCoins(gray, ListTop, ListBottom, GridCoinX);
+
+        /// <summary>Top-left corners of the points coins between top and bottom whose left edge sits in one of the columns</summary>
+        private List<Point> FindCoins(Mat gray, int top, int bottom, int[] columnX)
         {
             var coins = new List<Point>();
             using var template = Cv2.ImRead(Path.Combine(ImageTemplateFolder, PointsCoinTemplate), ImreadModes.Grayscale);
             if (template.Empty()) return coins;
-            var area = new Rect(0, ListTop, gray.Width, ListBottom - ListTop).Intersect(new Rect(0, 0, gray.Width, gray.Height));
+            var area = new Rect(0, top, gray.Width, bottom - top).Intersect(new Rect(0, 0, gray.Width, gray.Height));
             using var region = new Mat(gray, area);
             using var result = new Mat();
             Cv2.MatchTemplate(region, template, result, TemplateMatchModes.CCoeffNormed);
@@ -434,7 +496,7 @@ namespace Bot.Core.Tasks.Modules
                 Cv2.MinMaxLoc(result, out _, out double max, out _, out OpenCvSharp.Point loc);
                 if (max < CoinThreshold) break;
                 var p = new Point(loc.X, loc.Y + area.Y);
-                if (GridCoinX.Any(x => Math.Abs(p.X - x) <= CoinColumnTolerance)) coins.Add(p);
+                if (columnX.Any(x => Math.Abs(p.X - x) <= CoinColumnTolerance)) coins.Add(p);
                 // Suppress this match before looking for the next one
                 Cv2.Rectangle(result, new Rect(loc.X - 30, loc.Y - 30, 60, 60), new Scalar(-1), -1);
             }

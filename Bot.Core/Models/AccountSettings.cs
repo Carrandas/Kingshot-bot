@@ -71,6 +71,7 @@ namespace Bot.Core.Models
             AllianceTechnologySettings = new AllianceTechnologySettings();
             ConquestCollectSettings = new ConquestCollectSettings();
             ArenaSettings = new ArenaSettings();
+            AllianceMobilizationSettings = new AllianceMobilizationSettings();
             CastleBattleSettings = new CastleBattleSettings();
             BearHuntSettings = new BearHuntSettings();
             VikingVengeanceSettings = new VikingVengeanceSettings();
@@ -81,6 +82,7 @@ namespace Bot.Core.Models
             AllianceTechnologySettings.PropertyChanged += (sender, e) => OnPropertyChanged($"AllianceTechnologySettings.{e.PropertyName}");
             ConquestCollectSettings.PropertyChanged += (sender, e) => OnPropertyChanged($"ConquestCollectSettings.{e.PropertyName}");
             ArenaSettings.PropertyChanged += (sender, e) => OnPropertyChanged($"ArenaSettings.{e.PropertyName}");
+            AllianceMobilizationSettings.PropertyChanged += (sender, e) => OnPropertyChanged($"AllianceMobilizationSettings.{e.PropertyName}");
         }
         
         private string _accountName = string.Empty;
@@ -188,6 +190,9 @@ namespace Bot.Core.Models
 
         [JsonPropertyName("arenaSettings")]
         public ArenaSettings ArenaSettings { get; set; }
+
+        [JsonPropertyName("allianceMobilizationSettings")]
+        public AllianceMobilizationSettings AllianceMobilizationSettings { get; set; }
 
         [JsonPropertyName("castleBattleSettings")]
         public CastleBattleSettings CastleBattleSettings { get; set; }

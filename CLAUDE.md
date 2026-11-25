@@ -139,6 +139,11 @@ data/                 # next to the exe, created at runtime: daily_gates.json, t
   - Timer `data/alchemy_junction_times.json`: 4 h after a run (brews come from missions other tasks finish: troop power, alliance contributions, a Terror rally); no icon → next reset. Priority 26, late in the cycle.
   - Played by hand 2026-11-18: Asli orders 1–7, llsa 1–13.
 
+- **Alliance Mobilization** (`AllianceMobilizationTask`, settings `AllianceMobilizationSettings` on the Settings tab):
+  - First the daily free attempt: the "+" next to "Attempts: 7/10" only while it has a red dot, then only the green **Free** (without the dot the "+" opens a gems purchase popup, closed by its X).
+  - Then the character's own two missions in the top row (`AllianceMobilizationTask.Own.cs`, no R4 needed): the Exclusive Mission popup's description decides. "Terror" and "train" (not "troop": heal missions) are accepted when worth >= `MinPoints` (300), anything else is refreshed (free, a new one in 2 min). Switches: Keep Terror, Keep troop training; with both off the own missions are left alone. No Accept at 0 attempts. Accepted and refreshing slots show no points coin, so the "Refresh 500" gems button is never near a tap.
+  - Then the open missions below: fist (troop training) and lion (Terror) cards are opened and accepted by the same text + `MinPoints` rule while attempts are left (any rank, `CheckOpenCardAsync`); when "Refresh open missions" is on and the character has R4 (`_hasRights`), the cards not on the keep list are refreshed. The Accept template covers both popups (area 200-690).
+
 - **Voyage of Light** (`VoyageOfLightTask`, Deals hub > ship tab, screenshot tested): Claim All, then Dispatch All (8 h voyages; Complete All costs tokens, never tapped). Then (`VoyageOfLightTask.Treasures.cs`, calibrated on Asli 2026-11-21):
   - the green "+" of the token pill opens the Sails Aloft Pack: only the Exploration Gift's green **Free** (template + colour, once a day via `DailyGate`) is tapped; the rows below are paid packs.
   - **My Treasures** tab: Merge on the top chests (Common, then Premium; the popup starts at the max), Enable on the bottom ones (Exquisite, Majestic; the popup starts at 1, the max arrow first). Active buttons are coloured (saturation 135-150), grey ones ~25.
