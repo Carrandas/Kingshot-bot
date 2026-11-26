@@ -96,6 +96,25 @@ namespace Bot.Core.IntegrationTests
         }
 
         [Test]
+        public void OwnRow_BonusBadges()
+        {
+            var shot = Fixtures.Load("mobilization-own-missions.png");
+            using var gray = Cv2.ImDecode(shot, ImreadModes.Grayscale);
+            var coins = new AllianceMobilizationTask().FindOwnCoins(gray);
+
+            // fist 200% (+860 = 430 base), Truegold 120% (+350)
+            Assert.That(coins.Select(c => AllianceMobilizationTask.ReadOwnBonus(shot, c)), Is.EqualTo(new int?[] { 200, 120 }));
+            // the open grid's gift card has no badge
+            Assert.That(AllianceMobilizationTask.ReadOwnBonus(shot, new System.Drawing.Point(101, 1120)), Is.EqualTo(100));
+        }
+
+        [TestCase(520, 200, 260)]   // Asli's +520 troop mission, completed as +260
+        [TestCase(860, 200, 430)]
+        [TestCase(350, 100, 350)]
+        public void BasePoints(int shown, int bonus, int expected) =>
+            Assert.That(AllianceMobilizationTask.BasePoints(shown, bonus), Is.EqualTo(expected));
+
+        [Test]
         public void OpenCardPoints_ReadOffTheCard()
         {
             var shot = Fixtures.Load("mobilization-own-missions.png");

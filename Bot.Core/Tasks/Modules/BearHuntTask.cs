@@ -40,11 +40,7 @@ namespace Bot.Core.Tasks.Modules
         private const int BearTapAttempts = 4;
         internal const double BearRowThreshold = 0.75;   // "Raging Bear" under a War row's members: 0.83-0.84 (the card's text, other background)
         private static readonly TimeSpan NotUpRetry = TimeSpan.FromSeconds(20);    // no bear icon yet: look again after this
-        private const string AutoJoinStopTemplate = "autojoin-stop.png";  // the Auto-Join popup's orange Stop: 1.00, <= 0.38 elsewhere
         private const string TaskListTitleTemplate = "tasklist-title.png"; // "Task List" (UTC banner): 1.00, <= 0.35 on other popups
-        // Shared with Auto Join Rally
-        private static readonly string AutoJoinOnTemplate = Path.Combine("autojoinrally", "autojoin-on.png");     // "Auto-joining..." button
-        private static readonly string AutoJoinTitleTemplate = Path.Combine("autojoinrally", "autojoin-title.png");
 
         // Battle pet skills (prep): paw > Pet Skill > a red-badge skill > Quick Use > "Use all available Battle Skills?" > Use
         internal const string PetBattleBadgeTemplate = "pet-battle-badge.png"; // red crossed-swords badge: 0.99-1.00 in the grid, <= 0.57 elsewhere
@@ -65,10 +61,6 @@ namespace Bot.Core.Tasks.Modules
         private static readonly System.Drawing.Point BearPoint = new System.Drawing.Point(360, 480); // the bear, with the map centred on it
         internal static readonly Rectangle BearCardArea = new Rectangle(0, 250, 720, 1000);
         internal static readonly Rectangle HoldRallyArea = new Rectangle(100, 600, 520, 400);
-        private static readonly Rectangle AutoJoinButtonArea = new Rectangle(200, 1170, 320, 100);
-        private static readonly Rectangle AutoJoinTitleArea = new Rectangle(240, 110, 240, 80);
-        private static readonly Rectangle AutoJoinPopupButtonsArea = new Rectangle(40, 1020, 640, 140);
-        private static readonly System.Drawing.Point AutoJoinClosePoint = new System.Drawing.Point(667, 147);
         // Task List: UTC banner at the top of the map, the list below "UTC Time", the close X
         private static readonly System.Drawing.Point UtcBannerPoint = new System.Drawing.Point(245, 28);
         private static readonly Rectangle TaskListTitleArea = new Rectangle(0, 320, 260, 80);
@@ -166,7 +158,7 @@ namespace Bot.Core.Tasks.Modules
             string gear = await MoveGearAsync(character, settings, toBear: true, instance, logger, cancellationToken);
             await locator.EnsureViewAsync(ViewType.MapView, instance, cancellationToken);
             string autoJoin = await SwitchAutoJoinOffAsync(character, instance, logger, cancellationToken);
-            if (autoJoin.StartsWith("auto-join:", StringComparison.Ordinal) && autoJoin != "auto-join switched off")
+            if (autoJoin.StartsWith("auto-join:", StringComparison.Ordinal) && autoJoin != AutoJoinSwitchedOff)
             {
                 // llsa on 2026-11-14: the popup did not open, then no marches were recalled and the paw was missing; look again from a clean map
                 await SaveStepScreenshotAsync("autojoin-failed", instance, logger);
@@ -243,44 +235,6 @@ namespace Bot.Core.Tasks.Modules
             await ClickAsync(instance, logger, PetConfirmUsePoint);
             await Task.Delay(2500, cancellationToken);
             return "battle pet skills used";
-        }
-
-        /// <summary>Alliance > War > "Auto-joining..." > the popup's Stop (the cycle's Auto Join Rally switches it on again)</summary>
-        private async Task<string> SwitchAutoJoinOffAsync(string character, int instance, LogService logger, CancellationToken cancellationToken)
-        {
-            if (!await OpenWarAsync(character, instance, logger, cancellationToken)) return "auto-join: War screen did not open";
-            try
-            {
-                var on = await MatchAsync(AutoJoinOnTemplate, AutoJoinButtonArea, Threshold, instance, logger);
-                if (!on.found) return "auto-join already off";
-
-                await ClickCenterInRectAsync(instance, logger, on.rect);
-                await Task.Delay(2000, cancellationToken);
-                if (!(await MatchAsync(AutoJoinTitleTemplate, AutoJoinTitleArea, Threshold, instance, logger)).found)
-                    return "auto-join: popup did not open";
-
-                string result = await TapAutoJoinStopAsync(character, instance, logger, cancellationToken);
-                await ClickAsync(instance, logger, AutoJoinClosePoint);
-                await Task.Delay(1500, cancellationToken);
-                return result;
-            }
-            finally
-            {
-                await LeaveWarAsync(instance, logger, cancellationToken);
-            }
-        }
-
-        private async Task<string> TapAutoJoinStopAsync(string character, int instance, LogService logger, CancellationToken cancellationToken)
-        {
-            var stop = await MatchAsync(AutoJoinStopTemplate, AutoJoinPopupButtonsArea, Threshold, instance, logger);
-            if (!stop.found)
-            {
-                logger.LogWarning($"[{character}] Bear Hunt: Auto-Join's Stop button not found ({stop.confidence:F2})");
-                return "auto-join: Stop not found";
-            }
-            await ClickCenterInRectAsync(instance, logger, stop.rect);
-            await Task.Delay(1500, cancellationToken);
-            return "auto-join switched off";
         }
 
 

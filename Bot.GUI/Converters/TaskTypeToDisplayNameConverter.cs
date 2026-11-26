@@ -45,6 +45,7 @@ namespace Bot.GUI.Converters
             { TaskType.CollectBank, "Collect Bank" },
             { TaskType.VoyageOfLight, "Voyage of Light" },
             { TaskType.GovernorDuel, "Governor Duel" },
+            { TaskType.ChampionsWay, "Champion's Way" },
             { TaskType.AlchemyJunction, "Alchemy Junction" },
             { TaskType.PetAdventure, "Pet Adventure" },
             { TaskType.PetSkill, "Pet Skill" },

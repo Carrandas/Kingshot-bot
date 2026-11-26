@@ -48,7 +48,8 @@ namespace Bot.Core.Models
         VoyageOfLight,  // timed Deals event: Claim All + Dispatch All every 8h
         VikingVengeance, // not in the cycle: the Viking Vengeance mode runs it (reinforce online members)
         AlchemyJunction, // timed event: claim brews, play the Brew Workshop minigame
-        GovernorDuel     // timed event on the Events screen: the day's 10 challenges, then the milestone chest
+        GovernorDuel,    // timed event on the Events screen: the day's 10 challenges, then the milestone chest
+        ChampionsWay     // 3-day event: 10 own rallies on the Elite Rebel once per event, then the kill chests
     }
 
     public class AccountSettings : INotifyPropertyChanged
@@ -72,6 +73,7 @@ namespace Bot.Core.Models
             ConquestCollectSettings = new ConquestCollectSettings();
             ArenaSettings = new ArenaSettings();
             AllianceMobilizationSettings = new AllianceMobilizationSettings();
+            ChampionsWaySettings = new ChampionsWaySettings();
             CastleBattleSettings = new CastleBattleSettings();
             BearHuntSettings = new BearHuntSettings();
             VikingVengeanceSettings = new VikingVengeanceSettings();
@@ -83,6 +85,7 @@ namespace Bot.Core.Models
             ConquestCollectSettings.PropertyChanged += (sender, e) => OnPropertyChanged($"ConquestCollectSettings.{e.PropertyName}");
             ArenaSettings.PropertyChanged += (sender, e) => OnPropertyChanged($"ArenaSettings.{e.PropertyName}");
             AllianceMobilizationSettings.PropertyChanged += (sender, e) => OnPropertyChanged($"AllianceMobilizationSettings.{e.PropertyName}");
+            ChampionsWaySettings.PropertyChanged += (sender, e) => OnPropertyChanged($"ChampionsWaySettings.{e.PropertyName}");
         }
         
         private string _accountName = string.Empty;
@@ -193,6 +196,9 @@ namespace Bot.Core.Models
 
         [JsonPropertyName("allianceMobilizationSettings")]
         public AllianceMobilizationSettings AllianceMobilizationSettings { get; set; }
+
+        [JsonPropertyName("championsWaySettings")]
+        public ChampionsWaySettings ChampionsWaySettings { get; set; }
 
         [JsonPropertyName("castleBattleSettings")]
         public CastleBattleSettings CastleBattleSettings { get; set; }

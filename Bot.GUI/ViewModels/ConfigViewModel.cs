@@ -262,7 +262,7 @@ namespace Bot.GUI.ViewModels
 
         private static readonly string[] AutoSavedSettingsPrefixes =
         {
-            "TroopTrainingSettings.", "FarmingBoostSettings.", "ArenaSettings.", "AllianceMobilizationSettings."
+            "TroopTrainingSettings.", "FarmingBoostSettings.", "ArenaSettings.", "AllianceMobilizationSettings.", "ChampionsWaySettings."
         };
 
         private static bool IsAutoSavedAccountProperty(string? propertyName)

@@ -1011,6 +1011,30 @@
                                             </StackPanel>
                                         </Border>
 
+                                        <!-- Champion's Way Settings -->
+                                        <Border Style="{StaticResource CardStyle}"
+                                                Visibility="{Binding SelectedAccount.EnabledTasks,
+                                                            Converter={StaticResource TaskTypeToVisibilityConverter},
+                                                            ConverterParameter=ChampionsWay}">
+                                            <StackPanel>
+                                                <TextBlock Text="Champion's Way" FontWeight="SemiBold" Margin="0,0,0,10"/>
+                                                <Grid>
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="140"/>
+                                                        <ColumnDefinition Width="80"/>
+                                                        <ColumnDefinition Width="*"/>
+                                                    </Grid.ColumnDefinitions>
+                                                    <TextBlock Text="Rally flag:" Grid.Column="0" VerticalAlignment="Center"/>
+                                                    <TextBox Text="{Binding SelectedAccount.ChampionsWaySettings.RallyFlag, UpdateSourceTrigger=PropertyChanged}"
+                                                             Grid.Column="1"
+                                                             ToolTip="Team flag (1-12) for the rallies on the Elite Rebel. Default 8: a flag with a hero that lowers the stamina cost (20 instead of 25). 0 keeps the troops the game fills in."/>
+                                                </Grid>
+                                                <CheckBox Content="Use stamina items when stamina runs out" Margin="0,8,0,0"
+                                                          IsChecked="{Binding SelectedAccount.ChampionsWaySettings.UseStaminaItems}"
+                                                          ToolTip="Short of stamina, the free Comforting Embrace is claimed first, then Governor Stamina items (+10 each) are used. Gems are never spent."/>
+                                            </StackPanel>
+                                        </Border>
+
                                         <!-- Auto Build Settings -->
                                         <Border Style="{StaticResource CardStyle}"
                                                 Visibility="{Binding SelectedAccount.EnabledTasks, 

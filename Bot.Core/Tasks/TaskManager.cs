@@ -80,6 +80,7 @@ namespace Bot.Core.Tasks
             tasks[TaskType.CollectBank] = new CollectBankTask();
             tasks[TaskType.VoyageOfLight] = new VoyageOfLightTask();
             tasks[TaskType.GovernorDuel] = new GovernorDuelTask();
+            tasks[TaskType.ChampionsWay] = new ChampionsWayTask();
             tasks[TaskType.AlchemyJunction] = new AlchemyJunctionTask();
             tasks[TaskType.PetAdventure] = new PetAdventureTask();
             tasks[TaskType.CollectOnlineRewards] = new CollectOnlineRewardsTask();
@@ -394,7 +395,7 @@ namespace Bot.Core.Tasks
             {
                 // Add timeout for each task
                 using var taskCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                taskCts.CancelAfter(TimeSpan.FromMinutes(15)); // 15 minute timeout per task
+                taskCts.CancelAfter(RunTimeout(task)); // 15 minute timeout per task, longer for a few
 
                 var taskStartTime = DateTime.UtcNow;
                 TaskRunHistory.SetCurrent(account.InstanceNumber, taskType);
@@ -693,7 +694,7 @@ namespace Bot.Core.Tasks
 
             _userNotifications?.ShowStatus($"Running {taskType} for {account.AccountName}");
             using var taskCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            taskCts.CancelAfter(TimeSpan.FromMinutes(15));
+            taskCts.CancelAfter(RunTimeout(task));
             TaskRunHistory.SetCurrent(account.InstanceNumber, taskType);
             BaseTaskWithCommonPatterns.RunByHand.Value = true;  // flows into this run only
             var result = await task.ExecuteAsync(account, _logger, taskCts.Token, false, _userNotifications);
@@ -754,6 +755,10 @@ namespace Bot.Core.Tasks
             return null;
         }
 
+        /// <summary>How long a task may run before it is cancelled: 15 minutes, or the task's own limit</summary>
+        internal static TimeSpan RunTimeout(ITask task) =>
+            task is ILongRunningTask longTask ? longTask.RunTimeout : TimeSpan.FromMinutes(15);
+
         // Task execution order (lower runs first)
         private static readonly Dictionary<TaskType, int> TaskPriority = new Dictionary<TaskType, int>
         {
@@ -762,6 +767,7 @@ namespace Bot.Core.Tasks
             { TaskType.Journey, 0 },           // early: the Idle Journey only runs while the game stays on this character
             { TaskType.CollectOnlineRewards, 1 }, // before AutoHunt: the online rewards include stamina for the intel missions
             { TaskType.PetSkill, 1 },          // before AutoHunt: Comforting Embrace gives 50 stamina
+            { TaskType.ChampionsWay, 1 },      // before AutoHunt: each own rally on the Elite Rebel costs 25 stamina
             { TaskType.AutoHunt, 2 },          // AutoHunt should run after shield
             { TaskType.Farming, 3 },           // Farming should run after AutoHunt
             { TaskType.AutoAllianceHelp, 4 },

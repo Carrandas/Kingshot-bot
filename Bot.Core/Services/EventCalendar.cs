@@ -40,6 +40,7 @@ namespace Bot.Core.Services
             [TaskType.AlchemyJunction] = "Brew Workshop",
             [TaskType.AllianceMobilization] = "Alliance Mobilization",
             [TaskType.GovernorDuel] = "Governor Duel",
+            [TaskType.ChampionsWay] = "Champion's Way",
         };
 
         /// <summary>Fewer bars than this and the read is not trusted to say an event is missing (a full week shows ~20)</summary>

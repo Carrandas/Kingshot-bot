@@ -48,6 +48,10 @@ namespace Bot.Core.Tasks.Modules
         private const int OwnRowTop = 790, OwnRowBottom = 890;
         private static readonly int[] OwnCoinX = { 153, 473 };
         private const int OwnCardOffsetX = 47, OwnCardOffsetY = -90;   // card centre from the coin
+        // An own slot can carry a red "200%" / "120%" bonus badge (top-left, text tilted ~30 degrees). The popup's "+520"
+        // includes it: the completed card showed +260 (Asli 2026-11-26), so MinPoints is judged on points / bonus.
+        private const int BadgeOffsetX = -115, BadgeOffsetY = -195, BadgeSize = 90;
+        private const int MinBadgeRedPixels = 600;   // ~1,800 on a badge
 
         internal enum OwnMissionAction { Accept, Refresh, Leave }
 
@@ -136,6 +140,8 @@ namespace Bot.Core.Tasks.Modules
             AllianceMobilizationSettings settings, Point coin, int? attempts, CancellationToken cancellationToken)
         {
             string name = account.AccountName;
+            var page = await TakeScreenshotAsync(instance, logger);
+            int? bonus = page == null ? null : ReadOwnBonus(page, coin);
             await ClickAsync(instance, logger, new Point(coin.X + OwnCardOffsetX, coin.Y + OwnCardOffsetY));
             await Task.Delay(2000, cancellationToken);
             var shot = await TakeScreenshotAsync(instance, logger);
@@ -147,10 +153,10 @@ namespace Bot.Core.Tasks.Modules
                 return OwnMissionAction.Leave;
             }
 
-            var (description, points) = ReadMissionPopup(shot);
-            var action = DecideOwnMission(description, points, settings);
-            string worth = points is { } p ? $"+{p}" : "+?";
-            logger.LogInfo($"[{name}] Alliance Mobilization: own mission \"{description}\" {worth}: {action}");
+            var (description, shown) = ReadMissionPopup(shot);
+            // An unread badge leaves the mission alone: its points could be half of what the popup says
+            var action = bonus == null ? OwnMissionAction.Leave : DecideOwnMission(description, BasePoints(shown, bonus), settings);
+            logger.LogInfo($"[{name}] Alliance Mobilization: own mission \"{description}\" {DescribeWorth(shown, bonus)}: {action}");
             if (action == OwnMissionAction.Accept && attempts == 0)
             {
                 logger.LogInfo($"[{name}] Alliance Mobilization: no attempts left, mission not accepted");
@@ -312,6 +318,59 @@ namespace Bot.Core.Tasks.Modules
         {
             var area = new Rectangle(icon.X - IconOffsetX + 38, icon.Y - IconOffsetY - 4, 110, 44);
             return ParsePoints(MaskedTextOcr.Read(screenshot, area, new Scalar(0, 0, 0), new Scalar(180, 255, 130), "+0123456789,"));
+        }
+
+        private static string DescribeWorth(int? shown, int? bonus)
+        {
+            string worth = shown is { } s ? $"+{s}" : "+?";
+            if (bonus == null) return worth + " (bonus badge unreadable)";
+            return bonus > 100 ? $"{worth} ({BasePoints(shown, bonus)?.ToString() ?? "?"} without the {bonus}% bonus)" : worth;
+        }
+
+        /// <summary>The popup's points without the slot's bonus (520 at 200% = 260)</summary>
+        internal static int? BasePoints(int? shown, int? bonus) =>
+            shown is { } s && bonus is > 0 ? s * 100 / bonus.Value : shown;
+
+        /// <summary>
+        /// The bonus % of the own slot whose coin is at <paramref name="coin"/>: 100 without a badge, null when a badge is
+        /// there but its "200%" can't be read. The white text inside the red bubble is levelled (it is tilted) and OCR'd.
+        /// </summary>
+        internal static int? ReadOwnBonus(byte[] screenshot, Point coin)
+        {
+            using var image = Cv2.ImDecode(screenshot, ImreadModes.Color);
+            var roi = new Rect(coin.X + BadgeOffsetX, coin.Y + BadgeOffsetY, BadgeSize, BadgeSize).Intersect(new Rect(0, 0, image.Width, image.Height));
+            using var region = new Mat(image, roi);
+            using var hsv = region.CvtColor(ColorConversionCodes.BGR2HSV);
+            using var red = hsv.InRange(new Scalar(0, 120, 150), new Scalar(10, 255, 255));
+            using var red2 = hsv.InRange(new Scalar(170, 120, 150), new Scalar(180, 255, 255));
+            Cv2.BitwiseOr(red, red2, red);
+            if (Cv2.CountNonZero(red) < MinBadgeRedPixels) return 100;
+
+            // Only white inside the bubble (the hull of its red pieces, which the text splits; shrunk a little): the white
+            // outline around it is left out
+            Cv2.FindContours(red, out var contours, out _, RetrievalModes.External, ContourApproximationModes.ApproxSimple);
+            var bubble = contours.Where(c => Cv2.ContourArea(c) >= 50).SelectMany(c => c).ToArray();
+            using var hull = new Mat(red.Size(), MatType.CV_8UC1, Scalar.Black);
+            Cv2.FillConvexPoly(hull, Cv2.ConvexHull(bubble), Scalar.White);
+            using (var kernel = Cv2.GetStructuringElement(MorphShapes.Rect, new Size(5, 5))) Cv2.Erode(hull, hull, kernel);
+            using var white = hsv.InRange(new Scalar(0, 0, 200), new Scalar(180, 70, 255));
+            Cv2.BitwiseAnd(white, hull, white);
+
+            using var padded = new Mat();
+            Cv2.CopyMakeBorder(white, padded, 30, 30, 30, 30, BorderTypes.Constant, Scalar.Black);
+            using var turn = Cv2.GetRotationMatrix2D(new Point2f(padded.Width / 2f, padded.Height / 2f), -BadgeTiltDegrees, 1);
+            using var level = new Mat();
+            Cv2.WarpAffine(padded, level, turn, padded.Size());
+            string text = MaskedTextOcr.Recognize(MaskedTextOcr.Engine(2, PageSegMode.SingleLine, "0123456789%"), level);
+            return ParseBonus(text);
+        }
+
+        private const double BadgeTiltDegrees = 30;
+
+        internal static int? ParseBonus(string text)
+        {
+            var m = Regex.Match(text ?? "", @"(\d{3})", RegexOptions.None, RegexTimeouts.Default);
+            return m.Success && int.TryParse(m.Groups[1].Value, out int n) && n is >= 100 and <= 500 ? n : null;
         }
 
         internal static int? ParsePoints(string text)

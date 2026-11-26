@@ -57,6 +57,7 @@ namespace Bot.Core.Tasks.Modules
             [TaskType.CollectBank] = "Collect Bank",
             [TaskType.VoyageOfLight] = "Voyage of Light",
             [TaskType.GovernorDuel] = "Governor Duel",
+            [TaskType.ChampionsWay] = "Champion's Way",
             [TaskType.AlchemyJunction] = "Alchemy Junction",
             [TaskType.CollectOnlineRewards] = "Collect Online Rewards",
             [TaskType.PetAdventure] = "Pet Adventure",

@@ -19,7 +19,7 @@ using Timer = System.Threading.Timer;
 
 namespace Bot.Core.Tasks
 {
-    public abstract class BaseTaskWithCommonPatterns : ITask
+    public abstract partial class BaseTaskWithCommonPatterns : ITask
     {
         public abstract TaskType TaskType { get; }
         public abstract string Name { get; }

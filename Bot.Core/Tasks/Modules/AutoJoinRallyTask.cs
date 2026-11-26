@@ -43,26 +43,7 @@ namespace Bot.Core.Tasks.Modules
         {
             try
             {
-                var locator = new LocatorService(logger, account, TaskType);
-                int instance = account.InstanceNumber;
-                await locator.EnsureViewAsync(ViewType.BaseView, instance, cancellationToken);
-
-                if (!await OpenWarAsync(account, logger, instance, cancellationToken))
-                {
-                    await locator.EnsureViewAsync(ViewType.BaseView, instance, cancellationToken);
-                    return TaskExecutionDetails.Failed("Alliance war screen did not open");
-                }
-
-                string? result = await SwitchOnAsync(account, logger, instance, cancellationToken);
-
-                // War screen > Alliance screen > base
-                for (int i = 0; i < 2; i++)
-                {
-                    await ClickAsync(instance, logger, BackArrowPoint);
-                    await Task.Delay(1500, cancellationToken);
-                }
-                await locator.EnsureViewAsync(ViewType.BaseView, instance, cancellationToken);
-
+                string? result = await SwitchOnFromBaseAsync(account, logger, cancellationToken);
                 if (result == null) return TaskExecutionDetails.Failed("Auto-join could not be switched on");
                 logger.LogInfo($"[{account.AccountName}] Auto Join Rally done: {result}");
                 return TaskExecutionDetails.Succeeded(result);
@@ -76,6 +57,35 @@ namespace Bot.Core.Tasks.Modules
                 logger.LogError($"[{account.AccountName}] Error in Auto Join Rally: {ex.Message}");
                 return TaskExecutionDetails.Failed(ex.Message);
             }
+        }
+
+        /// <summary>
+        /// From the city: Alliance > War > Auto-Join > Enable (or Restart), and back to the city. Null when it could not be
+        /// switched on. Also used by tasks that stop auto-join for their own rallies (Champion's Way).
+        /// </summary>
+        internal async Task<string?> SwitchOnFromBaseAsync(AccountSettings account, LogService logger, CancellationToken cancellationToken)
+        {
+            var locator = new LocatorService(logger, account, TaskType);
+            int instance = account.InstanceNumber;
+            await locator.EnsureViewAsync(ViewType.BaseView, instance, cancellationToken);
+
+            if (!await OpenWarAsync(account, logger, instance, cancellationToken))
+            {
+                logger.LogWarning($"[{account.AccountName}] Auto Join Rally: Alliance war screen did not open");
+                await locator.EnsureViewAsync(ViewType.BaseView, instance, cancellationToken);
+                return null;
+            }
+
+            string? result = await SwitchOnAsync(account, logger, instance, cancellationToken);
+
+            // War screen > Alliance screen > base
+            for (int i = 0; i < 2; i++)
+            {
+                await ClickAsync(instance, logger, BackArrowPoint);
+                await Task.Delay(1500, cancellationToken);
+            }
+            await locator.EnsureViewAsync(ViewType.BaseView, instance, cancellationToken);
+            return result;
         }
 
         /// <summary>

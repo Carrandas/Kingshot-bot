@@ -23,8 +23,6 @@ namespace Bot.Core.Tasks.Modules
         public override TaskType TaskType => TaskType.GovernorDuel;
         public override string Name => "Governor Duel";
 
-        // The city's Events icon, shared with Alliance Mobilization (animated, often with a red dot)
-        private static readonly string EventsIconTemplate = Path.Combine("alliancemobilization", AllianceMobilizationTask.EventsButtonTemplate);
         internal const string TabTemplate = "tab.png";                  // "Governor Duel" label of the unselected tab
         internal const string TitleTemplate = "title.png";              // "Governor Duel" title on the page
         internal const string ChallengeTemplate = "challenge.png";      // "Challenge" on the button (count under it)
@@ -33,7 +31,6 @@ namespace Bot.Core.Tasks.Modules
         internal const string CompletedTemplate = "completed.png";      // "Today's Challenges" where the button was
         internal const string RewardsTemplate = "rewards.png";          // "Rewards" banner of a claimed chest
 
-        internal static readonly Rectangle TabStripArea = new(0, 90, 720, 110);
         internal static readonly Rectangle TitleArea = new(0, 190, 400, 90);
         internal static readonly Rectangle ButtonArea = new(180, 1130, 360, 120);
         internal static readonly Rectangle TapToCloseArea = new(120, 1140, 480, 100);
@@ -45,7 +42,6 @@ namespace Bot.Core.Tasks.Modules
 
         // Every template: 1.00 on its own screen, <= 0.55 on the other Governor Duel / Events / city screens
         internal const double Threshold = 0.80;
-        private const int MaxStripPages = 4;
         private const int MaxSteps = 40;          // 10 challenges x (find, challenge, result) with room for slow screens
         private const int MaxUnknownSteps = 6;
 
@@ -88,7 +84,7 @@ namespace Bot.Core.Tasks.Modules
 
         private async Task<string> RunOnEventsAsync(string accountKey, int instance, LogService logger, CancellationToken ct)
         {
-            if (!await OpenEventsAsync(instance, logger, ct)) return "Events screen did not open, trying again next cycle";
+            if (!await OpenEventsScreenAsync(instance, logger, ct)) return "Events screen did not open, trying again next cycle";
             if (!await OpenDuelTabAsync(instance, logger, ct))
             {
                 DailyGate.MarkDone(TaskType, accountKey);
@@ -102,49 +98,11 @@ namespace Bot.Core.Tasks.Modules
             return $"{challenges} challenge(s), today's challenges completed{(claimed ? ", milestone rewards claimed" : "")}";
         }
 
-        private async Task<bool> OpenEventsAsync(int instance, LogService logger, CancellationToken ct)
-        {
-            var icon = (found: false, rect: Rectangle.Empty, confidence: 0.0);
-            for (int attempt = 0; attempt < 3 && !icon.found; attempt++)
-            {
-                if (attempt > 0) await Task.Delay(1000, ct);
-                icon = await MatchAsync(EventsIconTemplate, AllianceMobilizationTask.EventsButtonArea, AllianceMobilizationTask.EventsThreshold, instance, logger);
-            }
-            if (!icon.found)
-            {
-                logger.LogWarning($"Governor Duel: no Events icon in the city (best {icon.confidence:F2})");
-                return false;
-            }
-            await ClickCenterInRectAsync(instance, logger, icon.rect);
-            await Task.Delay(2500, ct);
-            return true;
-        }
-
         private async Task<bool> IsOnDuelTabAsync(int instance, LogService logger) =>
             (await MatchAsync(TitleTemplate, TitleArea, Threshold, instance, logger)).found;
 
-        /// <summary>The Events screen opens on its last tab; otherwise the strip is paged from its start (slow drags) for the label</summary>
-        private async Task<bool> OpenDuelTabAsync(int instance, LogService logger, CancellationToken ct)
-        {
-            if (await IsOnDuelTabAsync(instance, logger)) return true;
-            for (int i = 0; i < 3; i++)
-            {
-                await SwipeAsync(instance, logger, new Point(150, 150), new Point(620, 150), 400);
-                await Task.Delay(500, ct);
-            }
-            for (int page = 0; page < MaxStripPages; page++)
-            {
-                var tab = await MatchAsync(TabTemplate, TabStripArea, Threshold, instance, logger);
-                if (tab.found)
-                {
-                    await ClickCenterInRectAsync(instance, logger, tab.rect);
-                    return await WaitForAsync(() => IsOnDuelTabAsync(instance, logger), TimeSpan.FromSeconds(4), TimeSpan.FromMilliseconds(500), ct);
-                }
-                await SwipeAsync(instance, logger, new Point(620, 150), new Point(360, 150), 1500);
-                await Task.Delay(800, ct);
-            }
-            return false;
-        }
+        private Task<bool> OpenDuelTabAsync(int instance, LogService logger, CancellationToken ct) =>
+            OpenEventsTabAsync(TabTemplate, Threshold, () => IsOnDuelTabAsync(instance, logger), instance, logger, ct);
 
         /// <summary>Challenge, close the result, Find Opponent, again, until the button says the day's challenges are completed</summary>
         private async Task<(int Challenges, bool Done)> ChallengeUntilDoneAsync(int instance, LogService logger, CancellationToken ct)
@@ -211,7 +169,7 @@ namespace Bot.Core.Tasks.Modules
         internal string Classify(byte[] shot, int instance, LogService logger) => ReadScreen(shot, instance, logger).Screen.ToString();
 
         internal bool HasTab(byte[] shot, int instance, LogService logger) =>
-            MatchScreenshot(shot, TabTemplate, TabStripArea, Threshold, instance, logger).found;
+            MatchScreenshot(shot, TabTemplate, EventsTabStripArea, Threshold, instance, logger).found;
 
         internal bool IsDuelTab(byte[] shot, int instance, LogService logger) =>
             MatchScreenshot(shot, TitleTemplate, TitleArea, Threshold, instance, logger).found;

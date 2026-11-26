@@ -167,6 +167,58 @@ namespace Bot.Core.Tasks.Modules
 
         #endregion
 
+        #region Auto-join
+
+        private static readonly string AutoJoinOnTemplate = Path.Combine("autojoinrally", "autojoin-on.png");     // "Auto-joining..." button
+        private static readonly string AutoJoinTitleTemplate = Path.Combine("autojoinrally", "autojoin-title.png");
+        private static readonly string AutoJoinStopTemplate = Path.Combine("bearhunt", "autojoin-stop.png");      // the popup's orange Stop: 1.00, <= 0.38 elsewhere
+        private static readonly Rectangle AutoJoinButtonArea = new Rectangle(200, 1170, 320, 100);
+        private static readonly Rectangle AutoJoinTitleArea = new Rectangle(240, 110, 240, 80);
+        private static readonly Rectangle AutoJoinPopupButtonsArea = new Rectangle(40, 1020, 640, 140);
+        private static readonly System.Drawing.Point AutoJoinClosePoint = new System.Drawing.Point(667, 147);
+        /// <summary>What <see cref="SwitchAutoJoinOffAsync"/> returns when auto-join was on and is now off</summary>
+        protected const string AutoJoinSwitchedOff = "auto-join switched off";
+
+        /// <summary>Alliance > War > "Auto-joining..." > the popup's Stop (the cycle's Auto Join Rally switches it on again)</summary>
+        protected async Task<string> SwitchAutoJoinOffAsync(string character, int instance, LogService logger, CancellationToken cancellationToken)
+        {
+            if (!await OpenWarAsync(character, instance, logger, cancellationToken)) return "auto-join: War screen did not open";
+            try
+            {
+                var on = await MatchAsync(AutoJoinOnTemplate, AutoJoinButtonArea, Threshold, instance, logger);
+                if (!on.found) return "auto-join already off";
+
+                await ClickCenterInRectAsync(instance, logger, on.rect);
+                await Task.Delay(2000, cancellationToken);
+                if (!(await MatchAsync(AutoJoinTitleTemplate, AutoJoinTitleArea, Threshold, instance, logger)).found)
+                    return "auto-join: popup did not open";
+
+                string result = await TapAutoJoinStopAsync(character, instance, logger, cancellationToken);
+                await ClickAsync(instance, logger, AutoJoinClosePoint);
+                await Task.Delay(1500, cancellationToken);
+                return result;
+            }
+            finally
+            {
+                await LeaveWarAsync(instance, logger, cancellationToken);
+            }
+        }
+
+        private async Task<string> TapAutoJoinStopAsync(string character, int instance, LogService logger, CancellationToken cancellationToken)
+        {
+            var stop = await MatchAsync(AutoJoinStopTemplate, AutoJoinPopupButtonsArea, Threshold, instance, logger);
+            if (!stop.found)
+            {
+                logger.LogWarning($"[{character}] {Name}: Auto-Join's Stop button not found ({stop.confidence:F2})");
+                return "auto-join: Stop not found";
+            }
+            await ClickCenterInRectAsync(instance, logger, stop.rect);
+            await Task.Delay(1500, cancellationToken);
+            return AutoJoinSwitchedOff;
+        }
+
+        #endregion
+
         #region Join buttons
 
         /// <summary>A green join "+" and whether its row is a blue "Def. Lineup" (else a red attack "Rally")</summary>
