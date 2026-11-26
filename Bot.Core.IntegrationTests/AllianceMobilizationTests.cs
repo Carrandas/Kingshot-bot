@@ -143,7 +143,8 @@ namespace Bot.Core.IntegrationTests
 
         [TestCase("mobilization-exclusive-troops.png", "training", 860, "Accept")]
         [TestCase("mobilization-exclusive-truegold.png", "Truegold", 350, "Refresh")]
-        [TestCase("mobilization-open-terror.png", "Terror", 200, "Refresh")]   // Terror but under 300
+        [TestCase("mobilization-open-terror.png", "Terror", 200, "Refresh")]
+        [TestCase("mobilization-exclusive-troops-260-synthetic.png", "training", 260, "Refresh")]   // "+2" pasted from the Terror popup: was read as 1260 (llsa 2026-11-26)   // Terror but under 300
         public void ExclusivePopup_DescriptionAndPointsDecide(string screenshot, string word, int points, string action)
         {
             var (description, read) = AllianceMobilizationTask.ReadMissionPopup(Fixtures.Load(screenshot));

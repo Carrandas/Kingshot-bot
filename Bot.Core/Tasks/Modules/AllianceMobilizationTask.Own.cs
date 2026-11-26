@@ -299,15 +299,14 @@ namespace Bot.Core.Tasks.Modules
             return m.Success && int.TryParse(m.Groups[1].Value, out int n) ? n : null;
         }
 
-        /// <summary>The Exclusive Mission popup's description and points (dark text on beige)</summary>
+        /// <summary>The Exclusive Mission popup's description and points (dark text on beige; the points without the "+")</summary>
         internal static (string Description, int? Points) ReadMissionPopup(byte[] screenshot)
         {
             using var image = Cv2.ImDecode(screenshot, ImreadModes.Color);
             var dark = (Low: new Scalar(0, 0, 0), High: new Scalar(180, 255, 130));
             string description = MaskedTextOcr.Read(image, DescriptionArea, dark.Low, dark.High, null, PageSegMode.SingleBlock);
             description = Regex.Replace(description, @"\s+", " ", RegexOptions.None, RegexTimeouts.Default).Trim();
-            string points = MaskedTextOcr.Read(image, PopupPointsArea, dark.Low, dark.High, "+0123456789,");
-            return (description, ParsePoints(points));
+            return (description, ReadPlusPoints(image, PopupPointsArea));
         }
 
         /// <summary>
@@ -317,7 +316,25 @@ namespace Bot.Core.Tasks.Modules
         internal static int? ReadCardPoints(byte[] screenshot, Rectangle icon)
         {
             var area = new Rectangle(icon.X - IconOffsetX + 38, icon.Y - IconOffsetY - 4, 110, 44);
-            return ParsePoints(MaskedTextOcr.Read(screenshot, area, new Scalar(0, 0, 0), new Scalar(180, 255, 130), "+0123456789,"));
+            using var image = Cv2.ImDecode(screenshot, ImreadModes.Color);
+            return ReadPlusPoints(image, area);
+        }
+
+        /// <summary>
+        /// "+260" (dark text on beige; the points without the "+"): the "+" is blanked out before the OCR, which read "+260" as 1260 (llsa's troop
+        /// mission accepted 2026-11-26). The "+" is the leftmost shape, shorter than the digits.
+        /// </summary>
+        internal static int? ReadPlusPoints(Mat image, Rectangle area)
+        {
+            var roi = new Rect(area.X, area.Y, area.Width, area.Height).Intersect(new Rect(0, 0, image.Width, image.Height));
+            using var region = new Mat(image, roi);
+            using var hsv = region.CvtColor(ColorConversionCodes.BGR2HSV);
+            using var mask = hsv.InRange(new Scalar(0, 0, 0), new Scalar(180, 255, 130));
+            Cv2.FindContours(mask, out var contours, out _, RetrievalModes.External, ContourApproximationModes.ApproxSimple);
+            var shapes = contours.Select(c => Cv2.BoundingRect(c)).Where(b => b.Height >= 5).OrderBy(b => b.X).ToList();
+            if (shapes.Count >= 2 && shapes[0].Height < shapes.Max(b => b.Height) * 0.85)
+                Cv2.Rectangle(mask, shapes[0], Scalar.Black, -1);
+            return ParsePoints(MaskedTextOcr.Recognize(MaskedTextOcr.Engine(2, PageSegMode.SingleLine, "0123456789,"), mask));
         }
 
         private static string DescribeWorth(int? shown, int? bonus)

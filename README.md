@@ -28,6 +28,8 @@ KingshotAuto drives the game through a set of pluggable automation **tasks**. Ea
 **Daily rewards**
 - **Collect Online Rewards** — the Online Rewards chest and Gourmet Feast; runs before Intel Missions because it gives the stamina the Intel missions use
 - **Collect Store Rewards** — free chests in the store and the Weekly/Monthly Cards claims, once a day
+- **Collect Bank** — collect the bank vault deposit when its 24 hour term is up (off until ticked)
+- **Arena** — the daily Arena challenges, optionally only after a set UTC time; skips opponents from your own alliance
 - **Nomadic Merchant** — buy every item priced in resources and use the free refresh; never buys with gems
 - **Pet Adventure** — claim finished chests, send pets out with Hunt All, share and claim Ally Treasure
 - **Pet Skill** — use the gathering pet skills when ready: Comforting Embrace (+50 stamina, before Auto Hunt), Scent Mastery (pet food), Gift of the King
@@ -43,13 +45,24 @@ KingshotAuto drives the game through a set of pluggable automation **tasks**. Ea
 - **Alliance Technology** — contribute to the recommended alliance technology
 - **Alliance Triumph** — claim last week's alliance reward and the daily Personal Activity Triumph chest
 - **Alliance Chests** — Claim All on the Loot Chest and Alliance Gift tabs, and open the key chest
-- **Alliance Mobilization** — refresh the open Alliance Mobilization missions the alliance doesn't want (anything but bear, lion, gems, gift, train troops and gather); needs R4 or higher, runs at most every 25 minutes
+- **Alliance Mobilization** — claim the free daily attempt and finished missions, accept your own Terror / troop training missions worth at least the minimum points (judged without the slot's bonus %, so a "+520" on a 200% slot counts as 260) and refresh the rest; with R4 or higher also refresh the open missions the alliance doesn't want
+
+**Occasional events** (the **Scheduled events** tab: each runs only while its event is on the in-game calendar, which **Read events** reads every day)
+- **Champion's Way** — rally the Elite Rebel 10 times with your chosen flag (default 8), claim the kill chests; tops up stamina with the free pet skill, then stamina items (setting); pauses rally auto-join meanwhile; once per event
+- **Voyage of Light** — Claim All / Dispatch All on the voyages, the free daily Exploration Gift, merge and enable treasure chests
+- **Alchemy Junction** — the daily missions and free rewards, and the Brew Workshop colour-guessing minigame
+- **Governor Duel** — the 10 daily challenges and the win milestone chests
+
+**Big events** (their own modes, started on time from the in-game Task List; each has a tab on the Bot screen)
+- **Bear Hunt** (beta) — 10 minutes before your trap's bear: recall gatherers, stop auto-join, use the battle pet skills, optionally swap hero gear, then own rallies and joins with set flags across your characters
+- **Castle Battle** (beta) — recall marches and teleport near the castle (the teleport is still by hand), then join rallies with an offensive or defensive flag and keep healing
+- **Viking Vengeance** (beta) — before the vikings: recall marches and reinforce online alliance members with spare troops from every character
 
 **System**
 - **Account Detection / Change Account** — identify the account and run the task list on every enabled character of a game login
 - **Startup / Recovery** — bring the game to a known state and recover from unexpected UI
 
-The game resets at **00:00 UTC**. Tasks that only need one run a day (Collect Store Rewards, Collect VIP, Claim Mail, Nomadic Merchant, Truegold Crucible, Suggestion Box, Mystic Trial, Alliance Triumph) skip themselves for the rest of the UTC day once they are done, so repeated cycles don't waste time on them. Other tasks have their own timers (Alliance Mobilization 25 min, Claim Mail 3-6 h, Conquest Collect 4 h, Alliance Technology 10 h).
+The game resets at **00:00 UTC**. Tasks that only need one run a day (Collect Store Rewards, Collect VIP, Claim Mail, Nomadic Merchant, Truegold Crucible, Suggestion Box, Mystic Trial, Alliance Triumph) skip themselves for the rest of the UTC day once they are done, so repeated cycles don't waste time on them. Other tasks have their own timers (Alliance Mobilization 25 min, Claim Mail 3-6 h, Conquest Collect 4 h, Alliance Technology 10 h, Collect Bank 24 h).
 
 ## The Bot tab
 
@@ -63,7 +76,7 @@ The main screen is a task dashboard:
 
 **Settings > Tasks** chooses which tasks appear in the list. A task unticked there is hidden on the Bot tab and never runs.
 
-For unattended starts, `KingshotAuto.exe --schedule` presses **Run on schedule** at startup and `KingshotAuto.exe --once` presses **Run once**. `KingshotAuto.exe --task MysticTrial --character llsa` presses **▶** for one task on one character.
+For unattended starts, `KingshotAuto.exe --schedule` presses **Run on schedule** at startup (continuing the countdown to the next cycle), `--new-cycle` starts a cycle at once and `--once` presses **Run once**. `KingshotAuto.exe --task MysticTrial --character llsa` presses **▶** for one task on one character. `--castle-battle`, `--bear-hunt` and `--viking` start those modes by hand.
 
 Additional capabilities:
 
@@ -74,7 +87,17 @@ Additional capabilities:
 
 ## Screenshots
 
-> _Screenshots coming soon — contributions welcome! (PRs adding screenshots of the UI and a running cycle are appreciated.)_
+The Bot tab during a cycle: characters on the left, the daily tasks with their last and next run on the right.
+
+![Bot tab](docs/screenshots/bot-tab.png)
+
+The Scheduled events tab: what the in-game event calendar says, and the event tasks that run while their event is on.
+
+![Scheduled events](docs/screenshots/scheduled-events.png)
+
+The Bear Hunt tab: trap, rally and join flags, and the optional hero gear swap per character.
+
+![Bear Hunt](docs/screenshots/bear-hunt.png)
 
 ## Prerequisites
 
